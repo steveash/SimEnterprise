@@ -1,0 +1,12 @@
+.runtime/
+.claude/
+.opencode/
+.logs/
+__pycache__/
+state.json
+CLAUDE.md
+CLAUDE.local.md
+GEMINI.md
+
+# Gas Town local beads redirect (environment-specific)
+.beads/
