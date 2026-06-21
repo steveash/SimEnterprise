@@ -565,3 +565,134 @@ business domain" → a working, validated playbook with the core untouched. Cont
 
 This is what makes the system **self-extending**: new domains arrive as authored-and-tested
 plugins.
+
+---
+
+## 15. Event simulator: scheduler & actor/relationship resolver
+
+Layer B's engine. Two intertwined jobs — **drive time + fire triggers** (the scheduler) and
+**bind participants** (the resolver) — and it is the most direct determinant of corpus
+realism. It is what conformance invariants I1–I4 (§13) assert against.
+
+### 15.1 Deterministic discrete-event simulation
+
+The engine is **event-driven**, not fixed-tick: a min-heap priority queue of future
+`ScheduledActivation` / `ScheduledStep` items keyed by timestamp. Pop the earliest, execute
+it (which may emit events and enqueue more), advance the clock to it. This maps the trigger
+taxonomy cleanly:
+
+- **`OnCadence`** seeds recurring firings; each firing enqueues its successor.
+- **`Probabilistic`** is **pre-sampled** over the window from the seeded RNG (inter-arrival
+  times → enqueued), keeping it deterministic.
+- **`OnEvent`** is reactive: a step's emitted event is matched against `OnEvent`
+  subscriptions and enqueues activations — this is also how **gates** and **cascades** run.
+- **`OnCondition`** subscribes to the **KG effects that can change its predicate**; when an
+  event's `effects` mutate a referenced attribute, only that condition re-evaluates. A coarse
+  daily safety-tick catches purely time-based predicates. (Conditions thus reuse the reactive
+  machinery rather than polling.)
+
+**Determinism principle (D26): scheduling is deterministic-sequential; only rendering
+parallelizes.** The scheduler emits a fully-ordered event log first — ties broken by a stable
+key `(timestamp, process_priority, instance_id, step_id)`, never insertion race; every
+placement draws from a **split RNG sub-stream** seeded by `(root, scenario, process,
+instance, step)`. Layer C then parallelizes over that frozen log, so concurrency never
+changes *what* happens, only how fast it renders. This is what makes invariant I6 hold.
+
+### 15.2 Working-time model & step placement (D27)
+
+- A `WorkingCalendar` answers `is_working(t)`, `advance(t, n_business)`, `next_free_slot(...)`.
+  v1 is **business-hour granularity** on weekday 9–17 local windows; tz-aware per-person +
+  holidays later.
+- Step `duration` is measured in **working time**. A spanning step (e.g. a 3–5 business-day
+  review window with `Spread(per_actor="1..3")`) distributes each reviewer's comments across
+  their working hours in the window — seeded, realistically clustered (bursts; some early,
+  some late), avoiding busy slots. Threading is emitted as ordered `CommentPosted` events with
+  `in_reply_to` parent links; the scheduler owns *timing/structure*, the producer owns *text*.
+- **Greedy soft-constraint placement**: a per-person **busy map** is filled as meetings and
+  authoring land; new activities prefer free slots and overlap only if forced — logging a
+  validation issue when they must. Believable, mostly-non-overlapping calendars without a
+  solver. **Per-person calendars derive from the busy map.**
+
+### 15.3 Actor/relationship resolver (D28)
+
+Binds a `Selector` to real people via: **candidate query** (KG filter by team / expertise /
+seniority / role) → **exclude** → **rank** → **sample `count`** (range → seeded draw) →
+**availability bias** (prefer free-near-the-needed-time).
+
+Collaboration realism is **affinity + capacity**:
+- Layer A seeds **latent affinities** (who tends to work with whom, from team + expertise +
+  proximity).
+- `rank_by` combines **affinity** (preferential — go-to experts surface), **inverse current
+  load** (capacity cap — nobody is on every review), and **expertise match**.
+- Picking someone **reinforces the affinity** (preferential attachment), so frequent-
+  collaborator clusters self-organize over the run, with capacity caps preventing overload.
+  The preferential-vs-load balance is a tunable knob.
+- The resolver **writes relationship edges** (`reviews_for`, `collaborates_with`, …) as it
+  binds — directly populating the relationship layer of the KG.
+
+### 15.4 Output
+
+A fully-ordered, deterministic **event log** + the KG mutations it implies
+(`Artifact`/`Meeting`/`Comment`/`Decision` nodes, edges, per-person `CalendarEvent`s). This
+frozen log is exactly what Layer C renders and Layer D exports.
+
+---
+
+## 16. LLM orchestration & prompt assembly
+
+Serves both Layer A (world-building) and Layer C (producers): turn a timestamped `WorldView`
+projection into **grounded, cheap, reproducible** content over the §7 provider backends.
+
+### 16.1 Layered, cache-aware prompt assembly (D29)
+
+Each call is assembled stable→volatile so prompt caching pays off:
+
+```
+[ system prompt           ]  per artifact-kind; cache across the run
+[ company profile          ]  cache across all artifacts
+[ scenario/project context ]  cache across a scenario's artifacts   (≤4 cache breakpoints)
+──────────────────────────── cache_control breakpoint
+[ task brief + roster      ]  unique: event payload, deliverable kind, participants,
+                              timestamp, candidate reference set
+```
+
+The stable blocks carry `cache_control`. **Layer C must order the render phase clustered by
+shared prefix** (by scenario/project) so the cache stays warm within its TTL — a concrete
+constraint on the parallel render scheduling. The `claude_cli` backend can't set breakpoints,
+so caching benefits api/bedrock (the default for big runs, D13). **Prompt templates are owned
+by each generator/producer plugin**; context-assembly + system prompts are shared infra.
+
+### 16.2 Grounding (D30)
+
+Three layers keep prose consistent with the KG:
+1. **Constrained input** — the `WorldView` contains only real, in-window entities, and the
+   prompt includes an explicit **roster** ("refer only to these people, by these names").
+2. **Templated references** — author lines, attendee lists, "reviewed by X" are filled from
+   **bound roles**, not generated; only prose is LLM-written.
+3. **Detect + one repair pass** — the mention tagger (§11.3) scans output; an unresolved
+   name-like token triggers a single repair re-prompt; if still bad, log a validation issue
+   and keep the artifact (D17).
+
+### 16.3 Generation modes & reference capture (D32)
+
+- **`generate_structured(schema)`** — tool-use / JSON-schema forced output for world-building
+  (person attributes, milestones) and artifact metadata/outlines. Low temperature.
+- **`generate_content()`** — prose bodies, returning `{ content, references_used: [artifact_id] }`.
+  The task brief supplies a candidate **reference set** (recent relevant artifacts/decisions
+  from the `WorldView`); the model weaves in citations and **reports which it used**; we verify
+  against the supplied set and create `references` edges (D16). Slightly higher temperature.
+
+### 16.4 Provider mechanics & cost
+
+One `LLMClient` over api / bedrock / cli with cross-cutting concerns:
+- **Retry** w/ backoff (respect `Retry-After`); **bounded-concurrency** semaphore (the Layer C
+  parallelism); per-backend rate limits.
+- **Cost accounting** — per-call input/cached/output tokens → per-run aggregate → $ via a
+  pricing table; enforce the **ceiling** and emit a **dry-run estimate** (task count × est
+  tokens) before big runs (D13).
+- **On-disk response cache** keyed by `(prompt_hash, model)` (D31) — cheap reproducible
+  re-runs; only changed artifacts regenerate.
+- **`fake`/echo backend** (D31) — deterministic templated placeholder content so the §13 test
+  kit runs with **no real LLM calls** (free, fast, deterministic).
+- **Determinism caveat** — we never rely on LLM determinism; the *structure* (which calls, what
+  context, what order) is deterministic, content varies. Prompt + response caches aid repeatability.
