@@ -81,6 +81,7 @@ These are settled unless we revisit them. Rationale and detail in `ARCHITECTURE.
 | D30 | **Grounding = constrained roster + templated references + mention-based detection + one repair pass, then log.** | Prose can only reference real, in-window entities; a stray hallucinated reference is repaired once, else recorded (D17). |
 | D31 | **On-disk response cache keyed by `(prompt_hash, model)`** for cheap reproducible re-runs; plus a deterministic **`fake`/echo backend** the test kit uses (no real LLM calls). | Re-render only what changed; conformance tests run free/fast/deterministic. |
 | D32 | **Cross-doc `references` edges captured via structured `references_used`** the model reports and we verify. Two generation modes: `generate_structured(schema)` and `generate_content()`. Cost accounting + dry-run estimate + ceiling. | Precise reference provenance; validated structured world-building. |
+| D33 | **Toolchain: uv + ruff + mypy (strict) + pytest + pydantic v2, Python 3.12.** | uv for deps/venv, ruff lint+format, mypy strict (backs the static linter), pytest (test kit), pydantic v2 (schemas/serialization). |
 
 ---
 
