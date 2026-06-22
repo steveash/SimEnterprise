@@ -31,11 +31,8 @@ from enterprise_sim.core.config import RunConfig
 from enterprise_sim.core.llm import LLMClient, LLMConfig, build_client
 from enterprise_sim.core.sim.scheduler import ValidationIssue
 from enterprise_sim.core.world import World
-from enterprise_sim.producers.artifact import (
-    issue_records,
-    mention_records,
-    provenance_records,
-)
+from enterprise_sim.exporters import EXPORTERS, KgBundle, write_jsonl
+from enterprise_sim.producers.artifact import issue_records
 from enterprise_sim.world_builders import build_world, write_organization
 
 # Subdirectories every run lays down. ``organization/`` holds the Layer-A
@@ -50,6 +47,10 @@ _KG_EDGES = "edges.jsonl"
 _KG_EVENTS = "events.jsonl"
 _KG_MENTIONS = "mentions.jsonl"
 _KG_PROVENANCE = "provenance.jsonl"
+_KG_ALIASES = "aliases.jsonl"
+_KG_SCHEMA = "schema.json"
+_KG_GRAPH = "graph.json"
+_KG_NEO4J_DIR = "neo4j"
 _VALIDATION_ISSUES = "issues.jsonl"
 _CONFIG_SNAPSHOT = "config.snapshot.json"
 _MANIFEST = "manifest.json"
@@ -181,9 +182,15 @@ def build_manifest(
             "organization": f"{_ORGANIZATION_DIR}/",
             "artifacts": f"{_ARTIFACTS_DIR}/",
             "kg": f"{_KG_DIR}/",
+            "nodes": f"{_KG_DIR}/{_KG_NODES}",
+            "edges": f"{_KG_DIR}/{_KG_EDGES}",
             "events": f"{_KG_DIR}/{_KG_EVENTS}",
             "mentions": f"{_KG_DIR}/{_KG_MENTIONS}",
             "provenance": f"{_KG_DIR}/{_KG_PROVENANCE}",
+            "aliases": f"{_KG_DIR}/{_KG_ALIASES}",
+            "schema": f"{_KG_DIR}/{_KG_SCHEMA}",
+            "graph": f"{_KG_DIR}/{_KG_GRAPH}",
+            "neo4j": f"{_KG_DIR}/{_KG_NEO4J_DIR}/",
             "validation": f"{_VALIDATION_DIR}/",
         },
         generated_at=stamp,
@@ -254,9 +261,8 @@ def execute_run(
 
     write_organization(world, run_dir / _ORGANIZATION_DIR)
     _write_artifacts(run_dir, corpus)
-    _write_kg(world, run_dir / _KG_DIR)
-    _write_corpus_side_files(run_dir, corpus)
-    _write_jsonl(run_dir / _VALIDATION_DIR / _VALIDATION_ISSUES, issue_rows)
+    _export_kg(world, corpus, run_dir / _KG_DIR)
+    write_jsonl(run_dir / _VALIDATION_DIR / _VALIDATION_ISSUES, issue_rows)
 
     manifest_json = json.dumps(manifest.to_dict(), sort_keys=True, indent=2)
     (run_dir / _MANIFEST).write_text(manifest_json + "\n", encoding="utf-8")
@@ -317,16 +323,18 @@ def _simulation_window(config: RunConfig) -> tuple[datetime, datetime]:
     return (start, end)
 
 
-def _write_corpus_side_files(run_dir: Path, corpus: CorpusResult) -> None:
-    """Write the Layer B/C KG side files: events, mentions, and provenance (§11.4).
+def _export_kg(world: World, corpus: CorpusResult, kg_dir: Path) -> None:
+    """Export the canonical Gold KG + the Neo4j adapter through the exporter registry.
 
-    The ``validation/issues.jsonl`` index is written by :func:`execute_run`, which
-    merges these scheduler/producer findings with the consistency validator's.
+    The canonical JSONL set (nodes/edges/events/provenance/mentions/aliases plus
+    ``schema.json`` and ``graph.json``) and the Neo4j/Cypher bundle both derive from
+    one :class:`~enterprise_sim.exporters.KgBundle`, so they cannot drift (§11.4-11.5).
+    The combined ``validation/issues.jsonl`` index is written by :func:`execute_run`,
+    which merges the scheduler/producer findings with the consistency validator's.
     """
-    kg_dir = run_dir / _KG_DIR
-    (kg_dir / _KG_EVENTS).write_text(corpus.journal.dumps(), encoding="utf-8")
-    _write_jsonl(kg_dir / _KG_MENTIONS, mention_records(corpus.artifacts))
-    _write_jsonl(kg_dir / _KG_PROVENANCE, provenance_records(corpus.artifacts))
+    bundle = KgBundle.from_run(world, corpus)
+    EXPORTERS.get("jsonl").export(bundle, kg_dir)
+    EXPORTERS.get("neo4j").export(bundle, kg_dir / _KG_NEO4J_DIR)
 
 
 def _scheduler_issue_records(
@@ -347,15 +355,3 @@ def _scheduler_issue_records(
             }
         )
     return rows
-
-
-def _write_kg(world: World, kg_dir: Path) -> None:
-    """Export the KG as deterministic JSONL (one node/edge per line, sorted by id)."""
-    payload = world.to_dict()
-    _write_jsonl(kg_dir / _KG_NODES, payload["nodes"])
-    _write_jsonl(kg_dir / _KG_EDGES, payload["edges"])
-
-
-def _write_jsonl(path: Path, records: list[dict[str, object]]) -> None:
-    lines = [json.dumps(record, sort_keys=True, separators=(",", ":")) for record in records]
-    path.write_text("".join(f"{line}\n" for line in lines), encoding="utf-8")
