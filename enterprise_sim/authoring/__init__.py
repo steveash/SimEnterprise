@@ -4,8 +4,10 @@ The declarative Python authoring surface (ARCHITECTURE §12, decision D21) lives
 in :mod:`enterprise_sim.authoring.sdk`: the §12.2 building blocks and the six
 triggers, each round-trippable via ``to_dict`` / ``from_dict``. The three
 cross-vertical reference playbooks (§12.3) are in
-:mod:`enterprise_sim.authoring.patterns`. The lint / test-kit / eval tiers (§13)
-land alongside in later milestones.
+:mod:`enterprise_sim.authoring.patterns`. The Tier-2 isolated test kit and
+conformance suite (§13) live in :mod:`enterprise_sim.authoring.testkit`, lowering
+the SDK to the engine spec via :mod:`enterprise_sim.authoring.lowering`. The lint
+and eval tiers land alongside in later milestones.
 """
 
 from __future__ import annotations
@@ -49,11 +51,25 @@ from enterprise_sim.authoring.sdk import (
     Trigger,
     trigger_from_dict,
 )
+from enterprise_sim.authoring.testkit import (
+    ConformanceViolation,
+    RunResult,
+    TestWorld,
+    assert_conforms,
+    assert_golden,
+    check_conformance,
+    check_playbook,
+    run_playbook,
+    run_process,
+    scan_nondeterminism,
+    snapshot,
+)
 
 __all__ = [
     "REFERENCE_PLAYBOOKS",
     "Activation",
     "ConditionExpr",
+    "ConformanceViolation",
     "Declares",
     "Deliverable",
     "Diagnostic",
@@ -72,16 +88,26 @@ __all__ = [
     "Probabilistic",
     "Process",
     "Role",
+    "RunResult",
     "Selector",
     "Severity",
     "Spread",
     "Step",
+    "TestWorld",
     "Trigger",
+    "assert_conforms",
+    "assert_golden",
     "build_software",
+    "check_conformance",
+    "check_playbook",
     "lint_playbook",
     "lint_process",
     "run_clinical_study",
+    "run_playbook",
+    "run_process",
     "scan_impl_source",
+    "scan_nondeterminism",
     "sell_merchandise",
+    "snapshot",
     "trigger_from_dict",
 ]
