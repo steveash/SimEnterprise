@@ -50,7 +50,10 @@ def _cmd_run(args: argparse.Namespace) -> int:
     )
 
     result = execute_run(config)
-    print(f"enterprise-sim run: wrote {result.run_id} to {result.run_dir}")
+    print(
+        f"enterprise-sim run: wrote {result.run_id} to {result.run_dir} "
+        f"({len(result.corpus.journal)} events, {len(result.corpus.artifacts)} artifacts)"
+    )
     return 0
 
 

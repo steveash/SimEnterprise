@@ -18,14 +18,23 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
 from enterprise_sim import __version__
+from enterprise_sim.assembly.corpus import CorpusResult, build_corpus
 from enterprise_sim.assembly.manifest import SCHEMA_VERSION, Manifest
 from enterprise_sim.core.config import RunConfig
+from enterprise_sim.core.llm import LLMClient, build_client
+from enterprise_sim.core.sim.scheduler import ValidationIssue
 from enterprise_sim.core.world import World
+from enterprise_sim.producers.artifact import (
+    issue_records,
+    mention_records,
+    provenance_records,
+)
 from enterprise_sim.world_builders import build_world, write_organization
 
 # Subdirectories every run lays down. ``organization/`` holds the Layer-A
@@ -35,8 +44,13 @@ from enterprise_sim.world_builders import build_world, write_organization
 _ORGANIZATION_DIR = "organization"
 _KG_DIR = "kg"
 _VALIDATION_DIR = "validation"
+_ARTIFACTS_DIR = "artifacts"
 _KG_NODES = "nodes.jsonl"
 _KG_EDGES = "edges.jsonl"
+_KG_EVENTS = "events.jsonl"
+_KG_MENTIONS = "mentions.jsonl"
+_KG_PROVENANCE = "provenance.jsonl"
+_VALIDATION_ISSUES = "issues.jsonl"
 _CONFIG_SNAPSHOT = "config.snapshot.json"
 _MANIFEST = "manifest.json"
 
@@ -45,14 +59,17 @@ _MANIFEST = "manifest.json"
 class RunResult:
     """The outcome of :func:`execute_run`: where the run landed and its manifest.
 
-    ``world`` is the Layer-A knowledge graph that was built and exported, so a
-    caller can introspect or re-query the run without re-reading it from disk.
+    ``world`` is the knowledge graph after every layer ran (Layer A structure plus
+    the Layer B events/calendars and Layer C artifact nodes/edges), so a caller can
+    introspect or re-query the run without re-reading it from disk. ``corpus`` is
+    the rendered markdown corpus + combined event journal.
     """
 
     run_id: str
     run_dir: Path
     manifest: Manifest
     world: World
+    corpus: CorpusResult
 
 
 def _slugify(name: str) -> str:
@@ -119,50 +136,116 @@ def build_manifest(
         outputs={
             "config_snapshot": _CONFIG_SNAPSHOT,
             "organization": f"{_ORGANIZATION_DIR}/",
+            "artifacts": f"{_ARTIFACTS_DIR}/",
             "kg": f"{_KG_DIR}/",
+            "events": f"{_KG_DIR}/{_KG_EVENTS}",
+            "mentions": f"{_KG_DIR}/{_KG_MENTIONS}",
+            "provenance": f"{_KG_DIR}/{_KG_PROVENANCE}",
             "validation": f"{_VALIDATION_DIR}/",
         },
         generated_at=stamp,
     )
 
 
-def execute_run(config: RunConfig, *, generated_at: str | None = None) -> RunResult:
-    """Materialize the run directory for ``config`` and return its :class:`RunResult`.
+def execute_run(
+    config: RunConfig,
+    *,
+    generated_at: str | None = None,
+    client: LLMClient | None = None,
+) -> RunResult:
+    """Materialize the full run directory for ``config`` and return its result.
 
-    Runs Layer A (build the deterministic world), then Layer D (assembly): creates
+    Runs every layer end to end: Layer A (the deterministic world), Layer B (the
+    scheduler — scenario events + per-person calendars), Layer C (the producers —
+    the grounded markdown corpus), and Layer D (assembly). It creates
     ``<config.output_dir>/<run-id>/`` containing ``manifest.json``, the config
-    snapshot, the ``organization/`` markdown reference data, and the ``kg/``
-    structural export (``nodes.jsonl`` / ``edges.jsonl``). The operation is
-    idempotent: re-running the same config rewrites the same directory in place
-    (the world is deterministic in ``(config, seed)``).
+    snapshot, the ``organization/`` reference data, the ``artifacts/`` markdown
+    corpus, and the ``kg/`` export (structural ``nodes``/``edges`` plus the
+    ``events``/``mentions``/``provenance`` side files), with any soft findings under
+    ``validation/``. The operation is idempotent: re-running the same config with a
+    deterministic backend rewrites the same directory in place.
 
     Args:
         config: The validated run configuration.
         generated_at: Optional ISO-8601 override for the manifest's volatile
             wall-clock stamp; used by tests for byte-stable output.
+        client: LLM client the producers render against; defaults to the
+            deterministic, network-free ``fake`` client so a run is reproducible
+            and free out of the box.
     """
+    client = client or build_client()
+
     world = build_world(config)
+    corpus = build_corpus(world, config, client)
+
     counts = {
         "nodes": world.node_count,
         "edges": world.edge_count,
-        "events": world.event_count,
+        "events": len(corpus.journal),
     }
     manifest = build_manifest(config, counts=counts, generated_at=generated_at)
     run_dir = config.output_dir / manifest.run_id
 
-    for name in (_ORGANIZATION_DIR, _KG_DIR, _VALIDATION_DIR):
+    for name in (_ORGANIZATION_DIR, _KG_DIR, _VALIDATION_DIR, _ARTIFACTS_DIR):
         (run_dir / name).mkdir(parents=True, exist_ok=True)
 
     snapshot = json.dumps(_canonical_config(config), sort_keys=True, indent=2)
     (run_dir / _CONFIG_SNAPSHOT).write_text(snapshot + "\n", encoding="utf-8")
 
     write_organization(world, run_dir / _ORGANIZATION_DIR)
+    _write_artifacts(run_dir, corpus)
     _write_kg(world, run_dir / _KG_DIR)
+    _write_corpus_side_files(run_dir, corpus)
 
     manifest_json = json.dumps(manifest.to_dict(), sort_keys=True, indent=2)
     (run_dir / _MANIFEST).write_text(manifest_json + "\n", encoding="utf-8")
 
-    return RunResult(run_id=manifest.run_id, run_dir=run_dir, manifest=manifest, world=world)
+    return RunResult(
+        run_id=manifest.run_id,
+        run_dir=run_dir,
+        manifest=manifest,
+        world=world,
+        corpus=corpus,
+    )
+
+
+def _write_artifacts(run_dir: Path, corpus: CorpusResult) -> None:
+    """Write every rendered markdown file to its run-relative, scenario-clustered path."""
+    for artifact in corpus.artifacts:
+        path = run_dir / artifact.path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(artifact.body, encoding="utf-8")
+
+
+def _write_corpus_side_files(run_dir: Path, corpus: CorpusResult) -> None:
+    """Write the Layer B/C side files: events, mentions, provenance, and issues (§11.4)."""
+    kg_dir = run_dir / _KG_DIR
+    (kg_dir / _KG_EVENTS).write_text(corpus.journal.dumps(), encoding="utf-8")
+    _write_jsonl(kg_dir / _KG_MENTIONS, mention_records(corpus.artifacts))
+    _write_jsonl(kg_dir / _KG_PROVENANCE, provenance_records(corpus.artifacts))
+
+    issues = [*_scheduler_issue_records(corpus.issues), *issue_records(corpus.artifacts)]
+    _write_jsonl(run_dir / _VALIDATION_DIR / _VALIDATION_ISSUES, issues)
+
+
+def _scheduler_issue_records(
+    issues: Sequence[ValidationIssue],
+) -> list[dict[str, object]]:
+    """Serialize scheduler validation issues into uniform ``issues.jsonl`` rows."""
+    rows: list[dict[str, object]] = []
+    for issue in issues:
+        details: dict[str, object] = {}
+        if issue.at is not None:
+            details["at"] = issue.at.isoformat()
+        rows.append(
+            {
+                "kind": issue.code,
+                "message": issue.message,
+                "where": issue.subject or "",
+                "details": details,
+            }
+        )
+    return rows
 
 
 def _write_kg(world: World, kg_dir: Path) -> None:

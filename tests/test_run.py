@@ -53,6 +53,64 @@ def test_organization_and_kg_are_populated(tmp_path: Path) -> None:
     assert result.world.node_count > 0
 
 
+def test_run_produces_a_full_markdown_corpus(tmp_path: Path) -> None:
+    # M6 end to end: world -> scheduler events -> producers -> markdown corpus.
+    result = execute_run(_config(tmp_path))
+
+    # The simulation produced a non-trivial event log and a corpus of markdown.
+    assert len(result.corpus.journal) > 0
+    assert len(result.corpus.artifacts) > 0
+
+    md_files = list((result.run_dir / "artifacts").rglob("*.md"))
+    assert len(md_files) == len(result.corpus.artifacts)
+    # Every rendered file is non-empty markdown with a templated H1 title.
+    for path in md_files:
+        assert path.read_text(encoding="utf-8").startswith("# ")
+
+    # The Layer B/C side files are all written and line-count consistent.
+    events = (result.run_dir / "kg" / "events.jsonl").read_text().splitlines()
+    assert len(events) == len(result.corpus.journal)
+    assert (result.run_dir / "kg" / "mentions.jsonl").is_file()
+    assert (result.run_dir / "kg" / "provenance.jsonl").is_file()
+    assert (result.run_dir / "validation" / "issues.jsonl").is_file()
+
+
+def test_corpus_is_clustered_by_scenario(tmp_path: Path) -> None:
+    # D29 cache locality: a scenario's artifacts share a directory prefix.
+    result = execute_run(_config(tmp_path))
+    rels = [Path(a.path) for a in result.corpus.artifacts]
+    assert rels, "expected a non-empty corpus"
+    # Every artifact lives two levels deep under a per-scenario cluster dir.
+    assert all(r.parts[0] == "artifacts" for r in rels)
+    assert all(len(r.parts) == 3 for r in rels)
+    # All from this small (single-scenario) config share one cluster.
+    assert len({r.parts[1] for r in rels}) == 1
+
+
+def test_corpus_reproduces_byte_for_byte_by_seed(tmp_path: Path) -> None:
+    # Acceptance: a full corpus reproducible by seed (D10/D26/D31, fake backend).
+    a = execute_run(_config(tmp_path / "a", seed=11))
+    b = execute_run(_config(tmp_path / "b", seed=11))
+
+    def corpus_blob(result: object) -> dict[str, str]:
+        run_dir = result.run_dir  # type: ignore[attr-defined]
+        out: dict[str, str] = {}
+        for sub in ("artifacts", "kg", "validation"):
+            for path in sorted((run_dir / sub).rglob("*")):
+                if path.is_file():
+                    out[str(path.relative_to(run_dir))] = path.read_text(encoding="utf-8")
+        return out
+
+    assert a.run_id == b.run_id
+    assert corpus_blob(a) == corpus_blob(b)
+
+
+def test_eval_reads_the_runs_event_log(tmp_path: Path) -> None:
+    # The wired run writes kg/events.jsonl, which the eval subcommand consumes.
+    result = execute_run(_config(tmp_path))
+    assert main(["eval", str(result.run_dir)]) == 0
+
+
 def test_run_id_is_slug_plus_digest(tmp_path: Path) -> None:
     config = _config(tmp_path, name="Acme Corp")
     result = execute_run(config)
@@ -66,13 +124,14 @@ def test_manifest_round_trips_and_matches_disk(tmp_path: Path) -> None:
 
     assert Manifest.from_dict(on_disk) == result.manifest
     assert on_disk == result.manifest.to_dict()
-    # Counts now mirror the Layer-A world that was built and exported.
+    # Counts mirror the built world (nodes/edges) and the simulated event journal.
     assert on_disk["counts"] == {
         "nodes": result.world.node_count,
         "edges": result.world.edge_count,
-        "events": result.world.event_count,
+        "events": len(result.corpus.journal),
     }
     assert on_disk["counts"]["nodes"] > 0
+    assert on_disk["counts"]["events"] > 0
     assert on_disk["seed"] == 7
 
 

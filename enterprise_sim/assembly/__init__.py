@@ -7,6 +7,7 @@ out the run directory and snapshots the config.
 
 from __future__ import annotations
 
+from enterprise_sim.assembly.corpus import CorpusResult, build_corpus
 from enterprise_sim.assembly.manifest import (
     SCHEMA_VERSION,
     VOLATILE_FIELDS,
@@ -24,8 +25,10 @@ from enterprise_sim.assembly.runner import (
 __all__ = [
     "SCHEMA_VERSION",
     "VOLATILE_FIELDS",
+    "CorpusResult",
     "Manifest",
     "RunResult",
+    "build_corpus",
     "build_manifest",
     "compute_config_digest",
     "compute_run_id",
