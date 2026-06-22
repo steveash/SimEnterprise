@@ -232,11 +232,18 @@ def execute_run(
 
 
 def _write_artifacts(run_dir: Path, corpus: CorpusResult) -> None:
-    """Write every rendered markdown file to its run-relative, scenario-clustered path."""
+    """Write every rendered file to its run-relative, scenario-clustered path.
+
+    Binary producers (e.g. ``pptx``) carry their bytes in ``binary_body``; those are
+    written verbatim. Text producers (e.g. ``markdown``) carry their UTF-8 body.
+    """
     for artifact in corpus.artifacts:
         path = run_dir / artifact.path
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(artifact.body, encoding="utf-8")
+        if artifact.binary_body is not None:
+            path.write_bytes(artifact.binary_body)
+        else:
+            path.write_text(artifact.body, encoding="utf-8")
 
 
 def _simulation_window(config: RunConfig) -> tuple[datetime, datetime]:

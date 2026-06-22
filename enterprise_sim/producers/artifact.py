@@ -135,6 +135,10 @@ class ProducedArtifact:
         issues: Soft validation findings (D17), e.g. an unrepaired name.
         metadata: A JSON-serializable twin of the artifact (the ``markdown/json``
             deliverable): metadata + references + mention summary.
+        binary_body: The rendered file as raw bytes, set by producers whose format
+            is binary (e.g. the ``pptx``/``docx`` producers). When present it — not
+            ``body`` — is what the runner writes to ``path``; ``body`` then holds a
+            plain-text rendering the tagger and grounding layers reason over.
     """
 
     artifact_id: str
@@ -146,6 +150,12 @@ class ProducedArtifact:
     mentions: list[Mention] = field(default_factory=list)
     issues: list[ValidationIssue] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
+    binary_body: bytes | None = None
+
+    @property
+    def is_binary(self) -> bool:
+        """True when this artifact's on-disk form is :attr:`binary_body`, not ``body``."""
+        return self.binary_body is not None
 
     def expressed_targets(self) -> list[str]:
         """Node and edge ids whose provenance includes this artifact (§11.3, D19).
