@@ -4,9 +4,9 @@ A producer is a pure function of ``(Event, WorldView)`` that renders one or more
 files and returns the knowledge-graph facts they express (nodes, edges, mentions,
 provenance, validation issues). The v1 :class:`MarkdownProducer` is the default
 the binding map routes every deliverable kind to; :class:`OutlookProducer` renders
-the email/meeting kinds to ``.eml`` threads + ``.ics`` invites, and
-``word``/``pptx``/``jira`` producers register alongside them later without touching
-``core/``.
+the email/meeting kinds to ``.eml`` threads + ``.ics`` invites, :class:`WordProducer`
+renders the document kinds to ``.docx`` with native threaded comments, and
+``pptx``/``jira`` producers register alongside them later without touching ``core/``.
 
 Shared, format-free building blocks live in
 :mod:`enterprise_sim.producers.artifact` (result value types) and
@@ -48,11 +48,15 @@ from enterprise_sim.producers.grounding import (
 from enterprise_sim.producers.markdown import MarkdownProducer, ProducerContext
 from enterprise_sim.producers.outlook import OutlookProducer
 from enterprise_sim.producers.pptx import PptxProducer, Slide, build_kickoff_deck
+from enterprise_sim.producers.word import WordProducer
+from enterprise_sim.producers.word_docx import DocxComment, DocxDocument, build_docx
 
 __all__ = [
     "DEFAULT_NAMED_TYPES",
     "Attendee",
     "Calendar",
+    "DocxComment",
+    "DocxDocument",
     "EmailMessage",
     "EmailThread",
     "Locator",
@@ -68,6 +72,8 @@ __all__ = [
     "RosterEntry",
     "Slide",
     "ValidationIssue",
+    "WordProducer",
+    "build_docx",
     "build_kickoff_deck",
     "apply_to_world",
     "detect_unresolved_names",

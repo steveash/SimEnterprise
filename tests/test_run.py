@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import zipfile
 from pathlib import Path
 
 from enterprise_sim.assembly import (
@@ -54,18 +55,26 @@ def test_organization_and_kg_are_populated(tmp_path: Path) -> None:
 
 
 def test_run_produces_a_full_markdown_corpus(tmp_path: Path) -> None:
-    # M6 end to end: world -> scheduler events -> producers -> markdown corpus.
+    # M6/M8 end to end: world -> scheduler events -> producers -> mixed corpus
+    # (markdown by default; .docx for the word-bound document kinds).
     result = execute_run(_config(tmp_path))
 
-    # The simulation produced a non-trivial event log and a corpus of markdown.
+    # The simulation produced a non-trivial event log and a corpus of files.
     assert len(result.corpus.journal) > 0
     assert len(result.corpus.artifacts) > 0
 
-    md_files = list((result.run_dir / "artifacts").rglob("*.md"))
-    assert len(md_files) == len(result.corpus.artifacts)
-    # Every rendered file is non-empty markdown with a templated H1 title.
-    for path in md_files:
-        assert path.read_text(encoding="utf-8").startswith("# ")
+    # Every rendered artifact landed on disk, markdown or docx.
+    art_files = [p for p in (result.run_dir / "artifacts").rglob("*") if p.is_file()]
+    assert len(art_files) == len(result.corpus.artifacts)
+    # Markdown files are non-empty with a templated H1 title; docx files are valid
+    # OOXML zip packages carrying the main document part.
+    for path in art_files:
+        if path.suffix == ".md":
+            assert path.read_text(encoding="utf-8").startswith("# ")
+        else:
+            assert path.suffix == ".docx"
+            with zipfile.ZipFile(path) as zf:
+                assert "word/document.xml" in zf.namelist()
 
     # The Layer B/C side files are all written and line-count consistent.
     events = (result.run_dir / "kg" / "events.jsonl").read_text().splitlines()
@@ -97,13 +106,16 @@ def test_mentions_and_provenance_verify_against_the_corpus(tmp_path: Path) -> No
     assert mentions, "expected a populated mentions.jsonl"
     assert provenance, "expected a populated provenance.jsonl"
 
-    # Each mention's locator must slice the rendered file to exactly its surface
-    # form, on the line it claims, and resolve to a real entity node (D20).
-    bodies: dict[str, str] = {}
+    # Each mention's locator must slice the rendered text to exactly its surface
+    # form, on the line it claims, and resolve to a real entity node (D20). For a
+    # binary artifact (.docx) the rendered *text* is the producer's plain-text
+    # projection (``artifact.body``) — what the tagger ran over — not the on-disk
+    # bytes, so we verify locators against that.
+    bodies = {a.path: a.body for a in result.corpus.artifacts}
     for m in mentions:
         path = m["artifact_path"]
         assert path in corpus_paths, f"mention in unknown artifact {path}"
-        body = bodies.setdefault(path, (run_dir / path).read_text(encoding="utf-8"))
+        body = bodies[path]
         loc = m["locator"]
         span = body[loc["offset"] : loc["offset"] + loc["length"]]
         assert span == m["surface_form"], f"locator mismatch in {path}"
@@ -144,13 +156,14 @@ def test_corpus_reproduces_byte_for_byte_by_seed(tmp_path: Path) -> None:
     a = execute_run(_config(tmp_path / "a", seed=11))
     b = execute_run(_config(tmp_path / "b", seed=11))
 
-    def corpus_blob(result: object) -> dict[str, str]:
+    def corpus_blob(result: object) -> dict[str, bytes]:
         run_dir = result.run_dir  # type: ignore[attr-defined]
-        out: dict[str, str] = {}
+        out: dict[str, bytes] = {}
         for sub in ("artifacts", "kg", "validation"):
             for path in sorted((run_dir / sub).rglob("*")):
                 if path.is_file():
-                    out[str(path.relative_to(run_dir))] = path.read_text(encoding="utf-8")
+                    # Read bytes so binary (.docx) artifacts compare byte-for-byte too.
+                    out[str(path.relative_to(run_dir))] = path.read_bytes()
         return out
 
     assert a.run_id == b.run_id

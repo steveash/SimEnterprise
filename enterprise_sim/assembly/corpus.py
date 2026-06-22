@@ -44,12 +44,14 @@ from enterprise_sim.core.config import RunConfig
 from enterprise_sim.core.events import EventJournal
 from enterprise_sim.core.llm import LLMClient
 from enterprise_sim.core.registry import PLAYBOOKS, UnknownPluginError, discover
+from enterprise_sim.core.registry.binding import BindingMap
 from enterprise_sim.core.sim.calendar import WorkingCalendar
 from enterprise_sim.core.sim.scheduler import Scheduler, ValidationIssue
 from enterprise_sim.core.sim.spec import Activation, Scenario
 from enterprise_sim.core.world import Node, World
 from enterprise_sim.producers.artifact import ProducedArtifact, apply_to_world
 from enterprise_sim.producers.markdown import MarkdownProducer, ProducerContext
+from enterprise_sim.producers.word import WordProducer
 
 
 @runtime_checkable
@@ -345,6 +347,24 @@ def _project_for(initiative: Node, world: World) -> str | None:
 # --------------------------------------------------------------------------- #
 
 
+# The ``deliverable.kind → producer`` binding (§4, D4/D5). ``markdown`` is the
+# catch-all default; the document kinds the ``word`` producer declares it
+# ``handles`` (``status_report``/``design_doc``) are rebound to it, with the
+# simulator untouched. Producer instances are stateless and reused across the run.
+_PRODUCERS: dict[str, MarkdownProducer | WordProducer] = {
+    MarkdownProducer.name: MarkdownProducer(),
+    WordProducer.name: WordProducer(),
+}
+_BINDING = BindingMap(default=MarkdownProducer.name)
+for _kind in WordProducer.handles:
+    _BINDING.bind(_kind, WordProducer.name)
+
+
+def _producer_for(kind: str) -> MarkdownProducer | WordProducer:
+    """Resolve a deliverable kind to the producer that renders it (binding map, D4)."""
+    return _PRODUCERS[_BINDING.producer_names(kind)[0]]
+
+
 def _render_scenario(
     world: World,
     journal: EventJournal,
@@ -353,17 +373,19 @@ def _render_scenario(
 ) -> list[ProducedArtifact]:
     """Render one scenario's deliverable events, applying each back to the world.
 
-    Only events that requested a deliverable become files; comments/commits and
+    Each deliverable kind is routed through the binding map to its producer
+    (document kinds → ``word`` ``.docx``; everything else → ``markdown``). Only
+    events that requested a deliverable become files; comments/commits and
     milestone-only steps live on as threading + KG facts. Events render in
     ``(timestamp, id)`` order and each artifact is applied to the world before the
     next renders, so a later artifact can cite an earlier one (D16/D32).
     """
-    producer = MarkdownProducer()
     rendered: list[ProducedArtifact] = []
     for event in journal.ordered():
         if event.deliverable is None:
             continue
         view = world.projection(at=event.timestamp)
+        producer = _producer_for(event.deliverable.kind)
         produced = producer.produce(event, view, client, ctx)
         apply_to_world(world, [produced])
         rendered.append(produced)

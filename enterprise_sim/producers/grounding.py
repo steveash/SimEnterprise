@@ -215,7 +215,9 @@ class Roster:
 # -- mention tagging --------------------------------------------------------
 
 
-def tag_mentions(text: str, roster: Roster, *, artifact_path: str) -> list[Mention]:
+def tag_mentions(
+    text: str, roster: Roster, *, artifact_path: str, medium: str = "markdown"
+) -> list[Mention]:
     """Tag in-scope entity surface forms in ``text`` (D20, §11.3).
 
     Constrained, high-precision alias matching: only the roster's known surface
@@ -223,6 +225,11 @@ def tag_mentions(text: str, roster: Roster, *, artifact_path: str) -> list[Menti
     word boundaries and never overlap, and every full occurrence is recorded (not
     just the first). Output is ordered by character offset so the resulting
     ``mentions.jsonl`` is byte-stable across runs.
+
+    ``medium`` names the artifact's addressing scheme recorded on each
+    :class:`~enterprise_sim.producers.artifact.Locator` (``markdown`` for the
+    markdown producer, ``docx`` for the word producer, which tags its plain-text
+    projection); the offsets are always into ``text``.
     """
     if roster.is_empty() or not text:
         return []
@@ -245,6 +252,7 @@ def tag_mentions(text: str, roster: Roster, *, artifact_path: str) -> list[Menti
                         offset=start,
                         length=end - start,
                         line=_line_of(start, line_starts),
+                        medium=medium,
                     ),
                 )
             )

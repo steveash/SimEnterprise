@@ -2,8 +2,9 @@
 
 This is the **first vertical slice** (PLAN.md §4): the smallest run that still
 exercises the whole framework end-to-end — one department, one scenario, a small
-team, over a single business week — producing a markdown corpus *and* the gold
-knowledge graph that serves as its **answer key**.
+team, over a single business week — producing a multi-format corpus (markdown,
+plus Word `.docx` with native threaded comments for the document deliverables)
+*and* the gold knowledge graph that serves as its **answer key**.
 
 It is the v1 acceptance artifact (bead `esim-3481176c`). The run is deterministic
 and network-free (default `fake` LLM backend), so it reproduces **byte-for-byte**
@@ -49,7 +50,8 @@ runs/golden/golden-slice-co-40644d551158/
 ├── artifacts/                 # Layer C corpus, clustered per scenario
 │   └── initiative-engineering-build-software/
 │       ├── ...-kickoff.md  ...-groom.md  ...-plan.md
-│       ├── ...-plan-draft.md (design review thread)  ...-status.md
+│       ├── ...-plan-draft.docx (design review, native threaded comments)
+│       └── ...-status.docx     (weekly status)
 ├── kg/                        # the gold knowledge graph (the answer key)
 │   ├── nodes.jsonl  edges.jsonl  events.jsonl
 │   ├── provenance.jsonl  mentions.jsonl  aliases.jsonl
@@ -67,9 +69,9 @@ runs/golden/golden-slice-co-40644d551158/
 | Scenarios | **1** (`build_software` playbook) |
 | People | 9 (one small engineering department) |
 | Events | 24 |
-| Markdown artifacts | 5 (kickoff, grooming, sprint plan, review thread, weekly status) |
+| Corpus artifacts | 5 — 3 markdown (kickoff, grooming, sprint plan) + 2 Word `.docx` (design review, weekly status) |
 | KG nodes / edges | 55 / 128 |
-| Provenance / mention rows | 12 / 89 |
+| Provenance / mention rows | 12 / 125 |
 
 > **On "~3 people":** PLAN.md §4 sketches the slice as "~3 people". The run is
 > driven by the real `build_software` reference playbook and the `engineering`

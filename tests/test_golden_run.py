@@ -89,8 +89,9 @@ def test_golden_run_has_the_documented_shape(tmp_path: Path) -> None:
     assert result.manifest.window == {"start": "2026-01-05", "end": "2026-01-09"}
     assert result.corpus.artifacts
     assert result.corpus.journal
-    md_files = list((result.run_dir / "artifacts").rglob("*.md"))
-    assert len(md_files) == len(result.corpus.artifacts)
+    # The corpus is mixed: markdown by default, .docx for the word-bound document kinds.
+    art_files = [p for p in (result.run_dir / "artifacts").rglob("*") if p.is_file()]
+    assert len(art_files) == len(result.corpus.artifacts)
 
 
 def test_golden_kg_validates_as_the_answer_key(tmp_path: Path) -> None:
@@ -134,11 +135,13 @@ def test_golden_kg_validates_as_the_answer_key(tmp_path: Path) -> None:
     #     form, on the line it claims, and resolves to a real entity (D20).
     mentions = _read_jsonl(run_dir / "kg" / "mentions.jsonl")
     assert mentions, "expected a populated mentions.jsonl"
-    bodies: dict[str, str] = {}
+    # For a binary artifact (.docx) the rendered *text* is the producer's plain-text
+    # projection (``artifact.body``) the tagger ran over, not the on-disk bytes.
+    bodies = {a.path: a.body for a in result.corpus.artifacts}
     for m in mentions:
         path = m["artifact_path"]
         assert path in corpus_paths, f"mention in unknown artifact {path}"
-        body = bodies.setdefault(path, (run_dir / path).read_text(encoding="utf-8"))
+        body = bodies[path]
         loc = m["locator"]
         span = body[loc["offset"] : loc["offset"] + loc["length"]]
         assert span == m["surface_form"], f"locator mismatch in {path}"
@@ -170,12 +173,13 @@ def test_golden_run_reproduces_byte_for_byte(tmp_path: Path) -> None:
     a = execute_run(_golden_config(tmp_path / "a"))
     b = execute_run(_golden_config(tmp_path / "b"))
 
-    def blob(run_dir: Path) -> dict[str, str]:
-        out: dict[str, str] = {}
+    def blob(run_dir: Path) -> dict[str, bytes]:
+        out: dict[str, bytes] = {}
         for sub in ("artifacts", "kg", "validation", "organization"):
             for path in sorted((run_dir / sub).rglob("*")):
                 if path.is_file():
-                    out[str(path.relative_to(run_dir))] = path.read_text(encoding="utf-8")
+                    # Read bytes so binary (.docx) artifacts compare byte-for-byte too.
+                    out[str(path.relative_to(run_dir))] = path.read_bytes()
         return out
 
     assert a.run_id == b.run_id

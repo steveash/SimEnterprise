@@ -202,8 +202,9 @@ def test_large_company_one_month_run_within_ceiling(tmp_path: Path) -> None:
 
     result = execute_run(config)
     assert len(result.corpus.artifacts) > 0
-    md_files = list((result.run_dir / "artifacts").rglob("*.md"))
-    assert len(md_files) == len(result.corpus.artifacts)
+    # The corpus is mixed: markdown by default, .docx for the word-bound kinds.
+    art_files = [p for p in (result.run_dir / "artifacts").rglob("*") if p.is_file()]
+    assert len(art_files) == len(result.corpus.artifacts)
 
 
 # ---------------------------------------------------------------------------
