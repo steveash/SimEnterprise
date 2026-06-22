@@ -6,12 +6,22 @@ triggers, each round-trippable via ``to_dict`` / ``from_dict``. The three
 cross-vertical reference playbooks (§12.3) are in
 :mod:`enterprise_sim.authoring.patterns`. The Tier-2 isolated test kit and
 conformance suite (§13) live in :mod:`enterprise_sim.authoring.testkit`, lowering
-the SDK to the engine spec via :mod:`enterprise_sim.authoring.lowering`. The lint
-and eval tiers land alongside in later milestones.
+the SDK to the engine spec via :mod:`enterprise_sim.authoring.lowering`. Tier 1
+(static lint) is :mod:`enterprise_sim.authoring.lint` and Tier 3 (structural +
+LLM-judge evaluators) is :mod:`enterprise_sim.authoring.eval`.
 """
 
 from __future__ import annotations
 
+from enterprise_sim.authoring.eval import (
+    EvalReport,
+    JudgeVerdict,
+    Metric,
+    Thresholds,
+    evaluate,
+    format_report,
+    judge_sample,
+)
 from enterprise_sim.authoring.lint import (
     Diagnostic,
     LintResult,
@@ -75,10 +85,13 @@ __all__ = [
     "Diagnostic",
     "EffectKind",
     "EmittedEvent",
+    "EvalReport",
+    "JudgeVerdict",
     "KGEffect",
     "LintResult",
     "Match",
     "MatchOp",
+    "Metric",
     "OnCadence",
     "OnCondition",
     "OnEvent",
@@ -94,12 +107,16 @@ __all__ = [
     "Spread",
     "Step",
     "TestWorld",
+    "Thresholds",
     "Trigger",
     "assert_conforms",
     "assert_golden",
     "build_software",
     "check_conformance",
     "check_playbook",
+    "evaluate",
+    "format_report",
+    "judge_sample",
     "lint_playbook",
     "lint_process",
     "run_clinical_study",

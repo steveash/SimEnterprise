@@ -121,9 +121,50 @@ def _load_lint_target(target: str) -> Playbook:
 
 
 def _cmd_eval(args: argparse.Namespace) -> int:
-    """Tier 3 structural + LLM-judge evaluation (not yet implemented)."""
-    print(f"enterprise-sim eval: not yet implemented (run={args.run})")
-    return 0
+    """Tier 3 structural + LLM-judge evaluation of a completed run (ARCHITECTURE §13).
+
+    Reads ``<run>/kg/events.jsonl`` (the scheduler's ordered log), computes the
+    structural realism metrics, and — with ``--judge`` — samples one artifact and
+    runs the LLM-as-judge through the selected backend (``fake`` by default, so it
+    stays deterministic and free). Returns ``1`` if any structural metric failed.
+    """
+    import json
+
+    from enterprise_sim.authoring.eval import evaluate, format_report, judge_sample
+    from enterprise_sim.core.events import EventJournal
+
+    if args.run is None:
+        print("enterprise-sim eval: provide a path to a run output dir")
+        return 2
+
+    run_dir = Path(args.run)
+    events_path = run_dir / "kg" / "events.jsonl"
+    if not events_path.is_file():
+        print(f"enterprise-sim eval: no event log at {events_path}")
+        return 2
+
+    with events_path.open(encoding="utf-8") as stream:
+        journal = EventJournal.from_jsonl(stream)
+
+    seed = 0
+    manifest_path = run_dir / "manifest.json"
+    if manifest_path.is_file():
+        try:
+            seed = int(json.loads(manifest_path.read_text(encoding="utf-8")).get("seed", 0))
+        except (ValueError, OSError):
+            seed = 0
+
+    report = evaluate(journal)
+
+    if args.judge:
+        from enterprise_sim.core.llm import LLMConfig, build_client
+
+        client = build_client(LLMConfig(backend=args.backend))
+        verdict = judge_sample(journal, client, root_seed=seed)
+        report = type(report)(metrics=report.metrics, judge=verdict)
+
+    print(format_report(report, str(run_dir)))
+    return 0 if report.ok else 1
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -162,6 +203,17 @@ def build_parser() -> argparse.ArgumentParser:
 
     eval_parser = subparsers.add_parser("eval", help="evaluate a completed run")
     eval_parser.add_argument("run", nargs="?", default=None, help="path to a run output dir")
+    eval_parser.add_argument(
+        "--judge",
+        action="store_true",
+        help="also run the LLM-as-judge on a sampled artifact",
+    )
+    eval_parser.add_argument(
+        "--backend",
+        default="fake",
+        choices=["fake", "anthropic_api", "bedrock", "claude_cli"],
+        help="LLM backend for --judge (default: fake, deterministic)",
+    )
     eval_parser.set_defaults(func=_cmd_eval)
 
     return parser
