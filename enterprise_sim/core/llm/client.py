@@ -19,6 +19,7 @@ re-runs reproducible.
 
 from __future__ import annotations
 
+import threading
 import time
 from collections.abc import Callable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
@@ -56,20 +57,25 @@ class CostTracker:
     total_cost_usd: float = 0.0
     calls: int = 0
     cache_hits: int = 0
+    # Guards the read-modify-write accounting so the bounded-concurrency render
+    # phase (:meth:`LLMClient.generate_many`) tallies cost without losing updates.
+    _lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
 
     def record(self, usage: TokenUsage, model: str, *, cached: bool) -> None:
         """Record one completed call's usage (priced at $0 when ``cached``)."""
-        self.calls += 1
-        self.total_usage = self.total_usage + usage
-        self.usage_by_model[model] = self.usage_by_model.get(model, TokenUsage()) + usage
-        if cached:
-            self.cache_hits += 1
-        else:
-            self.total_cost_usd += cost_of(usage, model, table=self.pricing_table)
+        with self._lock:
+            self.calls += 1
+            self.total_usage = self.total_usage + usage
+            self.usage_by_model[model] = self.usage_by_model.get(model, TokenUsage()) + usage
+            if cached:
+                self.cache_hits += 1
+            else:
+                self.total_cost_usd += cost_of(usage, model, table=self.pricing_table)
 
     def projected_cost(self, usage: TokenUsage, model: str) -> float:
         """Total cost if ``usage`` for ``model`` were added now (for ceiling checks)."""
-        return self.total_cost_usd + cost_of(usage, model, table=self.pricing_table)
+        with self._lock:
+            return self.total_cost_usd + cost_of(usage, model, table=self.pricing_table)
 
 
 @dataclass(frozen=True, slots=True)

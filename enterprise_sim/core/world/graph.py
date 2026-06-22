@@ -421,6 +421,27 @@ class World:
 
         return view
 
+    # -- cloning ------------------------------------------------------------
+
+    def copy(self) -> World:
+        """Return an independent, insertion-order-preserving deep copy.
+
+        Nodes, edges, and events are deep-copied (their mutable ``props`` /
+        ``aliases`` / payloads are independent), and the adjacency/type indexes are
+        rebuilt, so mutating the clone never touches the original. Unlike
+        :meth:`projection`, no time or focus filtering is applied — this is a full
+        snapshot. Used by Layer C to give each scenario an isolated render world so
+        the bounded-concurrency render phase stays deterministic (§16.1, D26).
+        """
+        clone = World()
+        for node in self._nodes.values():
+            clone.add_node(_copy_node(node))
+        for edge in self._edges.values():
+            clone.add_edge(_copy_edge(edge))
+        for event in self._events.values():
+            clone.add_event(_copy_event(event))
+        return clone
+
     # -- JSON serialization -------------------------------------------------
 
     def to_dict(self) -> dict[str, Any]:

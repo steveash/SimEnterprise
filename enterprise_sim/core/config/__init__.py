@@ -19,6 +19,7 @@ from enterprise_sim.core.config.models import (
     ModelConfig,
     ProjectConfig,
     RunConfig,
+    ScaleConfig,
     SimulationConfig,
 )
 from enterprise_sim.core.config.seed import (
@@ -35,6 +36,7 @@ __all__ = [
     "ModelConfig",
     "ProjectConfig",
     "RunConfig",
+    "ScaleConfig",
     "SeedContext",
     "SimulationConfig",
     "derive_subseed",

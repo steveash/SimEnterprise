@@ -24,11 +24,11 @@ from datetime import UTC, datetime, time
 from pathlib import Path
 
 from enterprise_sim import __version__
-from enterprise_sim.assembly.corpus import CorpusResult, build_corpus
+from enterprise_sim.assembly.corpus import CorpusResult, RenderEstimate, build_corpus
 from enterprise_sim.assembly.manifest import SCHEMA_VERSION, Manifest
 from enterprise_sim.assembly.validation import summarize_issue_rows, validate_consistency
 from enterprise_sim.core.config import RunConfig
-from enterprise_sim.core.llm import LLMClient, build_client
+from enterprise_sim.core.llm import LLMClient, LLMConfig, build_client
 from enterprise_sim.core.sim.scheduler import ValidationIssue
 from enterprise_sim.core.world import World
 from enterprise_sim.producers.artifact import (
@@ -72,6 +72,39 @@ class RunResult:
     corpus: CorpusResult
 
 
+# The default render backend. A run is network-free and reproducible out of the
+# box; selecting a real provider (api/bedrock/cli) is an explicit caller concern
+# (pass a configured ``client=`` to :func:`execute_run`).
+_DEFAULT_BACKEND = "fake"
+
+
+def llm_config_for(config: RunConfig, *, backend: str = _DEFAULT_BACKEND) -> LLMConfig:
+    """Project a :class:`RunConfig` onto the :class:`LLMConfig` the client needs.
+
+    Carries the run's model and ``scale`` controls (concurrency, cost ceiling, and
+    the on-disk response-cache settings) onto the client so the dry-run gate and
+    bounded-concurrency render honor what the config asked for. The backend
+    defaults to the deterministic ``fake`` so a default run never touches the
+    network (ARCHITECTURE.md §7/§16.4).
+    """
+    scale = config.scale
+    return LLMConfig(
+        backend=backend,
+        model=config.model.name,
+        max_concurrency=scale.max_concurrency,
+        cost_ceiling_usd=scale.cost_ceiling_usd,
+        cache_dir=scale.cache_dir,
+        cache_enabled=scale.cache_enabled,
+    )
+
+
+def _client_for(config: RunConfig, client: LLMClient | None) -> LLMClient:
+    """Return ``client`` if given, else a ``fake`` client wired from ``config``."""
+    if client is not None:
+        return client
+    return build_client(llm_config_for(config))
+
+
 def _slugify(name: str) -> str:
     """Return a filesystem-safe, lowercase slug of ``name`` (empty → ``run``)."""
     slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
@@ -86,12 +119,17 @@ def _canonical_config(config: RunConfig) -> dict[str, object]:
 def compute_config_digest(config: RunConfig) -> str:
     """Return a stable ``sha256`` hex digest identifying the config's *content*.
 
-    The destination ``output_dir`` is excluded: it controls where a run is
-    written, not what the run is, so two runs of the same config to different
-    directories share an identity (and thus a structural manifest).
+    Operational knobs that control *where/how fast* a run is produced — not *what*
+    it is — are excluded so they never change a run's identity:
+
+    * ``output_dir`` — where the run lands.
+    * ``scale`` — concurrency, cost ceiling, and cache settings. The corpus is
+      identical regardless of these (concurrency is bounded but deterministic,
+      D26), so two runs that differ only in scale share an id and manifest.
     """
     payload = _canonical_config(config)
     payload.pop("output_dir", None)
+    payload.pop("scale", None)
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
@@ -174,11 +212,12 @@ def execute_run(
         config: The validated run configuration.
         generated_at: Optional ISO-8601 override for the manifest's volatile
             wall-clock stamp; used by tests for byte-stable output.
-        client: LLM client the producers render against; defaults to the
-            deterministic, network-free ``fake`` client so a run is reproducible
-            and free out of the box.
+        client: LLM client the producers render against; defaults to a
+            deterministic, network-free ``fake`` client wired from ``config``'s
+            ``scale`` controls (concurrency, cost ceiling, cache) so a run is
+            reproducible and free out of the box.
     """
-    client = client or build_client()
+    client = _client_for(config, client)
 
     world = build_world(config)
     corpus = build_corpus(world, config, client)
@@ -229,6 +268,27 @@ def execute_run(
         world=world,
         corpus=corpus,
     )
+
+
+def estimate_run(
+    config: RunConfig,
+    *,
+    client: LLMClient | None = None,
+) -> RenderEstimate:
+    """Dry-run a config: build the world, schedule, and price the render (D13).
+
+    Runs Layer A + Layer B (both cheap and network-free) to learn how many
+    artifacts the render would produce, then returns the priced dry-run estimate
+    *without* making a single model call or writing anything to disk. If the
+    config sets a cost ceiling the estimate breaches, this raises
+    :class:`~enterprise_sim.core.llm.CostCeilingExceeded` — the same up-front gate
+    a full :func:`execute_run` applies before it renders.
+    """
+    client = _client_for(config, client)
+    world = build_world(config)
+    corpus = build_corpus(world, config, client, dry_run=True)
+    assert corpus.estimate is not None  # build_corpus always estimates
+    return corpus.estimate
 
 
 def _write_artifacts(run_dir: Path, corpus: CorpusResult) -> None:

@@ -33,6 +33,7 @@ a byte-identical corpus.
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import datetime
 from typing import Protocol, runtime_checkable
@@ -64,12 +65,37 @@ class _BuildablePlaybook(Protocol):
     def build(self) -> SdkPlaybook: ...
 
 
-__all__ = ["CorpusResult", "build_corpus"]
+__all__ = ["CorpusResult", "RenderEstimate", "build_corpus"]
 
 # KG vocabulary this pipeline reads (mirrors the world builder, §3).
 _N_INITIATIVE = "Initiative"
 _N_COMPANY = "Company"
 _E_UNDER = "under"  # project -> scenario initiative
+
+
+@dataclass(frozen=True, slots=True)
+class RenderEstimate:
+    """The pre-render dry-run cost estimate (ARCHITECTURE.md §16.4, D13).
+
+    Computed once the scenarios are scheduled (so the deliverable count is known)
+    but *before* any LLM call, this is the gate a large run is checked against: if
+    ``estimated_cost_usd`` exceeds the configured ceiling the run aborts here, with
+    a clear number, rather than partway through an expensive render.
+
+    Attributes:
+        num_artifacts: Total deliverable events that will be rendered.
+        estimated_cost_usd: ``num_artifacts`` × per-artifact token estimate, priced.
+        input_tokens_each / output_tokens_each / cached_input_tokens_each: The
+            per-artifact token assumptions the estimate used (from ``scale`` config).
+        model: The model the estimate was priced against.
+    """
+
+    num_artifacts: int
+    estimated_cost_usd: float
+    input_tokens_each: int
+    output_tokens_each: int
+    cached_input_tokens_each: int
+    model: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,13 +105,31 @@ class CorpusResult:
     Attributes:
         journal: Every event from every simulated scenario, one append-only log.
         artifacts: The rendered :class:`ProducedArtifact` s, in render order
-            (scenario-clustered, then chronological).
+            (scenario-clustered, then chronological). Empty on a ``dry_run``.
         issues: Soft scheduler validation issues, in scenario order.
+        estimate: The pre-render dry-run cost estimate (D13).
     """
 
     journal: EventJournal
     artifacts: tuple[ProducedArtifact, ...]
     issues: tuple[ValidationIssue, ...] = ()
+    estimate: RenderEstimate | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class _ScenarioPlan:
+    """One scheduled scenario awaiting render (the unit of render concurrency).
+
+    Carries everything a render task needs and nothing it does not: the scenario's
+    own ordered event journal and the cache-friendly :class:`ProducerContext`
+    (stable company/scenario prefix + cluster directory). Tasks are independent —
+    each renders against a private :meth:`World.copy` — so the render phase fans
+    out across plans without sharing mutable state (§16.1, D26).
+    """
+
+    initiative_id: str
+    journal: EventJournal
+    ctx: ProducerContext
 
 
 def build_corpus(
@@ -94,22 +138,38 @@ def build_corpus(
     client: LLMClient,
     *,
     calendar: WorkingCalendar | None = None,
+    dry_run: bool = False,
 ) -> CorpusResult:
     """Simulate every scenario in ``world`` and render its full markdown corpus.
 
-    Mutates ``world`` in place — adds the events to the journal/graph, the
-    scheduler's created nodes and per-person calendars, and every produced
-    artifact node + its relationship edges — and returns the combined
-    :class:`CorpusResult`. The render order is the D29 cache-locality order
-    (scenario-clustered, chronological within a scenario).
+    Runs in three phases so the expensive Layer-C render is bounded and gated:
+
+    1. **Schedule (sequential, D26).** Every scenario's deterministic scheduler
+       runs in id order, mutating ``world`` in place with its created nodes and
+       per-person calendars and yielding its ordered event journal. Scheduling is
+       cheap and order-sensitive, so it stays sequential.
+    2. **Estimate + gate (D13).** With the frozen schedule the total deliverable
+       count is known, so a dry-run cost estimate is computed and checked against
+       the configured ceiling *before* any model call — a large run that would
+       breach the ceiling raises :class:`CostCeilingExceeded` here. With
+       ``dry_run=True`` the function returns after this phase, having rendered
+       nothing.
+    3. **Render (bounded-concurrent, §16.1).** Scenarios render in parallel,
+       capped at ``scale.max_concurrency`` via :meth:`LLMClient.generate_many`.
+       Each scenario renders its deliverables sequentially against a private
+       :meth:`World.copy` — preserving the intra-scenario reference chain (a later
+       artifact can cite an earlier one, D16) and shared-prefix cache locality
+       (D29) — and the produced artifacts are merged back into ``world`` in
+       deterministic scenario order, so concurrency never changes the result.
 
     Args:
         world: The populated Layer-A KG (mutated in place by Layer B + C).
-        config: The validated run configuration (the simulation window).
+        config: The validated run configuration (window + ``scale`` controls).
         client: The LLM client producers render against (a deterministic ``fake``
             client keeps a run network-free and reproducible).
         calendar: Working calendar for all placement arithmetic; a default
             business-hours weekday calendar is used when omitted.
+        dry_run: When true, schedule and estimate only — render nothing.
     """
     calendar = calendar or WorkingCalendar()
     start = datetime.combine(config.simulation.period_start, calendar.day_start)
@@ -117,11 +177,12 @@ def build_corpus(
 
     discover("enterprise_sim.playbooks")  # idempotent; populates the PLAYBOOKS catalog.
 
-    journal = EventJournal()
-    artifacts: list[ProducedArtifact] = []
-    issues: list[ValidationIssue] = []
-
     company_profile = _company_profile(world)
+
+    # -- Phase 1: schedule every scenario (sequential, deterministic). --------
+    journal = EventJournal()
+    issues: list[ValidationIssue] = []
+    plans: list[_ScenarioPlan] = []
 
     for initiative in _scenario_initiatives(world):
         scenario = _scenario_for(initiative, world)
@@ -135,18 +196,85 @@ def build_corpus(
         for event in result.journal.ordered():
             journal.append(event)
 
-        ctx = ProducerContext(
-            company_profile=company_profile,
-            scenario_context=_scenario_context(initiative),
-            artifacts_dir=f"artifacts/{_slug(initiative.id)}",
+        plans.append(
+            _ScenarioPlan(
+                initiative_id=initiative.id,
+                journal=result.journal,
+                ctx=ProducerContext(
+                    company_profile=company_profile,
+                    scenario_context=_scenario_context(initiative),
+                    artifacts_dir=f"artifacts/{_slug(initiative.id)}",
+                ),
+            )
         )
-        artifacts.extend(_render_scenario(world, result.journal, client, ctx))
+
+    # -- Phase 2: estimate cost and enforce the ceiling before any call (D13). -
+    num_artifacts = sum(_deliverable_count(plan.journal) for plan in plans)
+    estimate = _estimate_render(client, config, num_artifacts)
+
+    if dry_run:
+        return CorpusResult(
+            journal=journal,
+            artifacts=(),
+            issues=tuple(issues),
+            estimate=estimate,
+        )
+
+    # -- Phase 3: render scenarios under bounded concurrency, then merge. ------
+    rendered = client.generate_many([_render_task(world, plan) for plan in plans])
+
+    artifacts: list[ProducedArtifact] = []
+    for scenario_artifacts in rendered:
+        apply_to_world(world, scenario_artifacts)
+        artifacts.extend(scenario_artifacts)
 
     return CorpusResult(
         journal=journal,
         artifacts=tuple(artifacts),
         issues=tuple(issues),
+        estimate=estimate,
     )
+
+
+def _deliverable_count(journal: EventJournal) -> int:
+    """Number of events in ``journal`` that request a deliverable (render tasks)."""
+    return sum(1 for event in journal.ordered() if event.deliverable is not None)
+
+
+def _estimate_render(client: LLMClient, config: RunConfig, num_artifacts: int) -> RenderEstimate:
+    """Price the render up front and trip the ceiling before any call (D13)."""
+    scale = config.scale
+    estimated = client.dry_run_estimate(
+        num_tasks=num_artifacts,
+        input_tokens_each=scale.est_input_tokens_per_artifact,
+        output_tokens_each=scale.est_output_tokens_per_artifact,
+        cached_input_tokens_each=scale.est_cached_input_tokens_per_artifact,
+    )
+    return RenderEstimate(
+        num_artifacts=num_artifacts,
+        estimated_cost_usd=estimated,
+        input_tokens_each=scale.est_input_tokens_per_artifact,
+        output_tokens_each=scale.est_output_tokens_per_artifact,
+        cached_input_tokens_each=scale.est_cached_input_tokens_per_artifact,
+        model=client.config.model,
+    )
+
+
+def _render_task(
+    world: World, plan: _ScenarioPlan
+) -> Callable[[LLMClient], list[ProducedArtifact]]:
+    """Build the closure that renders one scenario in isolation (§16.1, D26).
+
+    The closure copies the frozen ``world`` so its in-render mutations
+    (``apply_to_world`` after each artifact, for the reference chain) never touch
+    the shared graph or a sibling scenario — making the render order-independent
+    and the result deterministic regardless of how the thread pool schedules it.
+    """
+
+    def task(client: LLMClient) -> list[ProducedArtifact]:
+        return _render_scenario(world.copy(), plan.journal, client, plan.ctx)
+
+    return task
 
 
 # --------------------------------------------------------------------------- #

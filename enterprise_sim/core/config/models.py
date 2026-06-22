@@ -108,6 +108,52 @@ class ModelConfig(_Frozen):
     )
 
 
+class ScaleConfig(_Frozen):
+    """Scale / cost controls for the Layer C render phase (ARCHITECTURE.md §7/§16.4).
+
+    These knobs bound the parallel render and gate spend before a large run: the
+    render fans out across scenarios capped at ``max_concurrency`` (§16.1 D26), a
+    dry-run estimate (artifact count × per-artifact token estimate) is checked
+    against ``cost_ceiling_usd`` *before* any call is made (D13), and the on-disk
+    response cache (D31) is configured here so cheap re-runs only regenerate what
+    changed. All have safe defaults so a config need not mention scale at all.
+    """
+
+    max_concurrency: int = Field(
+        default=8,
+        ge=1,
+        description="Max scenarios rendered in parallel (the Layer C concurrency dial).",
+    )
+    cost_ceiling_usd: float | None = Field(
+        default=None,
+        ge=0.0,
+        description="Hard USD ceiling; a dry-run estimate over it aborts before any call.",
+    )
+    est_input_tokens_per_artifact: int = Field(
+        default=1200,
+        ge=0,
+        description="Per-artifact input-token estimate used by the dry-run gate (D13).",
+    )
+    est_cached_input_tokens_per_artifact: int = Field(
+        default=0,
+        ge=0,
+        description="Per-artifact cached-prefix input tokens assumed by the dry-run gate.",
+    )
+    est_output_tokens_per_artifact: int = Field(
+        default=600,
+        ge=0,
+        description="Per-artifact output-token estimate used by the dry-run gate (D13).",
+    )
+    cache_dir: str | None = Field(
+        default=None,
+        description="On-disk response-cache directory (D31); in-memory only when unset.",
+    )
+    cache_enabled: bool = Field(
+        default=True,
+        description="Whether the response cache is consulted/written (D31).",
+    )
+
+
 class RunConfig(_Frozen):
     """Top-level run configuration: the complete validated input to a simulation."""
 
@@ -127,3 +173,4 @@ class RunConfig(_Frozen):
         description="Optional anchor projects; empty lets Layer A invent them.",
     )
     model: ModelConfig = Field(default_factory=ModelConfig)
+    scale: ScaleConfig = Field(default_factory=ScaleConfig)

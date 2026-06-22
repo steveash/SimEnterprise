@@ -18,6 +18,7 @@ from enterprise_sim import __version__
 
 if TYPE_CHECKING:
     from enterprise_sim.authoring.sdk import Playbook
+    from enterprise_sim.core.config import RunConfig
 
 
 def _cmd_run(args: argparse.Namespace) -> int:
@@ -42,6 +43,8 @@ def _cmd_run(args: argparse.Namespace) -> int:
     if args.output_dir is not None:
         config = config.model_copy(update={"output_dir": args.output_dir})
 
+    config = _apply_scale_overrides(config, args)
+
     print(
         f"enterprise-sim run: validated config for {config.company.name} "
         f"({config.company.vertical}, {config.company.size.value}); "
@@ -49,12 +52,56 @@ def _cmd_run(args: argparse.Namespace) -> int:
         f"..{config.simulation.period_end.isoformat()}, projects={len(config.projects)}"
     )
 
-    result = execute_run(config)
+    from enterprise_sim.core.llm import CostCeilingExceeded
+
+    if args.dry_run:
+        from enterprise_sim.assembly import estimate_run
+
+        try:
+            estimate = estimate_run(config)
+        except CostCeilingExceeded as exc:
+            print(f"enterprise-sim run: {exc}")
+            return 1
+        ceiling = config.scale.cost_ceiling_usd
+        print(
+            f"enterprise-sim run (dry-run): {estimate.num_artifacts} artifacts, "
+            f"estimated ${estimate.estimated_cost_usd:.4f} "
+            f"({estimate.input_tokens_each}+{estimate.output_tokens_each} tok/artifact, "
+            f"model {estimate.model})"
+            + (f"; ceiling ${ceiling:.4f}" if ceiling is not None else "")
+        )
+        return 0
+
+    try:
+        result = execute_run(config)
+    except CostCeilingExceeded as exc:
+        print(f"enterprise-sim run: {exc}")
+        return 1
+    rendered_estimate = result.corpus.estimate
+    estimate_note = (
+        f", est ${rendered_estimate.estimated_cost_usd:.4f}"
+        if rendered_estimate is not None
+        else ""
+    )
     print(
         f"enterprise-sim run: wrote {result.run_id} to {result.run_dir} "
-        f"({len(result.corpus.journal)} events, {len(result.corpus.artifacts)} artifacts)"
+        f"({len(result.corpus.journal)} events, {len(result.corpus.artifacts)} artifacts"
+        f"{estimate_note})"
     )
     return 0
+
+
+def _apply_scale_overrides(config: RunConfig, args: argparse.Namespace) -> RunConfig:
+    """Apply ``--max-concurrency`` / ``--cost-ceiling`` CLI overrides onto ``config``."""
+    updates: dict[str, object] = {}
+    if args.max_concurrency is not None:
+        updates["max_concurrency"] = args.max_concurrency
+    if args.cost_ceiling is not None:
+        updates["cost_ceiling_usd"] = args.cost_ceiling
+    if not updates:
+        return config
+    scale = config.scale.model_copy(update=updates)
+    return config.model_copy(update={"scale": scale})
 
 
 def _cmd_lint(args: argparse.Namespace) -> int:
@@ -197,6 +244,27 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         metavar="DIR",
         help="override the config's output_dir (run lands in DIR/<run-id>/)",
+    )
+    run_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="estimate artifact count + cost and exit without rendering (D13)",
+    )
+    run_parser.add_argument(
+        "--max-concurrency",
+        dest="max_concurrency",
+        type=int,
+        default=None,
+        metavar="N",
+        help="override scale.max_concurrency (parallel scenario renders)",
+    )
+    run_parser.add_argument(
+        "--cost-ceiling",
+        dest="cost_ceiling",
+        type=float,
+        default=None,
+        metavar="USD",
+        help="override scale.cost_ceiling_usd (abort if the dry-run estimate exceeds it)",
     )
     run_parser.set_defaults(func=_cmd_run)
 
