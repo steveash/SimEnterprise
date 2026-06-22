@@ -21,6 +21,10 @@ from enterprise_sim.assembly.runner import (
     compute_run_id,
     execute_run,
 )
+from enterprise_sim.assembly.validation import (
+    summarize_issue_rows,
+    validate_consistency,
+)
 
 __all__ = [
     "SCHEMA_VERSION",
@@ -34,4 +38,6 @@ __all__ = [
     "compute_run_id",
     "execute_run",
     "structural_view",
+    "summarize_issue_rows",
+    "validate_consistency",
 ]

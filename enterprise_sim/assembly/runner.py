@@ -20,12 +20,13 @@ import json
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, time
 from pathlib import Path
 
 from enterprise_sim import __version__
 from enterprise_sim.assembly.corpus import CorpusResult, build_corpus
 from enterprise_sim.assembly.manifest import SCHEMA_VERSION, Manifest
+from enterprise_sim.assembly.validation import summarize_issue_rows, validate_consistency
 from enterprise_sim.core.config import RunConfig
 from enterprise_sim.core.llm import LLMClient, build_client
 from enterprise_sim.core.sim.scheduler import ValidationIssue
@@ -39,8 +40,7 @@ from enterprise_sim.world_builders import build_world, write_organization
 
 # Subdirectories every run lays down. ``organization/`` holds the Layer-A
 # markdown reference data and ``kg/`` the structural KG export (nodes/edges);
-# ``validation/`` is reserved for the consistency validator of a later milestone
-# — created here so the layout is stable from day one.
+# ``validation/`` holds the consistency validator's ``issues.jsonl`` (§11.4/D17).
 _ORGANIZATION_DIR = "organization"
 _KG_DIR = "kg"
 _VALIDATION_DIR = "validation"
@@ -106,17 +106,21 @@ def build_manifest(
     config: RunConfig,
     *,
     counts: dict[str, int] | None = None,
+    validation: dict[str, object] | None = None,
     generated_at: str | None = None,
 ) -> Manifest:
     """Build the :class:`Manifest` for ``config`` (no filesystem side effects).
 
     ``counts`` records the size of the built knowledge graph (nodes/edges/events).
     It defaults to zeros so the manifest can be built before a world exists;
-    :func:`execute_run` passes the real Layer-A counts.
+    :func:`execute_run` passes the real Layer-A counts. ``validation`` is the
+    consistency-validator summary of ``validation/issues.jsonl`` (total + per-kind
+    tally); it defaults to an empty/clean summary.
     """
     digest = compute_config_digest(config)
     stamp = generated_at if generated_at is not None else datetime.now(UTC).isoformat()
     counts = counts if counts is not None else {"nodes": 0, "edges": 0, "events": 0}
+    validation = validation if validation is not None else {"total": 0, "by_kind": {}}
     return Manifest(
         schema_version=SCHEMA_VERSION,
         run_id=compute_run_id(config, digest=digest),
@@ -133,6 +137,7 @@ def build_manifest(
             "end": config.simulation.period_end.isoformat(),
         },
         counts=dict(counts),
+        validation=dict(validation),
         outputs={
             "config_snapshot": _CONFIG_SNAPSHOT,
             "organization": f"{_ORGANIZATION_DIR}/",
@@ -178,12 +183,28 @@ def execute_run(
     world = build_world(config)
     corpus = build_corpus(world, config, client)
 
+    # The consistency validator (D17): soft cross-checks over the built run. Its
+    # findings join the scheduler's and producers' issues in one issues.jsonl,
+    # and the combined tally is summarised into the manifest. Report-and-continue
+    # — a finding never fails the run.
+    consistency = validate_consistency(world, corpus.journal, window=_simulation_window(config))
+    issue_rows = [
+        *_scheduler_issue_records(corpus.issues),
+        *issue_records(corpus.artifacts),
+        *(issue.to_dict() for issue in consistency),
+    ]
+
     counts = {
         "nodes": world.node_count,
         "edges": world.edge_count,
         "events": len(corpus.journal),
     }
-    manifest = build_manifest(config, counts=counts, generated_at=generated_at)
+    manifest = build_manifest(
+        config,
+        counts=counts,
+        validation=summarize_issue_rows(issue_rows),
+        generated_at=generated_at,
+    )
     run_dir = config.output_dir / manifest.run_id
 
     for name in (_ORGANIZATION_DIR, _KG_DIR, _VALIDATION_DIR, _ARTIFACTS_DIR):
@@ -196,6 +217,7 @@ def execute_run(
     _write_artifacts(run_dir, corpus)
     _write_kg(world, run_dir / _KG_DIR)
     _write_corpus_side_files(run_dir, corpus)
+    _write_jsonl(run_dir / _VALIDATION_DIR / _VALIDATION_ISSUES, issue_rows)
 
     manifest_json = json.dumps(manifest.to_dict(), sort_keys=True, indent=2)
     (run_dir / _MANIFEST).write_text(manifest_json + "\n", encoding="utf-8")
@@ -217,15 +239,27 @@ def _write_artifacts(run_dir: Path, corpus: CorpusResult) -> None:
         path.write_text(artifact.body, encoding="utf-8")
 
 
+def _simulation_window(config: RunConfig) -> tuple[datetime, datetime]:
+    """The inclusive ``(start, end)`` sim-time window the validator checks against.
+
+    Whole-day inclusive of ``[period_start, period_end]`` so a stamp is judged
+    out-of-window by its *date*, never by working-hour boundaries within a day.
+    """
+    start = datetime.combine(config.simulation.period_start, time.min)
+    end = datetime.combine(config.simulation.period_end, time.max)
+    return (start, end)
+
+
 def _write_corpus_side_files(run_dir: Path, corpus: CorpusResult) -> None:
-    """Write the Layer B/C side files: events, mentions, provenance, and issues (§11.4)."""
+    """Write the Layer B/C KG side files: events, mentions, and provenance (§11.4).
+
+    The ``validation/issues.jsonl`` index is written by :func:`execute_run`, which
+    merges these scheduler/producer findings with the consistency validator's.
+    """
     kg_dir = run_dir / _KG_DIR
     (kg_dir / _KG_EVENTS).write_text(corpus.journal.dumps(), encoding="utf-8")
     _write_jsonl(kg_dir / _KG_MENTIONS, mention_records(corpus.artifacts))
     _write_jsonl(kg_dir / _KG_PROVENANCE, provenance_records(corpus.artifacts))
-
-    issues = [*_scheduler_issue_records(corpus.issues), *issue_records(corpus.artifacts)]
-    _write_jsonl(run_dir / _VALIDATION_DIR / _VALIDATION_ISSUES, issues)
 
 
 def _scheduler_issue_records(

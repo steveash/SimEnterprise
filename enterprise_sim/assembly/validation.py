@@ -131,28 +131,20 @@ def _dangling_edge_endpoints(world: World) -> list[ValidationIssue]:
     return issues
 
 
-def _dangling_event_references(
-    world: World, events: Iterable[Event]
-) -> list[ValidationIssue]:
+def _dangling_event_references(world: World, events: Iterable[Event]) -> list[ValidationIssue]:
     """Flag event subjects/actors that name no node, and unknown ``parent_event`` ids."""
     issues: list[ValidationIssue] = []
     known_events = {event.id for event in events}
     for event in sorted(events, key=lambda e: e.id):
         for subject in event.subjects:
             if world.get_node(subject) is None:
-                issues.append(
-                    _event_ref_issue(event.id, "subject", subject)
-                )
+                issues.append(_event_ref_issue(event.id, "subject", subject))
         for role, person_ids in sorted(event.actors.items()):
             for person_id in person_ids:
                 if world.get_node(person_id) is None:
-                    issues.append(
-                        _event_ref_issue(event.id, f"actor:{role}", person_id)
-                    )
+                    issues.append(_event_ref_issue(event.id, f"actor:{role}", person_id))
         if event.parent_event is not None and event.parent_event not in known_events:
-            issues.append(
-                _event_ref_issue(event.id, "parent_event", event.parent_event)
-            )
+            issues.append(_event_ref_issue(event.id, "parent_event", event.parent_event))
     return issues
 
 
@@ -192,10 +184,7 @@ def _scheduling_conflicts(world: World) -> list[ValidationIssue]:
                 issues.append(
                     ValidationIssue(
                         kind=SCHEDULING_CONFLICT,
-                        message=(
-                            f"calendar event {node_id!r} for {person!r} overlaps "
-                            f"{prev_id!r}"
-                        ),
+                        message=(f"calendar event {node_id!r} for {person!r} overlaps {prev_id!r}"),
                         where=node_id,
                         details={
                             "person": person,
