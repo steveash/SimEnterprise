@@ -1,0 +1,33 @@
+# Enterprise Sim — the v1 *golden run* (PLAN.md §4, "first vertical slice").
+#
+# The smallest end-to-end run that still exercises the whole framework: one
+# department, one scenario, a small team, over a single business week — rendered
+# to a markdown corpus plus the gold knowledge graph that serves as its answer
+# key. Deterministic and network-free (default `fake` backend), so two runs of
+# this config reproduce byte-for-byte.
+#
+# Reproduce:
+#   enterprise-sim run examples/golden.toml -o runs
+#   enterprise-sim eval runs/<run-id>
+#
+# See docs/GOLDEN_RUN.md for the full walkthrough and acceptance criteria.
+
+seed = 7
+output_dir = "runs/golden"
+
+[company]
+name = "Golden Slice Co"
+vertical = "software"
+# `startup` caps the org at a single department and the lowest staffing band,
+# which keeps the slice tiny (one engineering department, one scenario).
+size = "startup"
+description = "A tiny startup used as the v1 golden end-to-end acceptance run."
+
+[simulation]
+# One full business week (Mon 2026-01-05 .. Fri 2026-01-09).
+period_start = 2026-01-05
+period_end = 2026-01-09
+
+# No anchor projects: the engineering archetype's single program owns exactly one
+# scenario (the `build_software` playbook), so the run stays at 1 department / 1
+# scenario. Add `[[projects]]` entries to grow the run.
