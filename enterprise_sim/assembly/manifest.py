@@ -21,7 +21,8 @@ from dataclasses import dataclass
 from typing import Any
 
 # Bumped when the manifest shape changes incompatibly. Consumers should check it.
-SCHEMA_VERSION = "1.0"
+# 1.1 added the ``validation`` summary block (consistency validator, §11.4/D17).
+SCHEMA_VERSION = "1.1"
 
 # Fields that intentionally vary between otherwise-identical runs (wall clock,
 # host, …). Excluded from the structural view used for reproducibility checks.
@@ -44,6 +45,7 @@ class Manifest:
     company: dict[str, Any]
     window: dict[str, str]
     counts: dict[str, int]
+    validation: dict[str, Any]
     outputs: dict[str, str]
     generated_at: str
 
@@ -58,6 +60,7 @@ class Manifest:
             "company": dict(self.company),
             "window": dict(self.window),
             "counts": dict(self.counts),
+            "validation": dict(self.validation),
             "outputs": dict(self.outputs),
             "generated_at": self.generated_at,
         }
@@ -74,6 +77,7 @@ class Manifest:
             company=dict(data["company"]),
             window=dict(data["window"]),
             counts=dict(data["counts"]),
+            validation=dict(data.get("validation", {})),
             outputs=dict(data["outputs"]),
             generated_at=data["generated_at"],
         )
