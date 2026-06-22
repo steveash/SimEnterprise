@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Sequence
+from pathlib import Path
 
 from pydantic import ValidationError
 
@@ -16,21 +17,26 @@ from enterprise_sim import __version__
 
 
 def _cmd_run(args: argparse.Namespace) -> int:
-    """Load and validate a run config; the engine itself is not yet wired."""
-    if args.config is None:
+    """Load a config and materialize an (M1: empty) reproducible run directory."""
+    config_path = args.config_opt if args.config_opt is not None else args.config
+    if config_path is None:
         print("enterprise-sim run: provide a config path (.toml or .json)")
         return 2
 
+    from enterprise_sim.assembly import execute_run
     from enterprise_sim.core.config import ConfigError, load_config
 
     try:
-        config = load_config(args.config)
+        config = load_config(config_path)
     except ConfigError as exc:
         print(f"enterprise-sim run: {exc}")
         return 2
     except ValidationError as exc:
-        print(f"enterprise-sim run: invalid config {args.config}:\n{exc}")
+        print(f"enterprise-sim run: invalid config {config_path}:\n{exc}")
         return 2
+
+    if args.output_dir is not None:
+        config = config.model_copy(update={"output_dir": args.output_dir})
 
     print(
         f"enterprise-sim run: validated config for {config.company.name} "
@@ -38,7 +44,9 @@ def _cmd_run(args: argparse.Namespace) -> int:
         f"seed={config.seed}, window={config.simulation.period_start.isoformat()}"
         f"..{config.simulation.period_end.isoformat()}, projects={len(config.projects)}"
     )
-    print("enterprise-sim run: engine not yet implemented")
+
+    result = execute_run(config)
+    print(f"enterprise-sim run: wrote {result.run_id} to {result.run_dir}")
     return 0
 
 
@@ -65,6 +73,23 @@ def build_parser() -> argparse.ArgumentParser:
 
     run_parser = subparsers.add_parser("run", help="run a simulation from a config")
     run_parser.add_argument("config", nargs="?", default=None, help="path to a run config")
+    run_parser.add_argument(
+        "-c",
+        "--config",
+        dest="config_opt",
+        default=None,
+        metavar="PATH",
+        help="path to a run config (alternative to the positional argument)",
+    )
+    run_parser.add_argument(
+        "-o",
+        "--output-dir",
+        dest="output_dir",
+        type=Path,
+        default=None,
+        metavar="DIR",
+        help="override the config's output_dir (run lands in DIR/<run-id>/)",
+    )
     run_parser.set_defaults(func=_cmd_run)
 
     lint_parser = subparsers.add_parser("lint", help="static-lint playbooks/processes")
