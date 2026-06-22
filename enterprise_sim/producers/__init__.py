@@ -31,17 +31,21 @@ from enterprise_sim.producers.grounding import (
     tag_mentions,
 )
 from enterprise_sim.producers.markdown import MarkdownProducer, ProducerContext
+from enterprise_sim.producers.pptx import PptxProducer, Slide, build_kickoff_deck
 
 __all__ = [
     "DEFAULT_NAMED_TYPES",
     "Locator",
     "MarkdownProducer",
     "Mention",
+    "PptxProducer",
     "ProducedArtifact",
     "ProducerContext",
     "Roster",
     "RosterEntry",
+    "Slide",
     "ValidationIssue",
+    "build_kickoff_deck",
     "apply_to_world",
     "detect_unresolved_names",
     "issue_records",

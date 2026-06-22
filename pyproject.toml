@@ -7,6 +7,7 @@ requires-python = ">=3.12"
 license = { text = "Proprietary" }
 dependencies = [
     "pydantic>=2.6",
+    "python-pptx>=1.0",
 ]
 
 [project.scripts]
