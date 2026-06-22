@@ -38,7 +38,6 @@ from enterprise_sim.world_builders.builder import (
     N_GOAL,
     N_INITIATIVE,
     N_PERSON,
-    N_PROJECT,
 )
 
 __all__ = ["render_organization", "write_organization"]
@@ -178,7 +177,8 @@ def _render_initiatives(world: World, dept: Node) -> list[str]:
             for project in world.neighbors(scenario.id, E_UNDER, direction="in"):
                 lines.append(f"        - 📦 {project.props.get('name', _tail(project.id))}")
                 for person, role in _project_members(world, project.id):
-                    lines.append(f"            - {role}: {person.props.get('name', _tail(person.id))}")
+                    who = person.props.get("name", _tail(person.id))
+                    lines.append(f"            - {role}: {who}")
     return lines
 
 

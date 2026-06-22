@@ -39,9 +39,18 @@ def test_execute_run_lays_out_directory(tmp_path: Path) -> None:
         assert (result.run_dir / sub).is_dir()
 
 
-def test_organization_is_empty(tmp_path: Path) -> None:
+def test_organization_and_kg_are_populated(tmp_path: Path) -> None:
+    # Layer A (M4) fills organization/ with markdown reference data and kg/ with
+    # the structural export; the run is no longer empty.
     result = execute_run(_config(tmp_path))
-    assert list((result.run_dir / "organization").iterdir()) == []
+    org = result.run_dir / "organization"
+    assert (org / "README.md").is_file()
+    assert (org / "company.md").is_file()
+    assert (org / "people.md").is_file()
+    assert (org / "departments").is_dir()
+    assert (result.run_dir / "kg" / "nodes.jsonl").is_file()
+    assert (result.run_dir / "kg" / "edges.jsonl").is_file()
+    assert result.world.node_count > 0
 
 
 def test_run_id_is_slug_plus_digest(tmp_path: Path) -> None:
@@ -57,7 +66,13 @@ def test_manifest_round_trips_and_matches_disk(tmp_path: Path) -> None:
 
     assert Manifest.from_dict(on_disk) == result.manifest
     assert on_disk == result.manifest.to_dict()
-    assert on_disk["counts"] == {"nodes": 0, "edges": 0, "events": 0}
+    # Counts now mirror the Layer-A world that was built and exported.
+    assert on_disk["counts"] == {
+        "nodes": result.world.node_count,
+        "edges": result.world.edge_count,
+        "events": result.world.event_count,
+    }
+    assert on_disk["counts"]["nodes"] > 0
     assert on_disk["seed"] == 7
 
 
