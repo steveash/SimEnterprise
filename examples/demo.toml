@@ -1,0 +1,28 @@
+# Sample Enterprise Sim run config.
+# Load + validate with `enterprise_sim.core.config.load_config("examples/demo.toml")`.
+
+seed = 42
+output_dir = "runs/demo"
+
+[company]
+name = "Northwind Tools"
+vertical = "software"
+size = "small"
+description = "A B2B SaaS company building developer productivity tooling."
+
+[simulation]
+period_start = 2026-01-01
+period_end = 2026-01-31
+
+[model]
+backend = "anthropic_api"
+name = "claude-opus-4-8"
+realism = 0.7
+
+[[projects]]
+name = "Onboarding revamp"
+description = "Rebuild the new-user onboarding flow."
+
+[[projects]]
+name = "Billing migration"
+description = "Migrate billing to the new metering service."

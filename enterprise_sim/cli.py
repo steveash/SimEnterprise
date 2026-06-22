@@ -10,12 +10,35 @@ from __future__ import annotations
 import argparse
 from collections.abc import Sequence
 
+from pydantic import ValidationError
+
 from enterprise_sim import __version__
 
 
 def _cmd_run(args: argparse.Namespace) -> int:
-    """Run a simulation from a config (not yet implemented)."""
-    print(f"enterprise-sim run: not yet implemented (config={args.config})")
+    """Load and validate a run config; the engine itself is not yet wired."""
+    if args.config is None:
+        print("enterprise-sim run: provide a config path (.toml or .json)")
+        return 2
+
+    from enterprise_sim.core.config import ConfigError, load_config
+
+    try:
+        config = load_config(args.config)
+    except ConfigError as exc:
+        print(f"enterprise-sim run: {exc}")
+        return 2
+    except ValidationError as exc:
+        print(f"enterprise-sim run: invalid config {args.config}:\n{exc}")
+        return 2
+
+    print(
+        f"enterprise-sim run: validated config for {config.company.name} "
+        f"({config.company.vertical}, {config.company.size.value}); "
+        f"seed={config.seed}, window={config.simulation.period_start.isoformat()}"
+        f"..{config.simulation.period_end.isoformat()}, projects={len(config.projects)}"
+    )
+    print("enterprise-sim run: engine not yet implemented")
     return 0
 
 

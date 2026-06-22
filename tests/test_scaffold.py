@@ -18,5 +18,7 @@ def test_parser_has_subcommands() -> None:
 
 
 def test_cli_subcommands_dispatch() -> None:
-    for command in ("run", "lint", "eval"):
+    # `run` with no config reports usage and exits non-zero; lint/eval are stubs.
+    assert main(["run"]) == 2
+    for command in ("lint", "eval"):
         assert main([command]) == 0
