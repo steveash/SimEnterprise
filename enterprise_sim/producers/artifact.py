@@ -148,13 +148,25 @@ class ProducedArtifact:
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def expressed_targets(self) -> list[str]:
-        """Node/edge ids whose provenance includes this artifact (§11.3).
+        """Node and edge ids whose provenance includes this artifact (§11.3, D19).
 
-        The artifact node itself plus every ``expresses`` edge destination — the
-        entities and relationships this file is evidence for.
+        Provenance targets *both nodes and edges* — the whole point of reifying
+        edges. This file is artifact-level evidence for:
+
+        * the ``Artifact`` **node** it renders (``artifact_id``);
+        * each subject **node** it expresses — the destination of every
+          ``expresses`` edge (the entity the file is about);
+        * each reified **relationship** it establishes — the ``authored`` /
+          ``reviewed`` / ``references`` edge ids. An ``expresses`` edge is itself
+          the provenance link (its source *is* this artifact), so it contributes
+          its subject node rather than its own id, which would be circular.
         """
         targets = [self.artifact_id]
-        targets.extend(e.dst for e in self.edges if e.type == "expresses")
+        for edge in self.edges:
+            if edge.type == "expresses":
+                targets.append(edge.dst)  # the subject node this file is evidence for
+            else:
+                targets.append(edge.id)  # the reified authored/reviewed/references edge
         return targets
 
     def references(self) -> list[str]:
@@ -179,12 +191,17 @@ def apply_to_world(world: World, produced: Iterable[ProducedArtifact]) -> None:
 
 
 def provenance_records(produced: Iterable[ProducedArtifact]) -> list[dict[str, Any]]:
-    """Invert produced artifacts into ``provenance.jsonl`` rows (§11.4).
+    """Invert produced artifacts into ``provenance.jsonl`` rows (§11.4, D19).
 
     Provenance is keyed by *target* (node or edge id) → the artifacts that express
     it; producers naturally carry the inverse (artifact → targets), so we pivot.
     Rows are sorted by ``target_id`` and each artifact list by path for stable,
     line-diffable output.
+
+    Provenance is **artifact-level** in v1: each artifact entry is ``{"path": ...}``
+    with the span ``locator`` field deliberately *reserved* (omitted) for a future
+    span-level grounding pass — mirroring the ``{path, locator?}`` shape in §11.4.
+    Mentions (:func:`mention_records`) already carry full span locators.
     """
     by_target: dict[str, list[str]] = {}
     for art in produced:

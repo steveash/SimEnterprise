@@ -261,3 +261,26 @@ def test_apply_to_world_and_side_files() -> None:
 
     mentions = mention_records([produced])
     assert mentions == [m.to_dict() for m in produced.mentions]
+
+
+def test_provenance_targets_both_nodes_and_edges() -> None:
+    # D19: provenance is artifact-level evidence for nodes *and* reified edges.
+    produced = MarkdownProducer().produce(_event(), _world(), _fake_client())
+    targets = {r["target_id"] for r in provenance_records([produced])}
+
+    # Node targets: the artifact itself and every subject it expresses.
+    assert produced.artifact_id in targets
+    assert "project:payments" in targets
+    # Edge targets: the authored/reviewed/references relationships it establishes.
+    relationship_edges = [e for e in produced.edges if e.type != "expresses"]
+    assert relationship_edges, "expected authored/reviewed/references edges"
+    assert all(e.id in targets for e in relationship_edges)
+    # The expresses edge contributes its subject node, not its own (circular) id.
+    for edge in produced.edges:
+        if edge.type == "expresses":
+            assert edge.id not in targets
+    # Every provenance row points at the artifact path with no locator field yet
+    # (artifact-level in v1; the span locator is reserved — §11.4 / D19).
+    for row in provenance_records([produced]):
+        assert {a["path"] for a in row["artifacts"]} == {produced.path}
+        assert all("locator" not in a for a in row["artifacts"])
