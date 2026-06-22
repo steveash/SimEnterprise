@@ -10,10 +10,14 @@ from __future__ import annotations
 import argparse
 from collections.abc import Sequence
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from pydantic import ValidationError
 
 from enterprise_sim import __version__
+
+if TYPE_CHECKING:
+    from enterprise_sim.authoring.sdk import Playbook
 
 
 def _cmd_run(args: argparse.Namespace) -> int:
@@ -51,9 +55,69 @@ def _cmd_run(args: argparse.Namespace) -> int:
 
 
 def _cmd_lint(args: argparse.Namespace) -> int:
-    """Tier 1 static lint of playbooks/processes (not yet implemented)."""
-    print(f"enterprise-sim lint: not yet implemented (target={args.target})")
-    return 0
+    """Tier 1 static lint of playbooks (ARCHITECTURE §13).
+
+    Lints one target — a reference-playbook name, a ``"module:callable"`` ref that
+    returns a :class:`Playbook`, or a ``.json`` file of a serialized playbook — or
+    every reference playbook when no target is given. Returns ``1`` if any lint
+    found an error, else ``0``.
+    """
+    from enterprise_sim.authoring.lint import format_result, lint_playbook
+    from enterprise_sim.authoring.patterns import REFERENCE_PLAYBOOKS
+
+    targets: list[tuple[str, Playbook]]
+    if args.target is None:
+        targets = [(name, factory()) for name, factory in REFERENCE_PLAYBOOKS.items()]
+    else:
+        try:
+            targets = [(args.target, _load_lint_target(args.target))]
+        except (ValueError, ImportError, OSError) as exc:
+            print(f"enterprise-sim lint: {exc}")
+            return 2
+
+    had_error = False
+    for name, playbook in targets:
+        result = lint_playbook(playbook)
+        print(format_result(result, name))
+        had_error = had_error or not result.ok
+    return 1 if had_error else 0
+
+
+def _load_lint_target(target: str) -> Playbook:
+    """Resolve a lint ``target`` string to a :class:`Playbook`.
+
+    Accepts a reference-playbook name, a ``"pkg.module:callable"`` reference (the
+    callable is invoked and must return a ``Playbook``), or a path to a ``.json``
+    file holding a serialized playbook (``Playbook.to_dict`` output).
+    """
+    import importlib
+    import json
+
+    from enterprise_sim.authoring.patterns import REFERENCE_PLAYBOOKS
+    from enterprise_sim.authoring.sdk import Playbook
+
+    if target in REFERENCE_PLAYBOOKS:
+        return REFERENCE_PLAYBOOKS[target]()
+
+    if target.endswith(".json"):
+        path = Path(target)
+        if not path.is_file():
+            raise OSError(f"no such playbook file: {target}")
+        return Playbook.from_dict(json.loads(path.read_text(encoding="utf-8")))
+
+    if ":" in target:
+        module_path, _, attr = target.partition(":")
+        module = importlib.import_module(module_path)
+        factory = getattr(module, attr)
+        playbook = factory() if callable(factory) else factory
+        if not isinstance(playbook, Playbook):
+            raise ValueError(f"{target} did not yield a Playbook")
+        return playbook
+
+    raise ValueError(
+        f"unknown lint target {target!r} "
+        f"(known playbooks: {sorted(REFERENCE_PLAYBOOKS)}; or use module:callable / file.json)"
+    )
 
 
 def _cmd_eval(args: argparse.Namespace) -> int:

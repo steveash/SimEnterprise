@@ -10,6 +10,14 @@ land alongside in later milestones.
 
 from __future__ import annotations
 
+from enterprise_sim.authoring.lint import (
+    Diagnostic,
+    LintResult,
+    Severity,
+    lint_playbook,
+    lint_process,
+    scan_impl_source,
+)
 from enterprise_sim.authoring.patterns import (
     REFERENCE_PLAYBOOKS,
     build_software,
@@ -48,9 +56,11 @@ __all__ = [
     "ConditionExpr",
     "Declares",
     "Deliverable",
+    "Diagnostic",
     "EffectKind",
     "EmittedEvent",
     "KGEffect",
+    "LintResult",
     "Match",
     "MatchOp",
     "OnCadence",
@@ -63,11 +73,15 @@ __all__ = [
     "Process",
     "Role",
     "Selector",
+    "Severity",
     "Spread",
     "Step",
     "Trigger",
     "build_software",
+    "lint_playbook",
+    "lint_process",
     "run_clinical_study",
+    "scan_impl_source",
     "sell_merchandise",
     "trigger_from_dict",
 ]
