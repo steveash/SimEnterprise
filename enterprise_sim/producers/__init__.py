@@ -3,8 +3,10 @@
 A producer is a pure function of ``(Event, WorldView)`` that renders one or more
 files and returns the knowledge-graph facts they express (nodes, edges, mentions,
 provenance, validation issues). The v1 :class:`MarkdownProducer` is the default
-the binding map routes every deliverable kind to; ``word``/``pptx``/``jira``
-producers register alongside it later without touching ``core/``.
+the binding map routes every deliverable kind to; :class:`OutlookProducer` renders
+the email/meeting kinds to ``.eml`` threads + ``.ics`` invites, and
+``word``/``pptx``/``jira`` producers register alongside them later without touching
+``core/``.
 
 Shared, format-free building blocks live in
 :mod:`enterprise_sim.producers.artifact` (result value types) and
@@ -23,6 +25,19 @@ from enterprise_sim.producers.artifact import (
     mention_records,
     provenance_records,
 )
+from enterprise_sim.producers.calendar_ics import (
+    Attendee,
+    Calendar,
+    Meeting,
+    render_calendar,
+)
+from enterprise_sim.producers.email_eml import (
+    EmailMessage,
+    EmailThread,
+    Participant,
+    render_message,
+    render_thread,
+)
 from enterprise_sim.producers.grounding import (
     DEFAULT_NAMED_TYPES,
     Roster,
@@ -31,13 +46,21 @@ from enterprise_sim.producers.grounding import (
     tag_mentions,
 )
 from enterprise_sim.producers.markdown import MarkdownProducer, ProducerContext
+from enterprise_sim.producers.outlook import OutlookProducer
 from enterprise_sim.producers.pptx import PptxProducer, Slide, build_kickoff_deck
 
 __all__ = [
     "DEFAULT_NAMED_TYPES",
+    "Attendee",
+    "Calendar",
+    "EmailMessage",
+    "EmailThread",
     "Locator",
     "MarkdownProducer",
+    "Meeting",
     "Mention",
+    "OutlookProducer",
+    "Participant",
     "PptxProducer",
     "ProducedArtifact",
     "ProducerContext",
@@ -51,5 +74,8 @@ __all__ = [
     "issue_records",
     "mention_records",
     "provenance_records",
+    "render_calendar",
+    "render_message",
+    "render_thread",
     "tag_mentions",
 ]
