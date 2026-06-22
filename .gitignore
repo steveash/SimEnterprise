@@ -2,8 +2,18 @@
 .claude/
 .opencode/
 .logs/
-__pycache__/
 state.json
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+build/
+dist/
 CLAUDE.md
 CLAUDE.local.md
 GEMINI.md
