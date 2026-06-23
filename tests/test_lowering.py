@@ -132,9 +132,7 @@ def test_lower_step_requires_an_emit() -> None:
         (sdk.Probabilistic(rate=2.0, per="day"), spec.Probabilistic),
     ],
 )
-def test_lower_trigger_maps_each_of_the_six(
-    trigger: sdk.Trigger, expected_type: type
-) -> None:
+def test_lower_trigger_maps_each_of_the_six(trigger: sdk.Trigger, expected_type: type) -> None:
     assert isinstance(lowering.lower_trigger(trigger), expected_type)
 
 

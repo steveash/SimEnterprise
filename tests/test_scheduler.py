@@ -266,6 +266,7 @@ def test_comment_threads_are_well_formed() -> None:
     # No comment threads to an event that comes after it in time.
     by_id = {e.id: e for e in result.journal}
     for comment in comments:
+        assert comment.parent_event is not None
         parent = by_id[comment.parent_event]
         assert parent.timestamp <= comment.timestamp
 

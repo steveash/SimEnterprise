@@ -42,9 +42,7 @@ def test_satisfying_candidates_satisfy_where_filters() -> None:
     tw = tk.TestWorld.satisfying(process)
     reviewers_sel = next(r.select for r in process.roles if r.name == "reviewers")
     assert reviewers_sel is not None
-    matching = [
-        n for n in tw.world.nodes_by_type("Person") if n.props.get("team") == "engineering"
-    ]
+    matching = [n for n in tw.world.nodes_by_type("Person") if n.props.get("team") == "engineering"]
     # Enough engineering reviewers to satisfy the 2..3 count.
     assert len(matching) >= 3
 

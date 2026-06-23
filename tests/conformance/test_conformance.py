@@ -123,9 +123,7 @@ def test_i5_flags_event_emitted_beyond_declares() -> None:
     process = sdk.Process(
         name="leaky",
         roles=(sdk.Role(name="author"),),
-        steps=(
-            sdk.Step(id="s", by="author", at="day 0", emits=(sdk.EmittedEvent("Undeclared"),)),
-        ),
+        steps=(sdk.Step(id="s", by="author", at="day 0", emits=(sdk.EmittedEvent("Undeclared"),)),),
         declares=sdk.Declares(events=("SomethingElse",)),
     )
     res = tk.run_process(process)

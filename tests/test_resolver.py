@@ -246,9 +246,7 @@ def test_inverse_load_prefers_idle() -> None:
     )
     weights = RankWeights(affinity=0.0, inverse_load=10.0, expertise=0.0, floor=0.01)
     resolver = Resolver(world, weights=weights, load_edge_types=("reviews_for",))
-    picks = [
-        resolver.resolve(sel, rng=substream(s, "load"), at=_day(1)).ids[0] for s in range(15)
-    ]
+    picks = [resolver.resolve(sel, rng=substream(s, "load"), at=_day(1)).ids[0] for s in range(15)]
     assert picks.count("person:ada") > picks.count("person:bob")
 
 

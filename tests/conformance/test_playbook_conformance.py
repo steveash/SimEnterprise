@@ -52,9 +52,7 @@ def test_p1_flags_onevent_with_no_emitter() -> None:
     pb = sdk.Playbook(
         name="dead_trigger",
         vertical="test",
-        activations=(
-            sdk.Activation(id="x", process=proc, trigger=sdk.OnEvent("NobodyEmitsThis")),
-        ),
+        activations=(sdk.Activation(id="x", process=proc, trigger=sdk.OnEvent("NobodyEmitsThis")),),
     )
     assert "P1" in _codes(tk.check_playbook(pb))
 

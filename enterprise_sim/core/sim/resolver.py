@@ -404,9 +404,7 @@ class Resolver:
 
     # -- edge writing -------------------------------------------------------
 
-    def _write_relationship(
-        self, edge_type: str, src: str, dst: str, at: datetime
-    ) -> str:
+    def _write_relationship(self, edge_type: str, src: str, dst: str, at: datetime) -> str:
         """Write a directed relationship edge ``src -> dst`` of ``edge_type``.
 
         The id embeds the sim-time so the same pair relating again later is a

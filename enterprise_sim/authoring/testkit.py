@@ -652,9 +652,7 @@ def _check_i3(result: RunResult) -> list[ConformanceViolation]:
         for role, people in event.actors.items():
             if role not in scope.role_selectors:
                 out.append(
-                    ConformanceViolation(
-                        "I3", f"event uses undeclared role {role!r}", event.id
-                    )
+                    ConformanceViolation("I3", f"event uses undeclared role {role!r}", event.id)
                 )
                 continue
             if len(set(people)) != len(people):
@@ -1095,9 +1093,7 @@ def _check_p5(playbook: sdk.Playbook) -> list[ConformanceViolation]:
             candidates = [
                 node
                 for node in world.nodes_by_type(role.select.type)
-                if all(
-                    Filter(m.field, m.op, m.value).matches(node) for m in role.select.where
-                )
+                if all(Filter(m.field, m.op, m.value).matches(node) for m in role.select.where)
             ]
             if len(candidates) < lo:
                 out.append(
@@ -1165,7 +1161,7 @@ def _find_cycle(adjacency: Mapping[str, set[str]]) -> list[str] | None:
         stack.append(node)
         for nxt in sorted(adjacency.get(node, ())):
             if color.get(nxt, WHITE) == GRAY:
-                return stack[stack.index(nxt):] + [nxt]
+                return stack[stack.index(nxt) :] + [nxt]
             if color.get(nxt, WHITE) == WHITE:
                 found = visit(nxt)
                 if found is not None:
