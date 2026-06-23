@@ -6,7 +6,8 @@ provenance, validation issues). The v1 :class:`MarkdownProducer` is the default
 the binding map routes every deliverable kind to; :class:`OutlookProducer` renders
 the email/meeting kinds to ``.eml`` threads + ``.ics`` invites, :class:`WordProducer`
 renders the document kinds to ``.docx`` with native threaded comments, and
-``pptx``/``jira`` producers register alongside them later without touching ``core/``.
+:class:`JiraProducer` renders issue kinds (and a fan-out ``backlog``) to Jira-style
+issue JSON — each registering alongside the others without touching ``core/``.
 
 Shared, format-free building blocks live in
 :mod:`enterprise_sim.producers.artifact` (result value types) and
@@ -45,6 +46,7 @@ from enterprise_sim.producers.grounding import (
     detect_unresolved_names,
     tag_mentions,
 )
+from enterprise_sim.producers.jira import JiraProducer
 from enterprise_sim.producers.markdown import MarkdownProducer, ProducerContext
 from enterprise_sim.producers.outlook import OutlookProducer
 from enterprise_sim.producers.pptx import PptxProducer, Slide, build_kickoff_deck
@@ -59,6 +61,7 @@ __all__ = [
     "DocxDocument",
     "EmailMessage",
     "EmailThread",
+    "JiraProducer",
     "Locator",
     "MarkdownProducer",
     "Meeting",

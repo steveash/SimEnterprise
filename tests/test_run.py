@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import zipfile
 from pathlib import Path
+from typing import Any
 
 from enterprise_sim.assembly import (
     Manifest,
@@ -63,14 +64,18 @@ def test_run_produces_a_full_markdown_corpus(tmp_path: Path) -> None:
     assert len(result.corpus.journal) > 0
     assert len(result.corpus.artifacts) > 0
 
-    # Every rendered artifact landed on disk, markdown or docx.
+    # Every rendered artifact landed on disk: markdown, docx, or a jira issue.
     art_files = [p for p in (result.run_dir / "artifacts").rglob("*") if p.is_file()]
     assert len(art_files) == len(result.corpus.artifacts)
     # Markdown files are non-empty with a templated H1 title; docx files are valid
-    # OOXML zip packages carrying the main document part.
+    # OOXML zip packages carrying the main document part; jira files are valid Jira
+    # issue JSON (the multi-modal fan-out, D6) with a key + fields.
     for path in art_files:
         if path.suffix == ".md":
             assert path.read_text(encoding="utf-8").startswith("# ")
+        elif path.name.endswith(".jira.json"):
+            issue = json.loads(path.read_text(encoding="utf-8"))
+            assert issue["key"] and issue["fields"]["summary"]
         else:
             assert path.suffix == ".docx"
             with zipfile.ZipFile(path) as zf:
@@ -84,7 +89,7 @@ def test_run_produces_a_full_markdown_corpus(tmp_path: Path) -> None:
     assert (result.run_dir / "validation" / "issues.jsonl").is_file()
 
 
-def _read_jsonl(path: Path) -> list[dict]:
+def _read_jsonl(path: Path) -> list[dict[str, Any]]:
     text = path.read_text(encoding="utf-8")
     return [json.loads(line) for line in text.splitlines() if line]
 

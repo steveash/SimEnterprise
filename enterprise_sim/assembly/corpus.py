@@ -50,6 +50,7 @@ from enterprise_sim.core.sim.scheduler import Scheduler, ValidationIssue
 from enterprise_sim.core.sim.spec import Activation, Scenario
 from enterprise_sim.core.world import Node, World
 from enterprise_sim.producers.artifact import ProducedArtifact, apply_to_world
+from enterprise_sim.producers.jira import JiraProducer
 from enterprise_sim.producers.markdown import MarkdownProducer, ProducerContext
 from enterprise_sim.producers.word import WordProducer
 
@@ -239,8 +240,18 @@ def build_corpus(
 
 
 def _deliverable_count(journal: EventJournal) -> int:
-    """Number of events in ``journal`` that request a deliverable (render tasks)."""
-    return sum(1 for event in journal.ordered() if event.deliverable is not None)
+    """Number of *render tasks* in ``journal`` — one per (deliverable × bound producer).
+
+    A one-to-many fan-out (``backlog`` → ``markdown`` + ``jira``, D6) renders a
+    single deliverable event through several producers, each its own LLM render, so
+    the cost estimate (D13) counts producers, not events — keeping the pre-render
+    estimate equal to the artifact count the run actually produces.
+    """
+    return sum(
+        len(_producers_for(event.deliverable.kind))
+        for event in journal.ordered()
+        if event.deliverable is not None
+    )
 
 
 def _estimate_render(client: LLMClient, config: RunConfig, num_artifacts: int) -> RenderEstimate:
@@ -350,19 +361,35 @@ def _project_for(initiative: Node, world: World) -> str | None:
 # The ``deliverable.kind → producer`` binding (§4, D4/D5). ``markdown`` is the
 # catch-all default; the document kinds the ``word`` producer declares it
 # ``handles`` (``status_report``/``design_doc``) are rebound to it, with the
-# simulator untouched. Producer instances are stateless and reused across the run.
-_PRODUCERS: dict[str, MarkdownProducer | WordProducer] = {
+# simulator untouched. The ``backlog`` kind is bound **one-to-many** to
+# ``markdown`` *and* ``jira`` — the multi-modal fan-out (D6): one event renders both
+# a narrative markdown twin and a Jira issue. Producer instances are stateless and
+# reused across the run.
+_Producer = MarkdownProducer | WordProducer | JiraProducer
+_PRODUCERS: dict[str, _Producer] = {
     MarkdownProducer.name: MarkdownProducer(),
     WordProducer.name: WordProducer(),
+    JiraProducer.name: JiraProducer(),
 }
 _BINDING = BindingMap(default=MarkdownProducer.name)
 for _kind in WordProducer.handles:
     _BINDING.bind(_kind, WordProducer.name)
+# The fan-out demo (D6): a groomed backlog renders to markdown *and* jira at once.
+_BINDING.bind("backlog", MarkdownProducer.name, JiraProducer.name)
 
 
-def _producer_for(kind: str) -> MarkdownProducer | WordProducer:
-    """Resolve a deliverable kind to the producer that renders it (binding map, D4)."""
+def _producer_for(kind: str) -> _Producer:
+    """Resolve a deliverable kind to its *primary* producer (binding map, D4)."""
     return _PRODUCERS[_BINDING.producer_names(kind)[0]]
+
+
+def _producers_for(kind: str) -> list[_Producer]:
+    """Resolve a deliverable kind to *every* producer bound to it (fan-out, D6).
+
+    A one-to-many binding (``backlog`` → ``markdown`` + ``jira``) renders one event
+    through each bound producer in declared order, so the fan-out is deterministic.
+    """
+    return [_PRODUCERS[name] for name in _BINDING.producer_names(kind)]
 
 
 def _render_scenario(
@@ -373,22 +400,27 @@ def _render_scenario(
 ) -> list[ProducedArtifact]:
     """Render one scenario's deliverable events, applying each back to the world.
 
-    Each deliverable kind is routed through the binding map to its producer
-    (document kinds → ``word`` ``.docx``; everything else → ``markdown``). Only
-    events that requested a deliverable become files; comments/commits and
-    milestone-only steps live on as threading + KG facts. Events render in
-    ``(timestamp, id)`` order and each artifact is applied to the world before the
-    next renders, so a later artifact can cite an earlier one (D16/D32).
+    Each deliverable kind is routed through the binding map to its producer(s)
+    (document kinds → ``word`` ``.docx``; ``backlog`` → ``markdown`` + ``jira``
+    fan-out; everything else → ``markdown``). Only events that requested a
+    deliverable become files; comments/commits and milestone-only steps live on as
+    threading + KG facts. A fan-out renders every bound producer against the *same*
+    pre-event view, then applies all its artifacts together so the modalities are
+    siblings, not a chain. Events render in ``(timestamp, id)`` order and each
+    event's artifacts are applied to the world before the next renders, so a later
+    artifact can cite an earlier one (D16/D32).
     """
     rendered: list[ProducedArtifact] = []
     for event in journal.ordered():
         if event.deliverable is None:
             continue
         view = world.projection(at=event.timestamp)
-        producer = _producer_for(event.deliverable.kind)
-        produced = producer.produce(event, view, client, ctx)
-        apply_to_world(world, [produced])
-        rendered.append(produced)
+        produced = [
+            producer.produce(event, view, client, ctx)
+            for producer in _producers_for(event.deliverable.kind)
+        ]
+        apply_to_world(world, produced)
+        rendered.extend(produced)
     return rendered
 
 
