@@ -1,0 +1,10 @@
+node_modules/
+out/
+dist/
+scratch/
+*.log
+.DS_Store
+*.tsbuildinfo
+.env
+.env.local
+.env.*
