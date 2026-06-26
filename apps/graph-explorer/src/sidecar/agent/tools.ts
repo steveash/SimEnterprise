@@ -34,7 +34,12 @@ function nodeIdsInRows(ctx: ToolContext, rows: Record<string, unknown>[]): strin
   return [...ids]
 }
 
-export function buildMcpServer(ctx: ToolContext) {
+/**
+ * Build the raw tool definitions (each carries its own `.handler`) over a
+ * ToolContext. Exposed separately from {@link buildMcpServer} so callers — and
+ * tests — can invoke a handler directly without standing up the SDK MCP server.
+ */
+export function buildTools(ctx: ToolContext) {
   const search = tool(
     'search_nodes',
     'Full-text search the graph for nodes by name/label/alias/property. Returns ranked hits with their ids and types. Use this first to resolve a human name or phrase to a node id.',
@@ -180,10 +185,14 @@ export function buildMcpServer(ctx: ToolContext) {
     }
   )
 
+  return [schema, search, details, neighbors, path, cypher, sparql, provenance, readArtifact, highlight]
+}
+
+export function buildMcpServer(ctx: ToolContext) {
   return createSdkMcpServer({
     name: 'enterprise-sim-graph',
     version: '0.1.0',
-    tools: [schema, search, details, neighbors, path, cypher, sparql, provenance, readArtifact, highlight]
+    tools: buildTools(ctx)
   })
 }
 
