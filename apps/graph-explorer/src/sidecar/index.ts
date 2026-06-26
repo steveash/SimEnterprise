@@ -1,6 +1,19 @@
 import { WebSocketServer, type WebSocket } from 'ws'
 import { readdirSync, existsSync, statSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+// Load apps/graph-explorer/.env.local (gitignored) so a locally-provided
+// ANTHROPIC_API_KEY reaches the Agent SDK without env plumbing. Built-in, no dep.
+const APP_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
+const ENV_FILE = join(APP_ROOT, '.env.local')
+if (existsSync(ENV_FILE)) {
+  try {
+    process.loadEnvFile(ENV_FILE)
+  } catch {
+    /* ignore malformed env file */
+  }
+}
 import type { RpcRequest, ServerMessage, LoadRunResult, DiffResult } from '../shared/protocol.js'
 import type { RunSummary } from '../shared/model.js'
 import { loadRun } from './graph/loader.js'

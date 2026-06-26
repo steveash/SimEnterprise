@@ -8,6 +8,17 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 // out/main/index.js -> app root is two up
 const APP_ROOT = resolve(__dirname, '..', '..')
 const REPO_ROOT = resolve(APP_ROOT, '..', '..')
+
+// Pick up a locally-provided key (gitignored .env.local) so `hasApiKey` is
+// accurate and the spawned sidecar inherits it via env.
+const ENV_FILE = join(APP_ROOT, '.env.local')
+if (existsSync(ENV_FILE)) {
+  try {
+    process.loadEnvFile(ENV_FILE)
+  } catch {
+    /* ignore */
+  }
+}
 const DEFAULT_RUNS_ROOT = process.env.GRAPH_EXPLORER_RUNS_ROOT ?? join(REPO_ROOT, 'runs')
 
 let sidecar: ChildProcess | null = null
