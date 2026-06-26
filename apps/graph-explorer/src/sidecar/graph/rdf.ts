@@ -154,9 +154,25 @@ export class OxigraphEngine {
     this.inferredCount = this.store.size - before
   }
 
+  /**
+   * Prepend any STANDARD prefix the query does not already declare. The agent
+   * (or a user) may declare some prefixes but omit others (e.g. uses `rdf:`
+   * without a PREFIX line); injecting only the missing ones avoids both
+   * "Prefix not found" errors and duplicate-declaration errors.
+   */
+  private withPrefixes(sparql: string): string {
+    const declared = new Set(
+      [...sparql.matchAll(/PREFIX\s+([A-Za-z][\w-]*)\s*:/gi)].map((m) => m[1].toLowerCase())
+    )
+    const missing = PREFIXES.split('\n').filter((line) => {
+      const m = line.match(/PREFIX\s+([A-Za-z][\w-]*)\s*:/i)
+      return m && !declared.has(m[1].toLowerCase())
+    })
+    return missing.length ? `${missing.join('\n')}\n${sparql}` : sparql
+  }
+
   query(sparql: string): SparqlResult {
-    const withPrefixes = /\bPREFIX\b/i.test(sparql) ? sparql : `${PREFIXES}\n${sparql}`
-    const res = this.store.query(withPrefixes)
+    const res = this.store.query(this.withPrefixes(sparql))
     if (typeof res === 'boolean') {
       return { kind: 'ask', columns: [], rows: [], boolean: res }
     }
