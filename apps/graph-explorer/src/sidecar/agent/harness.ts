@@ -3,9 +3,44 @@ import type { GraphIndex } from '../graph/index.js'
 import type { KuzuEngine } from '../graph/kuzu.js'
 import type { OxigraphEngine } from '../graph/rdf.js'
 import { buildMcpServer, TOOL_NAMES } from './tools.js'
-import type { AgentEvent } from '../../shared/agent-events.js'
+import type { AgentEvent, FinalQuery, QueryEngine } from '../../shared/agent-events.js'
 
 export type { AgentEvent }
+
+/** Map a (prefix-stripped) tool name to the engine it drives, or null. */
+function engineForTool(name: string): QueryEngine | null {
+  if (name === 'cypher_query') return 'Cypher'
+  if (name === 'sparql_query') return 'SPARQL'
+  return null
+}
+
+/**
+ * Derive the turn's answer-bearing query from its event stream: the engine +
+ * exact query of the LAST cypher_query/sparql_query tool call whose result came
+ * back ok. A failed query (e.g. a retried `*0..` Cypher) never wins, so the UI
+ * surfaces the query that actually produced the answer. Returns null if the turn
+ * answered without a query engine.
+ */
+export function finalQueryFromEvents(events: AgentEvent[]): FinalQuery | null {
+  const pending = new Map<string, FinalQuery>()
+  let last: FinalQuery | null = null
+  for (const e of events) {
+    if (e.kind === 'tool_use') {
+      const engine = engineForTool(e.name)
+      if (!engine) continue
+      const input = e.input
+      const query =
+        input && typeof input === 'object' && 'query' in input
+          ? String((input as Record<string, unknown>).query)
+          : ''
+      pending.set(e.id, { engine, query })
+    } else if (e.kind === 'tool_result' && e.ok) {
+      const q = pending.get(e.id)
+      if (q) last = q
+    }
+  }
+  return last
+}
 
 export interface ChatEngines {
   index: GraphIndex
@@ -23,7 +58,8 @@ You answer questions about THIS graph by calling tools. You have two query engin
 
 • cypher_query  — a Cypher (property-graph / Kùzu) engine. Prefer it for traversal,
   variable-length paths (e.g. \`-[:reports_to*1..]->\`), and filtering on node/edge
-  property columns.
+  property columns. For variable-length patterns, write \`*1..\` (NOT \`*0..\` — Kùzu
+  rejects a zero lower bound).
 • sparql_query  — a SPARQL (RDF / Oxigraph) engine WITH a reasoning layer. An ontology
   has materialized *inferred* predicates that are NOT in the raw data. Prefer it when a
   question needs entailment/derived facts:
@@ -35,7 +71,8 @@ You answer questions about THIS graph by calling tools. You have two query engin
 WORKFLOW:
 1. Call graph_schema once if you are unsure of labels, columns, or predicates.
 2. Resolve any human names/phrases to node ids with search_nodes before querying.
-3. Run the query. Pick the engine that fits — say which one you used and why.
+3. Run the query. Pick the engine that fits, and OPEN your answer by stating which
+   engine you chose (Cypher or SPARQL) and one sentence of rationale for the choice.
 4. When you have the answer, present it concisely. The tools you call already
    highlight results on the graph; you may also call highlight_nodes to spotlight the
    precise answer set and focus the view.
@@ -73,6 +110,15 @@ export async function runChat(
 
   let sessionId: string | null = opts.resume ?? null
 
+  // Record the tool_use/tool_result events we emit so we can derive the turn's
+  // answer-bearing query (engine + exact text) once it completes. Viz events go
+  // straight to opts.onEvent and are irrelevant here, so they stay out of this.
+  const turnEvents: AgentEvent[] = []
+  const emit = (e: AgentEvent) => {
+    turnEvents.push(e)
+    opts.onEvent(e)
+  }
+
   const q = query({
     prompt: opts.prompt,
     options: {
@@ -103,11 +149,11 @@ export async function runChat(
         case 'assistant': {
           for (const block of msg.message.content) {
             if (block.type === 'text' && block.text) {
-              opts.onEvent({ kind: 'text', text: block.text })
+              emit({ kind: 'text', text: block.text })
             } else if (block.type === 'thinking' && 'thinking' in block && block.thinking) {
-              opts.onEvent({ kind: 'thinking', text: String(block.thinking) })
+              emit({ kind: 'thinking', text: String(block.thinking) })
             } else if (block.type === 'tool_use') {
-              opts.onEvent({
+              emit({
                 kind: 'tool_use',
                 id: block.id,
                 name: block.name.replace(/^mcp__enterprise-sim-graph__/, ''),
@@ -124,7 +170,7 @@ export async function runChat(
             for (const block of content) {
               if (typeof block === 'object' && block && 'type' in block && block.type === 'tool_result') {
                 const tr = block as { tool_use_id: string; is_error?: boolean; content: unknown }
-                opts.onEvent({
+                emit({
                   kind: 'tool_result',
                   id: tr.tool_use_id,
                   ok: !tr.is_error,
@@ -138,15 +184,19 @@ export async function runChat(
         case 'result': {
           if ('session_id' in msg && msg.session_id) sessionId = msg.session_id
           const usage = 'usage' in msg ? msg.usage : undefined
-          opts.onEvent({ kind: 'done', sessionId, usage })
+          const fq = finalQueryFromEvents(turnEvents)
+          if (fq) emit({ kind: 'final_query', engine: fq.engine, query: fq.query })
+          emit({ kind: 'done', sessionId, usage })
           return
         }
       }
     }
-    opts.onEvent({ kind: 'done', sessionId })
+    const fq = finalQueryFromEvents(turnEvents)
+    if (fq) emit({ kind: 'final_query', engine: fq.engine, query: fq.query })
+    emit({ kind: 'done', sessionId })
   } catch (e) {
-    opts.onEvent({ kind: 'error', message: (e as Error).message })
-    opts.onEvent({ kind: 'done', sessionId })
+    emit({ kind: 'error', message: (e as Error).message })
+    emit({ kind: 'done', sessionId })
   }
 }
 

@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import { Rpc } from './rpc.js'
 import type { GraphModel, RunSummary } from '../shared/model.js'
 import type { LoadRunResult, DiffResult } from '../shared/protocol.js'
-import type { AgentEvent, VizEvent } from '../shared/agent-events.js'
+import type { AgentEvent, VizEvent, FinalQuery } from '../shared/agent-events.js'
 
 export interface ChatTurn {
   role: 'user' | 'assistant'
@@ -23,6 +23,8 @@ export interface ChatMessage {
   text: string
   thinking?: string
   trace: TraceEntry[]
+  /** The engine + exact query that produced this turn's answer, if any. */
+  finalQuery?: FinalQuery
   done: boolean
   error?: string
 }
@@ -231,6 +233,9 @@ export const useStore = create<AppState>((set, get) => ({
           break
         case 'viz':
           get().applyViz(e.viz)
+          break
+        case 'final_query':
+          update((m) => ({ ...m, finalQuery: { engine: e.engine, query: e.query } }))
           break
         case 'error':
           update((m) => ({ ...m, error: e.message }))

@@ -103,8 +103,34 @@ function Message({ m }: { m: ChatMessage }): JSX.Element {
         </div>
       )}
       {m.text && <div className="msg-body">{m.text}</div>}
+      {m.finalQuery && <FinalQueryBlock fq={m.finalQuery} />}
       {!m.done && !m.text && m.trace.length === 0 && <div className="muted small">thinking…</div>}
       {m.error && <div className="msg-error">⚠ {m.error}</div>}
+    </div>
+  )
+}
+
+/**
+ * The structured "answer query" block: which engine the agent chose and the
+ * exact final query that produced the answer, in a copyable code block. Distinct
+ * from the live tool-trace above — this is the single query that mattered.
+ */
+function FinalQueryBlock({ fq }: { fq: NonNullable<ChatMessage['finalQuery']> }): JSX.Element {
+  const [copied, setCopied] = useState(false)
+  const copy = () => {
+    void navigator.clipboard?.writeText(fq.query)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1200)
+  }
+  return (
+    <div className="final-query">
+      <div className="final-query-head">
+        <span className="engine-badge">engine: {fq.engine}</span>
+        <button className="copy-btn" onClick={copy}>
+          {copied ? 'copied ✓' : 'copy'}
+        </button>
+      </div>
+      <pre className="final-query-code mono">{fq.query}</pre>
     </div>
   )
 }

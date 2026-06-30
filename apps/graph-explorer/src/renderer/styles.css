@@ -139,6 +139,14 @@ button { font-family: inherit; cursor: pointer; }
 .trace-detail pre { margin: 2px 0; white-space: pre-wrap; word-break: break-word; font-size: 10px; max-height: 200px; overflow: auto; }
 .trace-sub { color: var(--muted); font-size: 10px; text-transform: uppercase; }
 
+/* final query: chosen engine + exact query that produced the answer */
+.final-query { margin-top: 8px; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+.final-query-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 8px; background: var(--bg3); }
+.engine-badge { font-size: 11px; font-weight: 600; color: var(--accent); text-transform: none; letter-spacing: 0.3px; }
+.copy-btn { font-size: 10px; color: var(--muted); background: transparent; border: 1px solid var(--line); border-radius: 4px; padding: 2px 7px; cursor: pointer; }
+.copy-btn:hover { border-color: var(--accent); color: var(--text); }
+.final-query-code { margin: 0; padding: 8px; background: var(--bg); font-size: 11px; white-space: pre-wrap; word-break: break-word; max-height: 220px; overflow: auto; }
+
 .chat-input { display: flex; gap: 6px; padding: 10px; border-top: 1px solid var(--line); align-items: flex-end; }
 .chat-textarea { flex: 1; resize: none; height: 54px; background: var(--bg3); border: 1px solid var(--line); border-radius: var(--radius); color: var(--text); padding: 7px 9px; font-family: inherit; }
 .model-select { font-size: 11px; }

@@ -3,7 +3,7 @@ import { GraphIndex } from '../src/sidecar/graph/index.js'
 import { KuzuEngine } from '../src/sidecar/graph/kuzu.js'
 import { OxigraphEngine } from '../src/sidecar/graph/rdf.js'
 import { buildMcpServer, buildTools, TOOL_NAMES, type ToolContext, type VizEvent } from '../src/sidecar/agent/tools.js'
-import { runChat, type AgentEvent } from '../src/sidecar/agent/harness.js'
+import { runChat, finalQueryFromEvents, type AgentEvent } from '../src/sidecar/agent/harness.js'
 import { loadGolden, goldenRunExists } from './helpers.js'
 import type { GraphModel } from '../src/shared/model.js'
 
@@ -123,6 +123,56 @@ describe('tool handlers (driven without the SDK)', () => {
 })
 
 // ---------------------------------------------------------------------------
+// finalQueryFromEvents — pure derivation of the turn's answer-bearing query
+// (engine + exact text) from its event stream. No SDK, no key required; this is
+// the structured block the UI surfaces, so its shape is asserted directly.
+// ---------------------------------------------------------------------------
+
+describe('finalQueryFromEvents (engine + exact query surfaced per turn)', () => {
+  const use = (id: string, name: string, query: string): AgentEvent => ({ kind: 'tool_use', id, name, input: { query } })
+  const result = (id: string, ok: boolean): AgentEvent => ({ kind: 'tool_result', id, ok, preview: '' })
+
+  it('returns null when the turn ran no query engine', () => {
+    const events: AgentEvent[] = [
+      { kind: 'tool_use', id: 't1', name: 'search_nodes', input: { query: 'Steve' } },
+      result('t1', true),
+      { kind: 'text', text: 'done' }
+    ]
+    expect(finalQueryFromEvents(events)).toBeNull()
+  })
+
+  it('surfaces a successful Cypher query with its engine label and exact text', () => {
+    const cy = 'MATCH (p:Person)-[:reports_to*1..]->(m) RETURN m'
+    const events: AgentEvent[] = [use('t1', 'cypher_query', cy), result('t1', true), { kind: 'text', text: 'ok' }]
+    expect(finalQueryFromEvents(events)).toEqual({ engine: 'Cypher', query: cy })
+  })
+
+  it('labels a SPARQL query as the SPARQL engine', () => {
+    const sp = 'SELECT ?d WHERE { ?p der:in_department ?d }'
+    expect(finalQueryFromEvents([use('s1', 'sparql_query', sp), result('s1', true)])).toEqual({
+      engine: 'SPARQL',
+      query: sp
+    })
+  })
+
+  it('prefers the LAST successful query, skipping a failed earlier attempt', () => {
+    const bad = 'MATCH (p)-[:reports_to*0..]->(m) RETURN m' // *0.. rejected by Kùzu
+    const good = 'MATCH (p)-[:reports_to*1..]->(m) RETURN m'
+    const events: AgentEvent[] = [
+      use('t1', 'cypher_query', bad),
+      result('t1', false),
+      use('t2', 'cypher_query', good),
+      result('t2', true)
+    ]
+    expect(finalQueryFromEvents(events)).toEqual({ engine: 'Cypher', query: good })
+  })
+
+  it('ignores a query whose result never came back ok', () => {
+    expect(finalQueryFromEvents([use('t1', 'cypher_query', 'MATCH (n) RETURN n'), result('t1', false)])).toBeNull()
+  })
+})
+
+// ---------------------------------------------------------------------------
 // GATED part — a real live agent turn against the golden run. Runs only when
 // ANTHROPIC_API_KEY is set (and the golden run is present, since the question
 // requires real data); otherwise vitest reports it as skipped.
@@ -152,6 +202,13 @@ describe.skipIf(!liveEnabled)('live agent turn (gated on ANTHROPIC_API_KEY)', ()
       const toolUses = events.filter((e): e is Extract<AgentEvent, { kind: 'tool_use' }> => e.kind === 'tool_use')
       const queried = toolUses.some((e) => e.name === 'cypher_query' || e.name === 'sparql_query')
       expect(queried, `expected a cypher_query or sparql_query tool_use; saw: ${toolUses.map((e) => e.name).join(', ')}`).toBe(true)
+
+      // The turn must surface its answer-bearing query as a structured event:
+      // a labelled engine + the exact query text, emitted before done.
+      const finalQ = events.find((e): e is Extract<AgentEvent, { kind: 'final_query' }> => e.kind === 'final_query')
+      expect(finalQ, 'expected a final_query event surfacing the chosen engine + query').toBeDefined()
+      expect(['Cypher', 'SPARQL']).toContain(finalQ!.engine)
+      expect(finalQ!.query.length).toBeGreaterThan(0)
 
       expect(events.some((e) => e.kind === 'done')).toBe(true)
     },
