@@ -11,8 +11,11 @@ This module gives the package its schema (:class:`QAPair` and the
 executes the committed golden run and hands generators and tests one
 deterministic gold :class:`~enterprise_sim.core.world.World`, and the
 :func:`~enterprise_sim.benchmark.generate.generate` Q/A generator that derives
-the benchmark from that ground truth (``enterprise-sim bench generate``). The
-runners, the grader, and the report are added by later beads.
+the benchmark from that ground truth (``enterprise-sim bench generate``), and the
+:func:`~enterprise_sim.benchmark.score.score` grader with its
+:func:`~enterprise_sim.benchmark.score.format_report` rendering
+(``enterprise-sim bench score``). The LLM runners and the multi-runner
+comparison report are added by later beads. See ``docs/BENCHMARK.md``.
 """
 
 from __future__ import annotations
@@ -29,6 +32,7 @@ from enterprise_sim.benchmark.score import (
     Prediction,
     Predictions,
     Report,
+    format_report,
     score,
     score_item,
 )
@@ -43,6 +47,7 @@ __all__ = [
     "QAPair",
     "Report",
     "build_benchmark",
+    "format_report",
     "generate",
     "score",
     "score_item",
