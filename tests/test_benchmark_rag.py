@@ -33,10 +33,21 @@ from enterprise_sim.cli import main
 from enterprise_sim.core.llm import Completion, LLMClient, LLMConfig, Prompt, TokenUsage
 from enterprise_sim.producers.word_docx import DocxDocument, build_docx
 
-# The committed golden run directory — a real corpus + answer key on disk.
-GOLDEN_RUN = (
-    Path(__file__).resolve().parents[1] / "runs" / "golden" / "golden-slice-co-40644d551158"
-)
+
+@pytest.fixture(scope="session")
+def golden_run_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """A real golden run on disk — corpus + answer key — built once per session.
+
+    The committed ``runs/`` tree is gitignored, so tests cannot depend on a
+    checked-in run directory. Instead, execute the deterministic ``fake``-backend
+    golden run (the same fixture the generators use) into a temporary directory,
+    giving a real corpus + ``aliases``/``mentions`` answer key without a network
+    or a key. Session-scoped so the run executes only once.
+    """
+    from enterprise_sim.benchmark.fixtures import golden_run
+
+    tmp = tmp_path_factory.mktemp("golden-run")
+    return golden_run(tmp).run_dir
 
 
 # --------------------------------------------------------------------------- #
@@ -135,9 +146,9 @@ def test_extract_eml_recovers_subject_and_body(tmp_path: Path) -> None:
 # --------------------------------------------------------------------------- #
 
 
-def test_load_corpus_tags_chunks_with_real_node_ids() -> None:
-    world = load_world_from_run(GOLDEN_RUN)
-    chunks = load_corpus(GOLDEN_RUN, world)
+def test_load_corpus_tags_chunks_with_real_node_ids(golden_run_dir: Path) -> None:
+    world = load_world_from_run(golden_run_dir)
+    chunks = load_corpus(golden_run_dir, world)
 
     assert chunks, "the golden run has artifacts to index"
     # Every chunk's artifact_id is a real Artifact node in the gold graph.
@@ -150,10 +161,10 @@ def test_load_corpus_tags_chunks_with_real_node_ids() -> None:
     assert ".docx" in suffixes or ".json" in suffixes
 
 
-def test_load_corpus_is_deterministic() -> None:
-    world = load_world_from_run(GOLDEN_RUN)
-    first = load_corpus(GOLDEN_RUN, world)
-    second = load_corpus(GOLDEN_RUN, world)
+def test_load_corpus_is_deterministic(golden_run_dir: Path) -> None:
+    world = load_world_from_run(golden_run_dir)
+    first = load_corpus(golden_run_dir, world)
+    second = load_corpus(golden_run_dir, world)
     assert first == second
 
 
