@@ -3,6 +3,7 @@ import { Rpc } from './rpc.js'
 import type { GraphModel, RunSummary } from '../shared/model.js'
 import type { LoadRunResult, DiffResult } from '../shared/protocol.js'
 import type { AgentEvent, VizEvent, FinalQuery } from '../shared/agent-events.js'
+import type { Lens, LensInput } from '../shared/lenses.js'
 
 export interface ChatTurn {
   role: 'user' | 'assistant'
@@ -68,6 +69,9 @@ interface AppState {
   // diff
   diff: DiffResult | null
 
+  // saved query lenses (persisted in the main process)
+  lenses: Lens[]
+
   // actions
   init: () => Promise<void>
   loadRun: (path: string) => Promise<void>
@@ -86,6 +90,9 @@ interface AppState {
   cancelChat: () => void
   setModelId: (m: string) => void
   runDiff: (otherPath: string) => Promise<void>
+  loadLenses: () => Promise<void>
+  saveLens: (input: LensInput) => Promise<void>
+  deleteLens: (id: string) => Promise<void>
 }
 
 export const useStore = create<AppState>((set, get) => ({
@@ -111,6 +118,7 @@ export const useStore = create<AppState>((set, get) => ({
   conversationId: `c${Date.now()}`,
   model_id: 'sonnet',
   diff: null,
+  lenses: [],
 
   init: async () => {
     try {
@@ -122,6 +130,7 @@ export const useStore = create<AppState>((set, get) => ({
       const rpc = new Rpc(info.port)
       const runs = await rpc.call<RunSummary[]>('listRuns')
       set({ rpc, connecting: false, runs, hasApiKey: info.hasApiKey })
+      await get().loadLenses()
       if (runs.length) await get().loadRun(runs[0].runPath)
     } catch (e) {
       set({ connecting: false, connectError: (e as Error).message })
@@ -261,5 +270,17 @@ export const useStore = create<AppState>((set, get) => ({
     if (!rpc || !runPath) return
     const diff = await rpc.call<DiffResult>('diffRuns', { pathA: runPath, pathB: otherPath })
     set({ diff })
+  },
+
+  loadLenses: async () => {
+    set({ lenses: await window.explorer.lenses.list() })
+  },
+
+  saveLens: async (input) => {
+    set({ lenses: await window.explorer.lenses.save(input) })
+  },
+
+  deleteLens: async (id) => {
+    set({ lenses: await window.explorer.lenses.delete(id) })
   }
 }))

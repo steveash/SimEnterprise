@@ -3,6 +3,8 @@ import { spawn, type ChildProcess } from 'node:child_process'
 import { join, dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { existsSync } from 'node:fs'
+import { LensStore } from './lenses.js'
+import type { LensInput } from '../shared/lenses.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 // out/main/index.js -> app root is two up
@@ -115,6 +117,18 @@ ipcMain.handle('set-api-key', (_e, key: string) => {
     .then((port) => ({ ok: true, port }))
     .catch((e: Error) => ({ ok: false, error: e.message }))
 })
+
+// Saved query lenses persist as JSON under the app's userData dir. Lazily
+// constructed so `app.getPath` is only called once the app is ready.
+let lensStore: LensStore | null = null
+function getLensStore(): LensStore {
+  if (!lensStore) lensStore = new LensStore(join(app.getPath('userData'), 'lenses.json'))
+  return lensStore
+}
+
+ipcMain.handle('lenses-list', () => getLensStore().list())
+ipcMain.handle('lenses-save', (_e, input: LensInput) => getLensStore().save(input))
+ipcMain.handle('lenses-delete', (_e, id: string) => getLensStore().delete(id))
 
 app.whenReady().then(async () => {
   try {

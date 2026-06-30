@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useStore } from '../store.js'
+import type { Lens } from '../../shared/lenses.js'
 
 type Engine = 'cypher' | 'sparql'
 
@@ -46,14 +47,17 @@ export function QueryConsole(): JSX.Element {
   const setHighlight = useStore((s) => s.setHighlight)
   const focusNodes = useStore((s) => s.focusNodes)
   const model = useStore((s) => s.model)
+  const lenses = useStore((s) => s.lenses)
+  const saveLens = useStore((s) => s.saveLens)
+  const deleteLens = useStore((s) => s.deleteLens)
 
-  const run = async () => {
+  const runQuery = async (eng: Engine, query: string) => {
     const rpc = useStore.getState().rpc
     if (!rpc || !runPath) return
     setBusy(true)
     setError(null)
     try {
-      const res = await rpc.call<Result>(engine, { runPath, query: text })
+      const res = await rpc.call<Result>(eng, { runPath, query })
       setResult(res)
       // highlight any node ids appearing in results
       if (model) {
@@ -71,6 +75,21 @@ export function QueryConsole(): JSX.Element {
     } finally {
       setBusy(false)
     }
+  }
+
+  const run = () => runQuery(engine, text)
+
+  const onSaveLens = async () => {
+    if (!text.trim()) return
+    const name = window.prompt('Name this lens:')?.trim()
+    if (!name) return
+    await saveLens({ name, engine, query: text })
+  }
+
+  const applyLens = (lens: Lens) => {
+    setEngine(lens.engine)
+    setText(lens.query)
+    void runQuery(lens.engine, lens.query)
   }
 
   const switchEngine = (e: Engine) => {
@@ -107,7 +126,37 @@ export function QueryConsole(): JSX.Element {
         <button className="btn ghost" onClick={() => navigator.clipboard.writeText(text)}>
           Copy
         </button>
+        <button className="btn ghost" onClick={onSaveLens} disabled={!text.trim()}>
+          Save as lens
+        </button>
       </div>
+
+      {lenses.length > 0 && (
+        <div className="lenses block">
+          <div className="muted small">Saved lenses</div>
+          <div className="sample-chips">
+            {lenses.map((lens) => (
+              <span key={lens.id} className="lens-chip">
+                <button
+                  className="example-chip small"
+                  title={`${lens.engine}: re-run`}
+                  onClick={() => applyLens(lens)}
+                >
+                  <span className="lens-engine">{lens.engine === 'cypher' ? 'C' : 'S'}</span> {lens.name}
+                </button>
+                <button
+                  className="lens-del"
+                  title="Delete lens"
+                  aria-label={`Delete lens ${lens.name}`}
+                  onClick={() => void deleteLens(lens.id)}
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
 
       {error && <div className="msg-error">⚠ {error}</div>}
       {result && (

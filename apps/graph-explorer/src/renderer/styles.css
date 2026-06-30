@@ -122,6 +122,15 @@ button { font-family: inherit; cursor: pointer; }
 .example-chip { text-align: left; background: var(--bg3); color: var(--text); border: 1px solid var(--line); border-radius: var(--radius); padding: 7px 10px; font-size: 12px; }
 .example-chip:hover { border-color: var(--accent); }
 .example-chip.small { font-size: 11px; padding: 4px 8px; }
+
+/* saved query lenses */
+.lenses { margin: 8px 0; }
+.lens-chip { display: inline-flex; align-items: stretch; }
+.lens-chip .example-chip { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.lens-engine { color: var(--accent); font-weight: 600; }
+.lens-del { background: var(--bg3); color: var(--muted); border: 1px solid var(--line); border-left: 0; border-radius: 0 var(--radius) var(--radius) 0; padding: 0 7px; font-size: 13px; cursor: pointer; }
+.lens-del:hover { color: var(--err); border-color: var(--err); }
+
 .msg { margin-bottom: 14px; }
 .msg.user .msg-body { background: var(--bg3); border-radius: var(--radius); padding: 8px 10px; display: inline-block; }
 .msg.assistant .msg-body { white-space: pre-wrap; }
