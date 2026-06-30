@@ -408,6 +408,105 @@ def _cmd_bench_generate(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_bench_run(args: argparse.Namespace) -> int:
+    """Run an agent runner over the benchmark and write predictions (esim-uzc.4).
+
+    Loads the gold KG into the embedded query engines (Cypher + SPARQL with the
+    materialized ontology) and lets a Claude agent answer each question, emitting a
+    predictions JSONL the scorer consumes. The ``graph`` runner needs
+    ``ANTHROPIC_API_KEY``; without it this reports the error and exits non-zero.
+    """
+    if args.runner != "graph":
+        print(f"enterprise-sim bench run: unknown runner {args.runner!r}", file=sys.stderr)
+        return 2
+
+    from enterprise_sim.benchmark.runners.graph_agent import run_benchmark
+    from enterprise_sim.benchmark.schema import Benchmark
+
+    benchmark = Benchmark.read_jsonl(args.bench)
+    run_dir = str(args.run) if args.run is not None else None
+    try:
+        predictions = run_benchmark(
+            benchmark,
+            run_dir=run_dir,
+            model=args.model,
+            limit=args.limit,
+        )
+    except RuntimeError as exc:
+        print(f"enterprise-sim bench run: {exc}", file=sys.stderr)
+        return 2
+
+    if args.output is None:
+        print(predictions.to_jsonl(), end="")
+    else:
+        predictions.write_jsonl(args.output)
+    destination = "stdout" if args.output is None else str(args.output)
+    print(
+        f"enterprise-sim bench run: {args.runner} runner produced "
+        f"{len(predictions)} prediction(s) -> {destination}",
+        file=sys.stderr,
+    )
+    return 0
+
+
+def _add_bench_run_parser(
+    bench_subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
+    """Wire ``bench run --runner graph --bench bench.jsonl -o pred.graph.jsonl`` (esim-uzc.4)."""
+    run_parser = bench_subparsers.add_parser(
+        "run",
+        help="run an agent runner over a benchmark, emitting predictions JSONL",
+        description=(
+            "Run a system-under-test over the gold benchmark and write a predictions "
+            "JSONL the scorer consumes. The 'graph' runner loads the gold KG into "
+            "embedded Cypher (kuzu) and SPARQL (oxigraph) engines and lets a Claude "
+            "agent reason over them (needs ANTHROPIC_API_KEY)."
+        ),
+    )
+    run_parser.add_argument(
+        "--runner",
+        default="graph",
+        choices=["graph"],
+        help="which runner to use (default: graph)",
+    )
+    run_parser.add_argument(
+        "--bench",
+        required=True,
+        type=Path,
+        metavar="PATH",
+        help="path to the gold benchmark JSONL (one QAPair per line)",
+    )
+    run_parser.add_argument(
+        "-o",
+        "--output",
+        type=Path,
+        default=None,
+        metavar="PATH",
+        help="write the predictions JSONL to PATH (default: stdout)",
+    )
+    run_parser.add_argument(
+        "--run",
+        type=Path,
+        default=None,
+        metavar="DIR",
+        help="load the gold KG from an existing run dir (default: a fresh golden run)",
+    )
+    run_parser.add_argument(
+        "--model",
+        default="claude-sonnet-4-6",
+        metavar="MODEL",
+        help="the Claude model the agent uses (default: claude-sonnet-4-6)",
+    )
+    run_parser.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        metavar="N",
+        help="answer only the first N questions (default: all)",
+    )
+    run_parser.set_defaults(func=_cmd_bench_run)
+
+
 def _add_bench_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     """Wire the ``bench`` command group and its ``generate`` subcommand.
 
@@ -432,6 +531,7 @@ def _add_bench_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentPa
     bench_parser.set_defaults(bench_subparsers=bench_subparsers)
     _add_bench_run_parser(bench_subparsers)
     _add_bench_score_parser(bench_subparsers)
+    _add_bench_run_parser(bench_subparsers)
 
     generate_parser = bench_subparsers.add_parser(
         "generate",

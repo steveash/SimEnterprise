@@ -14,10 +14,21 @@ dependencies = [
 enterprise-sim = "enterprise_sim.cli:main"
 
 [project.optional-dependencies]
+# The KG-QA graph runner (esim-uzc.4): embedded Cypher/SPARQL engines plus the
+# Claude agent that reasons over them. The engines (kuzu, pyoxigraph) are needed
+# to run the keyless engine tests; claude-agent-sdk only to run the agent.
+bench = [
+    "kuzu>=0.11",
+    "pyoxigraph>=0.5",
+    "claude-agent-sdk>=0.1",
+]
 dev = [
     "mypy>=1.9",
     "pytest>=8.0",
     "ruff>=0.4",
+    # The engine layer is exercised keyless by the test suite, so it ships here.
+    "kuzu>=0.11",
+    "pyoxigraph>=0.5",
 ]
 
 [build-system]
