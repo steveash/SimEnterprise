@@ -8,6 +8,7 @@ stack (§13), and the assembly layer.
 from __future__ import annotations
 
 import argparse
+import sys
 from collections.abc import Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -275,13 +276,39 @@ def _add_bench_score_parser(
     score_parser.set_defaults(func=_cmd_bench_score)
 
 
+def _cmd_bench_generate(args: argparse.Namespace) -> int:
+    """Generate a KG-QA benchmark from the gold knowledge graph (esim-uzc.2).
+
+    Derives question/answer pairs deterministically from the gold KG — a fresh
+    golden run by default, or the run directory given by ``--run`` — and writes
+    them as JSONL to ``-o`` (stdout when omitted). A one-line summary of the pair
+    count and reasoning-type spread goes to stderr.
+    """
+    from enterprise_sim.benchmark.generate import generate
+
+    benchmark = generate(args.run)
+
+    if args.output is None:
+        print(benchmark.to_jsonl(), end="")
+    else:
+        benchmark.write_jsonl(args.output)
+
+    by_type = sorted({pair.reasoning_type for pair in benchmark})
+    destination = "stdout" if args.output is None else str(args.output)
+    print(
+        f"enterprise-sim bench generate: {len(benchmark)} pairs "
+        f"across {len(by_type)} reasoning types ({', '.join(by_type)}) -> {destination}",
+        file=sys.stderr,
+    )
+    return 0
+
+
 def _add_bench_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
-    """Wire the ``bench`` command group; later beads append its subcommands.
+    """Wire the ``bench`` command group and its ``generate`` subcommand.
 
     The nested subparser object is stashed on the parser's defaults as
-    ``bench_subparsers`` so subsequent milestones (the generator, runners, the
-    grader, the report) can register ``generate``/``score``/``report`` without
-    re-deriving the group here.
+    ``bench_subparsers`` so subsequent milestones (the runners, the grader, the
+    report) can register ``score``/``report`` without re-deriving the group here.
     """
     bench_parser = subparsers.add_parser(
         "bench",
@@ -299,6 +326,32 @@ def _add_bench_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentPa
     # Exposed for later beads to attach subcommands to the same group.
     bench_parser.set_defaults(bench_subparsers=bench_subparsers)
     _add_bench_score_parser(bench_subparsers)
+
+    generate_parser = bench_subparsers.add_parser(
+        "generate",
+        help="derive a Q/A benchmark from the gold KG",
+        description=(
+            "Deterministically derive question/answer pairs from the gold knowledge "
+            "graph across reasoning types (direct_relation, transitive, provenance, "
+            "aggregation, goal_tree). Defaults to a fresh golden run."
+        ),
+    )
+    generate_parser.add_argument(
+        "--run",
+        type=Path,
+        default=None,
+        metavar="DIR",
+        help="read the gold KG from an existing run dir (default: a fresh golden run)",
+    )
+    generate_parser.add_argument(
+        "-o",
+        "--output",
+        type=Path,
+        default=None,
+        metavar="PATH",
+        help="write the benchmark JSONL to PATH (default: stdout)",
+    )
+    generate_parser.set_defaults(func=_cmd_bench_generate)
 
 
 def build_parser() -> argparse.ArgumentParser:
