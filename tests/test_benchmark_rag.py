@@ -264,8 +264,8 @@ def test_resolver_empty_is_safe() -> None:
     assert resolver.resolve("anything at all") == frozenset()
 
 
-def test_resolver_from_run_loads_aliases_and_mentions() -> None:
-    resolver = AliasResolver.from_run(GOLDEN_RUN)
+def test_resolver_from_run_loads_aliases_and_mentions(golden_run_dir: Path) -> None:
+    resolver = AliasResolver.from_run(golden_run_dir)
     assert resolver.by_surface, "the golden run answer key has surface forms"
     # A canonical person name resolves to that person's node id.
     ids = resolver.resolve("Ben Cho attended.")
@@ -297,9 +297,9 @@ def test_runner_resolves_the_model_answer_to_ids() -> None:
     assert "Ben Cho leads the build." in backend.prompts[0]
 
 
-def test_runner_run_produces_one_prediction_per_question() -> None:
-    runner = build_runner(GOLDEN_RUN)
-    benchmark = generate(GOLDEN_RUN)
+def test_runner_run_produces_one_prediction_per_question(golden_run_dir: Path) -> None:
+    runner = build_runner(golden_run_dir)
+    benchmark = generate(golden_run_dir)
     subset = Benchmark.of(list(benchmark)[:3])
     client, _ = _scripted_client("Ben Cho and Cleo Costa.")
 
@@ -311,8 +311,8 @@ def test_runner_run_produces_one_prediction_per_question() -> None:
     assert report.overall.count == len(subset)
 
 
-def test_build_runner_indexes_the_corpus() -> None:
-    runner = build_runner(GOLDEN_RUN, top_k=4)
+def test_build_runner_indexes_the_corpus(golden_run_dir: Path) -> None:
+    runner = build_runner(golden_run_dir, top_k=4)
     assert runner.top_k == 4
     assert runner.index.chunks, "the runner indexed the golden corpus"
     assert runner.resolver.by_surface
@@ -323,9 +323,11 @@ def test_build_runner_indexes_the_corpus() -> None:
 # --------------------------------------------------------------------------- #
 
 
-def test_cli_bench_run_writes_predictions(tmp_path: Path, capsys: Any) -> None:
+def test_cli_bench_run_writes_predictions(
+    tmp_path: Path, capsys: Any, golden_run_dir: Path
+) -> None:
     bench_path = tmp_path / "bench.jsonl"
-    generate(GOLDEN_RUN).write_jsonl(bench_path)
+    generate(golden_run_dir).write_jsonl(bench_path)
     out_path = tmp_path / "pred.rag.jsonl"
 
     code = main(
@@ -337,7 +339,7 @@ def test_cli_bench_run_writes_predictions(tmp_path: Path, capsys: Any) -> None:
             "--bench",
             str(bench_path),
             "--run",
-            str(GOLDEN_RUN),
+            str(golden_run_dir),
             "-o",
             str(out_path),
             "--backend",
@@ -362,14 +364,16 @@ def test_cli_bench_run_writes_predictions(tmp_path: Path, capsys: Any) -> None:
     not os.environ.get("ANTHROPIC_API_KEY"),
     reason="live RAG answer requires ANTHROPIC_API_KEY",
 )
-def test_live_rag_runner_scores_a_subset() -> None:  # pragma: no cover - needs a key
+def test_live_rag_runner_scores_a_subset(
+    golden_run_dir: Path,
+) -> None:  # pragma: no cover - needs a key
     from enterprise_sim.core.llm import build_client
 
-    benchmark = generate(GOLDEN_RUN)
+    benchmark = generate(golden_run_dir)
     subset = Benchmark.of(list(benchmark)[:3])
     client = build_client(LLMConfig(backend="anthropic_api"))
 
-    predictions = run_rag(GOLDEN_RUN, subset, client, top_k=5)
+    predictions = run_rag(golden_run_dir, subset, client, top_k=5)
     assert len(predictions) == len(subset)
     report = score(subset, predictions)
     assert report.overall.count == len(subset)
