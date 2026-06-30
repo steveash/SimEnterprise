@@ -100,7 +100,7 @@ in-app banner. The agent model is selectable (Sonnet / Opus / Haiku).
 > **Headless / container note:** if Electron aborts with a `chrome-sandbox` SUID error,
 > launch with `--no-sandbox` (only needed where the sandbox helper isn't root-owned).
 
-## Build & package (dist)
+## Build & test
 
 ```bash
 npm run typecheck   # tsc over node + web project refs (no emit)
@@ -117,14 +117,12 @@ out/
   renderer/…         the React UI (loaded via loadFile in production)
 ```
 
-**The sidecar is intentionally *not* bundled.** The native query engines (Kùzu, Oxigraph)
-and the Agent SDK are run in a child process spawned with the **system `node`** via `tsx`,
-so their prebuilt native addons match the system ABI rather than Electron's. In production,
-`out/main/index.js` resolves the app root two levels up and spawns
-`node_modules/.bin/tsx src/sidecar/index.ts` — therefore a packaged/dist build must ship,
-alongside `out/`, the **`src/sidecar/` sources and the production `node_modules`** (not just
-the bundled `out/`). There is no `electron-builder` step wired up yet; `npm run build` +
-`npm run preview` is the current dist target.
+**In dev the sidecar is run from source.** The native query engines (Kùzu, Oxigraph) and
+the Agent SDK run in a child process spawned with the **system `node`** via `tsx`, so their
+prebuilt native addons match the system ABI rather than Electron's — `out/main/index.js`
+spawns `node_modules/.bin/tsx src/sidecar/index.ts`. For a distributable build the sidecar
+is instead esbuild-bundled and shipped with its native engines and a node binary; see
+**Package an installable** below.
 
 ## Test
 
@@ -146,6 +144,57 @@ tests:
   loader/engine tests run only when the **golden run** is present under `runs/`; the live
   agent turn runs only when **`ANTHROPIC_API_KEY`** is set. Neither is required for a green
   `npm test` on a bare checkout.
+
+## Package an installable
+
+```bash
+cd apps/graph-explorer
+npm install
+npm run dist          # → dist/*.AppImage and dist/*.deb (linux x64)
+```
+
+`npm run dist` runs three steps:
+
+1. `electron-vite build` — compiles main / preload / renderer into `out/`.
+2. `npm run build:sidecar` (`scripts/build-sidecar.mjs`) — esbuilds the sidecar to a
+   single `out/sidecar/index.mjs` (ws + Agent SDK inlined), stages the native engines
+   (`kuzu`, `oxigraph`) into `out/sidecar/node_modules`, and copies the running `node`
+   binary into `out/sidecar/node` for a hermetic app.
+3. `electron-builder` — produces the AppImage + deb, shipping `out/sidecar` as an
+   unpacked resource (`<resources>/sidecar`) via `extraResources`.
+
+Run the result without a dev checkout:
+
+```bash
+./dist/*.AppImage --no-sandbox          # AppImage
+# or install the deb:
+sudo dpkg -i ./dist/*.deb && enterprise-sim-graph-explorer --no-sandbox
+```
+
+The packaged app loads a run (graph renders, Cypher + SPARQL queries work) with **no
+dev `node_modules` on PATH** — the sidecar runs from the bundled `node` against the
+staged native engines.
+
+### Why the sidecar carries its own node
+
+The native Cypher engine (`kuzu`) is a prebuilt `.node` addon compiled for the **system
+node** ABI. Electron ships a *different* node ABI (`process.versions.modules` differs), so
+it cannot load that addon — the sidecar must run under a real node binary, not the Electron
+runtime. The build copies the build machine's `node` into the bundle. Set `BUNDLE_NODE=0`
+to skip that copy and instead locate a system `node` at runtime (the app then requires
+Node ≥ 22 on `PATH`). `oxigraph` is a WASM module, so it is ABI-independent and just rides
+along as a normal package.
+
+Runtime node resolution (main process, packaged): `GRAPH_EXPLORER_NODE` env override →
+bundled `<resources>/sidecar/node` → system `node` on `PATH`.
+
+### Platform caveats
+
+- **`--no-sandbox`** is needed where Electron's `chrome-sandbox` helper isn't root-owned
+  (containers, some CI). See the headless note above.
+- The build is **single-platform**: `scripts/build-sidecar.mjs` stages the *current*
+  machine's `kuzu` addon and `node` binary, so build the linux artifact on linux x64.
+  macOS / Windows targets and cross-builds are tracked as follow-up work.
 
 ## Layout
 

@@ -2,6 +2,8 @@ node_modules/
 out/
 dist/
 scratch/
+# Stray top-level build artifact (compiled main); source is src/main/index.ts.
+/index.js
 *.log
 .DS_Store
 *.tsbuildinfo

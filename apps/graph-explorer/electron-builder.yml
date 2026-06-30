@@ -1,0 +1,41 @@
+appId: com.enterprise-sim.graph-explorer
+productName: Enterprise-Sim Graph Explorer
+# Use a non-asar layout? No — main/preload/renderer go in the asar; only the
+# sidecar (native addons + bundled node) needs to live unpacked, which
+# extraResources handles by placing it outside the asar entirely.
+directories:
+  output: dist
+  buildResources: build
+# The asar carries no native modules — kuzu/oxigraph live in the unpacked
+# sidecar and keep their system-node-ABI prebuilt binaries. Skip the default
+# @electron/rebuild pass so it does not re-link the dev node_modules natives
+# against Electron's incompatible ABI.
+npmRebuild: false
+# What goes into the asar (the Electron app itself): only the compiled main /
+# preload / renderer. The renderer bundles its deps via Vite and the main
+# process imports only electron + node built-ins, so NO node_modules belong in
+# the asar — excluding them drops ~500MB of native deps (incl. kuzu's 400MB+
+# source tree) that would otherwise be packed AND duplicated in the sidecar.
+files:
+  - out/main/**/*
+  - out/preload/**/*
+  - out/renderer/**/*
+  - package.json
+  - '!node_modules/**/*'
+# The self-contained sidecar built by scripts/build-sidecar.mjs: the esbuild
+# bundle, the native kuzu/oxigraph engines, and (optionally) a node binary.
+# Lands at <resources>/sidecar, located at runtime via process.resourcesPath.
+extraResources:
+  - from: out/sidecar
+    to: sidecar
+linux:
+  target:
+    - AppImage
+    - deb
+  category: Development
+  maintainer: Enterprise-Sim <enterprise-sim@example.com>
+  synopsis: Interactive graph explorer + agent reasoning over Enterprise-Sim gold KG runs
+deb:
+  # The bundled node + native engines make the payload large; gzip keeps the
+  # .deb build fast and low-memory (xz on the full tree is very slow/heavy).
+  compression: gz

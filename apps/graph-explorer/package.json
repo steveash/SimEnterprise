@@ -4,6 +4,11 @@
   "description": "Interactive graph explorer + agent reasoning over Enterprise-Sim gold KG runs",
   "type": "module",
   "main": "out/main/index.js",
+  "author": {
+    "name": "Enterprise-Sim",
+    "email": "enterprise-sim@example.com"
+  },
+  "homepage": "https://github.com/gastownhall/enterprise_sim",
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
@@ -12,6 +17,9 @@
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
     "sidecar:dev": "tsx watch src/sidecar/index.ts",
+    "build:sidecar": "node scripts/build-sidecar.mjs",
+    "dist": "npm run build && npm run build:sidecar && electron-builder",
+    "dist:dir": "npm run build && npm run build:sidecar && electron-builder --dir",
     "test": "vitest run",
     "test:watch": "vitest"
   },
@@ -31,7 +39,9 @@
     "cytoscape-dagre": "^2.5.0",
     "cytoscape-fcose": "^2.2.0",
     "electron": "^42.5.0",
+    "electron-builder": "^25.1.8",
     "electron-vite": "^2.3.0",
+    "esbuild": "^0.21.5",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "tsx": "^4.19.2",

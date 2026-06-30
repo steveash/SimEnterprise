@@ -21,7 +21,36 @@ if (existsSync(ENV_FILE)) {
     /* ignore */
   }
 }
-const DEFAULT_RUNS_ROOT = process.env.GRAPH_EXPLORER_RUNS_ROOT ?? join(REPO_ROOT, 'runs')
+// In dev, runs auto-discover under the repo's runs/. In a packaged app there is
+// no repo, so default to the user's home — they pick a run dir via the dialog.
+const DEFAULT_RUNS_ROOT =
+  process.env.GRAPH_EXPLORER_RUNS_ROOT ?? (app.isPackaged ? app.getPath('home') : join(REPO_ROOT, 'runs'))
+
+/**
+ * Resolve the command + args used to launch the sidecar.
+ *
+ * Dev: run the TS entry directly via `tsx` under the system node.
+ * Packaged: run the esbuild-bundled `index.mjs` shipped in resources/sidecar,
+ *   using a bundled node binary if present, else a located system node. Electron's
+ *   own node has an incompatible native-addon ABI, so we never run it as the host.
+ */
+function resolveSidecar(): { command: string; args: string[]; cwd: string } | { error: string } {
+  if (app.isPackaged) {
+    const base = join(process.resourcesPath, 'sidecar')
+    const entry = join(base, 'index.mjs')
+    if (!existsSync(entry)) return { error: `packaged sidecar not found at ${entry}` }
+    const bundledNode = join(base, process.platform === 'win32' ? 'node.exe' : 'node')
+    const command =
+      process.env.GRAPH_EXPLORER_NODE ?? (existsSync(bundledNode) ? bundledNode : process.platform === 'win32' ? 'node.exe' : 'node')
+    return { command, args: [entry], cwd: base }
+  }
+  const tsxBin = join(APP_ROOT, 'node_modules', '.bin', 'tsx')
+  const entry = join(APP_ROOT, 'src', 'sidecar', 'index.ts')
+  if (!existsSync(tsxBin) || !existsSync(entry)) {
+    return { error: `sidecar not found (tsx=${existsSync(tsxBin)} entry=${existsSync(entry)})` }
+  }
+  return { command: tsxBin, args: [entry], cwd: APP_ROOT }
+}
 
 let sidecar: ChildProcess | null = null
 let sidecarPort = 0
@@ -29,13 +58,10 @@ let sidecarStartError: string | null = null
 
 function startSidecar(): Promise<number> {
   return new Promise((resolvePort, reject) => {
-    const tsxBin = join(APP_ROOT, 'node_modules', '.bin', 'tsx')
-    const entry = join(APP_ROOT, 'src', 'sidecar', 'index.ts')
-    if (!existsSync(tsxBin) || !existsSync(entry)) {
-      return reject(new Error(`sidecar not found (tsx=${existsSync(tsxBin)} entry=${existsSync(entry)})`))
-    }
-    sidecar = spawn(tsxBin, [entry], {
-      cwd: APP_ROOT,
+    const resolved = resolveSidecar()
+    if ('error' in resolved) return reject(new Error(resolved.error))
+    sidecar = spawn(resolved.command, resolved.args, {
+      cwd: resolved.cwd,
       env: {
         ...process.env,
         GRAPH_EXPLORER_RUNS_ROOT: DEFAULT_RUNS_ROOT,
