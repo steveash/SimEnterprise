@@ -222,6 +222,13 @@ describe.skipIf(!goldenRunExists())('sidecar WebSocket RPC', () => {
       // Everything is common to both sides.
       expect(diff.nodes.common.length).toBe(diff.a.nodeCount)
       expect(diff.edges.common.length).toBe(diff.a.edgeCount)
+      // Typed breakdown fields are present over the wire and empty for a self-diff.
+      expect(diff.nodeChanges.added).toEqual([])
+      expect(diff.nodeChanges.removed).toEqual([])
+      expect(diff.edgeChanges.added).toEqual([])
+      expect(diff.edgeChanges.removed).toEqual([])
+      expect(diff.nodeTypeDeltas).toEqual([])
+      expect(diff.edgeTypeDeltas).toEqual([])
     },
     TEST_TIMEOUT
   )

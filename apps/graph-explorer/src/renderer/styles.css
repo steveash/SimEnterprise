@@ -191,3 +191,6 @@ button { font-family: inherit; cursor: pointer; }
 .removed { color: var(--err); }
 .diff-row { padding: 3px 6px; border-radius: 4px; cursor: pointer; }
 .diff-row:hover { background: var(--bg3); }
+.diff-header { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; margin: 8px 0; font-size: 12px; }
+.diff-header .diff-counts { display: flex; gap: 4px; align-items: baseline; margin-left: auto; }
+.diff-type { display: inline-block; min-width: 0; padding: 0 5px; margin-right: 4px; border-radius: 3px; background: var(--bg3); color: var(--muted); font-size: 10px; }

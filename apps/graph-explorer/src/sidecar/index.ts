@@ -17,6 +17,7 @@ if (existsSync(ENV_FILE)) {
 import type { RpcRequest, ServerMessage, LoadRunResult, DiffResult } from '../shared/protocol.js'
 import type { RunSummary } from '../shared/model.js'
 import { loadRun } from './graph/loader.js'
+import { diffModels } from './graph/diff.js'
 import { GraphIndex } from './graph/index.js'
 import { KuzuEngine } from './graph/kuzu.js'
 import { OxigraphEngine } from './graph/rdf.js'
@@ -120,23 +121,7 @@ function summarizeEval(model: ReturnType<typeof loadRun>): LoadRunResult['eval']
 }
 
 function diffRuns(a: LoadedRun, b: LoadedRun): DiffResult {
-  const aNodes = new Set(a.index.model.nodes.map((n) => n.id))
-  const bNodes = new Set(b.index.model.nodes.map((n) => n.id))
-  const aEdges = new Set(a.index.model.edges.map((e) => e.id))
-  const bEdges = new Set(b.index.model.edges.map((e) => e.id))
-  const part = (x: Set<string>, y: Set<string>) => ({
-    added: [...y].filter((v) => !x.has(v)),
-    removed: [...x].filter((v) => !y.has(v)),
-    common: [...x].filter((v) => y.has(v))
-  })
-  const sum = (lr: LoadedRun): RunSummary => ({
-    runId: lr.index.model.runId,
-    runPath: lr.index.model.runPath,
-    nodeCount: lr.index.model.nodes.length,
-    edgeCount: lr.index.model.edges.length,
-    window: lr.index.model.timeRange
-  })
-  return { a: sum(a), b: sum(b), nodes: part(aNodes, bNodes), edges: part(aEdges, bEdges) }
+  return diffModels(a.index.model, b.index.model)
 }
 
 async function handle(ws: WebSocket, req: RpcRequest): Promise<void> {
