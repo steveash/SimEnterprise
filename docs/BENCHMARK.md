@@ -128,9 +128,38 @@ A benchmark pair with no matching prediction is graded against the empty set
 (the agent declined to answer); predictions for ids not in the benchmark are
 ignored — the benchmark, not the predictions, defines the question set.
 
-> The multi-runner **comparison** report (graph vs RAG vs baseline side by side)
-> is `bench report`, landing with `esim-uzc.6`. Until then, `bench score` renders
-> the single-runner breakdown.
+For the multi-runner **comparison** (graph vs RAG vs baseline side by side) use
+`bench report`:
+
+```bash
+enterprise-sim bench report --bench bench.jsonl \
+  --pred graph=pred.graph.jsonl --pred rag=pred.rag.jsonl -o report.md
+```
+
+It scores each named runner, auto-adds a trivial most-frequent **baseline** (the
+floor a real runner must clear; `--no-baseline` to omit), and renders a markdown
+leaderboard — overall macro-F1 ranked best-first, then a per-reasoning-type
+breakdown with one column per runner and the row leader **bolded**:
+
+```markdown
+## Overall
+
+| Rank | Runner | F1 | P | R | EM | n |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | graph | 0.812 | 0.840 | 0.795 | 0.640 | 64 |
+| 2 | rag | 0.560 | 0.610 | 0.530 | 0.380 | 64 |
+| 3 | baseline | 0.180 | 0.220 | 0.160 | 0.090 | 64 |
+
+## By reasoning type
+
+| reasoning_type | n | graph | rag | baseline |
+| --- | --- | --- | --- | --- |
+| provenance | 12 | 0.300 | **0.910** | 0.050 |
+| transitive | 14 | **0.880** | 0.410 | 0.100 |
+```
+
+Like `score` it is pure and keyless: it operates only on prediction files (no
+LLM, no graph engine), so the same inputs always render the same markdown.
 
 ---
 
@@ -142,9 +171,10 @@ ignored — the benchmark, not the predictions, defines the question set.
 | [`fixtures.py`](../enterprise_sim/benchmark/fixtures.py) | One deterministic gold KG — executes the golden run (`load_gold_world` / `golden_run`) so generators and tests share one byte-stable source of ground truth. |
 | [`generate.py`](../enterprise_sim/benchmark/generate.py) | Deterministically derive `QAPair`s from the gold `World` (and grounding map) across all five reasoning types. Entry point: `generate(run_dir=None)`. |
 | [`score.py`](../enterprise_sim/benchmark/score.py) | `Prediction`/`Predictions`, set-based per-item P/R/F1 (`score_item`), macro aggregation (`score` → `Report`), and `format_report` for the CLI. |
+| [`report.py`](../enterprise_sim/benchmark/report.py) | Multi-runner comparison: `most_frequent_baseline`, `build_leaderboard` (rank N runners + baseline), and `render_markdown` for `bench report`. |
 
-Tests: scaffold, generator, scorer, report rendering, and the keyless lock live
-in `tests/test_benchmark_*.py`.
+Tests: scaffold, generator, scorer, report rendering, the comparison
+leaderboard, and the keyless lock live in `tests/test_benchmark_*.py`.
 
 ---
 
@@ -202,7 +232,7 @@ import time, so `import enterprise_sim.benchmark` stays keyless (enforced by
 | `esim-uzc.7` | tests + this doc | ✅ |
 | `esim-uzc.4` | graph-agent runner (Cypher/SPARQL, gated) | ⏳ |
 | `esim-uzc.5` | RAG baseline runner (corpus retrieval, gated) | ⏳ |
-| `esim-uzc.6` | comparison report + `bench report` CLI | ⏳ |
+| `esim-uzc.6` | comparison report + `bench report` CLI | ✅ |
 
 The graph/ontology query *engine* and the LLM runners (`esim-uzc.4/.5`) bring in
 `kuzu`, `pyoxigraph`, and `claude-agent-sdk`; their tests gate on

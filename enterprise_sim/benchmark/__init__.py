@@ -21,6 +21,15 @@ comparison report are added by later beads. See ``docs/BENCHMARK.md``.
 from __future__ import annotations
 
 from enterprise_sim.benchmark.generate import build_benchmark, generate
+from enterprise_sim.benchmark.report import (
+    BASELINE_NAME,
+    Leaderboard,
+    RunnerResult,
+    build_leaderboard,
+    build_report,
+    most_frequent_baseline,
+    render_markdown,
+)
 from enterprise_sim.benchmark.schema import (
     REASONING_TYPES,
     Benchmark,
@@ -38,17 +47,24 @@ from enterprise_sim.benchmark.score import (
 )
 
 __all__ = [
+    "BASELINE_NAME",
     "REASONING_TYPES",
     "Aggregate",
     "Benchmark",
     "ItemScore",
+    "Leaderboard",
     "Prediction",
     "Predictions",
     "QAPair",
     "Report",
+    "RunnerResult",
     "build_benchmark",
+    "build_leaderboard",
+    "build_report",
     "format_report",
     "generate",
+    "most_frequent_baseline",
+    "render_markdown",
     "score",
     "score_item",
 ]

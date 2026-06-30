@@ -381,6 +381,95 @@ def _add_bench_score_parser(
     score_parser.set_defaults(func=_cmd_bench_score)
 
 
+def _parse_named_pred(value: str) -> tuple[str, Path]:
+    """Parse a ``name=path`` ``--pred`` argument into a ``(name, Path)`` pair."""
+    name, sep, path = value.partition("=")
+    if not sep or not name or not path:
+        raise argparse.ArgumentTypeError(
+            f"--pred expects NAME=PATH (e.g. graph=pred.graph.jsonl), got {value!r}"
+        )
+    return name, Path(path)
+
+
+def _cmd_bench_report(args: argparse.Namespace) -> int:
+    """Compare runners side by side as a markdown leaderboard (esim-uzc.6).
+
+    Reads the gold benchmark and one or more named predictions files
+    (``--pred NAME=PATH``), auto-adds a trivial most-frequent baseline (unless
+    ``--no-baseline``), and renders a markdown report — overall macro-F1 per
+    runner plus a per-reasoning-type breakdown — to ``-o`` (stdout when omitted).
+    Pure and deterministic: operates only on prediction files, no LLM.
+    """
+    from enterprise_sim.benchmark.report import build_report
+    from enterprise_sim.benchmark.schema import Benchmark
+    from enterprise_sim.benchmark.score import Predictions
+
+    benchmark = Benchmark.read_jsonl(args.bench)
+    predictions: dict[str, Predictions] = {}
+    for name, path in args.pred:
+        if name in predictions:
+            print(f"enterprise-sim bench report: duplicate runner name {name!r}", file=sys.stderr)
+            return 2
+        predictions[name] = Predictions.read_jsonl(path)
+
+    markdown = build_report(benchmark, predictions, include_baseline=not args.no_baseline)
+
+    if args.output is None:
+        print(markdown, end="")
+    else:
+        args.output.write_text(markdown, encoding="utf-8")
+        print(
+            f"enterprise-sim bench report: {len(benchmark)} questions -> {args.output}",
+            file=sys.stderr,
+        )
+    return 0
+
+
+def _add_bench_report_parser(
+    bench_subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
+    """Wire ``bench report --bench bench.jsonl --pred graph=… --pred rag=…`` (esim-uzc.6)."""
+    report_parser = bench_subparsers.add_parser(
+        "report",
+        help="compare runners as a markdown leaderboard",
+        description=(
+            "Compare two or more runners against the gold benchmark and emit a "
+            "markdown leaderboard: overall macro-F1 per runner plus a per-"
+            "reasoning-type breakdown, with a trivial most-frequent baseline "
+            "column. Pure and deterministic (operates on prediction files, no LLM)."
+        ),
+    )
+    report_parser.add_argument(
+        "--bench",
+        required=True,
+        type=Path,
+        metavar="PATH",
+        help="path to the gold benchmark JSONL (one QAPair per line)",
+    )
+    report_parser.add_argument(
+        "--pred",
+        required=True,
+        action="append",
+        type=_parse_named_pred,
+        metavar="NAME=PATH",
+        help="a named runner's predictions JSONL (repeatable, e.g. graph=pred.graph.jsonl)",
+    )
+    report_parser.add_argument(
+        "--no-baseline",
+        action="store_true",
+        help="omit the auto-added most-frequent baseline runner",
+    )
+    report_parser.add_argument(
+        "-o",
+        "--output",
+        type=Path,
+        default=None,
+        metavar="PATH",
+        help="write the markdown report to PATH (default: stdout)",
+    )
+    report_parser.set_defaults(func=_cmd_bench_report)
+
+
 def _cmd_bench_generate(args: argparse.Namespace) -> int:
     """Generate a KG-QA benchmark from the gold knowledge graph (esim-uzc.2).
 
@@ -432,6 +521,7 @@ def _add_bench_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentPa
     bench_parser.set_defaults(bench_subparsers=bench_subparsers)
     _add_bench_run_parser(bench_subparsers)
     _add_bench_score_parser(bench_subparsers)
+    _add_bench_report_parser(bench_subparsers)
 
     generate_parser = bench_subparsers.add_parser(
         "generate",
