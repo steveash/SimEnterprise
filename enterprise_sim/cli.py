@@ -246,6 +246,111 @@ def _cmd_bench_score(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_bench_run(args: argparse.Namespace) -> int:
+    """Run a benchmark runner over the corpus and write its predictions (esim-uzc.5).
+
+    Currently registers one runner, ``rag``: the retrieval-augmented baseline that
+    answers each question from the raw artifact corpus and resolves the answer back
+    to KG node ids (so it scores on the same basis as the graph runner). Reads the
+    gold benchmark, indexes the run directory's corpus (a fresh golden run by
+    default, or ``--run``), answers every pair through the selected LLM backend,
+    and writes the predictions JSONL to ``-o`` (stdout when omitted).
+
+    The retrieval-augmented answer step needs a real model: with the default
+    ``anthropic_api`` backend it requires ``ANTHROPIC_API_KEY``. A one-line summary
+    goes to stderr.
+    """
+    import contextlib
+    import tempfile
+
+    from enterprise_sim.benchmark.runners.rag import run_rag
+    from enterprise_sim.benchmark.schema import Benchmark
+    from enterprise_sim.core.llm import LLMConfig, build_client
+
+    benchmark = Benchmark.read_jsonl(args.bench)
+    client = build_client(LLMConfig(backend=args.backend))
+
+    with contextlib.ExitStack() as stack:
+        run_dir = args.run
+        if run_dir is None:
+            from enterprise_sim.benchmark.fixtures import golden_run
+
+            tmp = stack.enter_context(tempfile.TemporaryDirectory(prefix="esim-bench-rag-"))
+            run_dir = golden_run(tmp).run_dir
+        predictions = run_rag(run_dir, benchmark, client, top_k=args.top_k)
+
+    if args.output is None:
+        print(predictions.to_jsonl(), end="")
+    else:
+        predictions.write_jsonl(args.output)
+
+    destination = "stdout" if args.output is None else str(args.output)
+    print(
+        f"enterprise-sim bench run --runner {args.runner}: "
+        f"{len(predictions)} predictions over {len(benchmark)} questions "
+        f"(backend {args.backend}) -> {destination}",
+        file=sys.stderr,
+    )
+    return 0
+
+
+def _add_bench_run_parser(
+    bench_subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
+    """Wire ``bench run --runner rag --bench bench.jsonl -o pred.rag.jsonl`` (esim-uzc.5)."""
+    run_parser = bench_subparsers.add_parser(
+        "run",
+        help="run a benchmark runner (e.g. the RAG baseline) over the corpus",
+        description=(
+            "Answer the gold benchmark with a runner and write its predictions "
+            "JSONL. The 'rag' runner retrieves from the raw artifact corpus, asks "
+            "an LLM to answer, and resolves the answer back to KG node ids."
+        ),
+    )
+    run_parser.add_argument(
+        "--runner",
+        default="rag",
+        choices=["rag"],
+        help="which runner to use (default: rag, the retrieval-augmented baseline)",
+    )
+    run_parser.add_argument(
+        "--bench",
+        required=True,
+        type=Path,
+        metavar="PATH",
+        help="path to the gold benchmark JSONL (one QAPair per line)",
+    )
+    run_parser.add_argument(
+        "--run",
+        type=Path,
+        default=None,
+        metavar="DIR",
+        help="read the corpus from an existing run dir (default: a fresh golden run)",
+    )
+    run_parser.add_argument(
+        "-o",
+        "--output",
+        type=Path,
+        default=None,
+        metavar="PATH",
+        help="write the predictions JSONL to PATH (default: stdout)",
+    )
+    run_parser.add_argument(
+        "--backend",
+        default="anthropic_api",
+        choices=["fake", "anthropic_api", "bedrock", "claude_cli"],
+        help="LLM backend for the answer step (default: anthropic_api, needs a key)",
+    )
+    run_parser.add_argument(
+        "--top-k",
+        type=int,
+        default=5,
+        metavar="N",
+        help="number of corpus chunks to retrieve per question (default: 5)",
+    )
+    run_parser.set_defaults(func=_cmd_bench_run)
+
+
 def _add_bench_score_parser(
     bench_subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
 ) -> None:
@@ -320,11 +425,12 @@ def _add_bench_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentPa
     )
     bench_subparsers = bench_parser.add_subparsers(
         dest="bench_command",
-        metavar="{generate,score,report}",
+        metavar="{generate,run,score,report}",
     )
     bench_parser.set_defaults(func=_cmd_bench, bench_parser=bench_parser)
     # Exposed for later beads to attach subcommands to the same group.
     bench_parser.set_defaults(bench_subparsers=bench_subparsers)
+    _add_bench_run_parser(bench_subparsers)
     _add_bench_score_parser(bench_subparsers)
 
     generate_parser = bench_subparsers.add_parser(

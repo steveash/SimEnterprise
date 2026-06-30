@@ -222,9 +222,7 @@ def _chunk_text(text: str, target_words: int) -> Iterator[str]:
         yield "\n\n".join(current)
 
 
-def load_corpus(
-    run_dir: str | Path, world: World, *, target_words: int = 150
-) -> list[Chunk]:
+def load_corpus(run_dir: str | Path, world: World, *, target_words: int = 150) -> list[Chunk]:
     """Read every artifact in ``world`` back to text and split it into :class:`Chunk`\\ s.
 
     Iterates the gold ``Artifact`` nodes in id order (so the corpus is
@@ -276,9 +274,7 @@ class BM25Index:
     b: float = 0.75
 
     @classmethod
-    def build(
-        cls, chunks: Iterable[Chunk], *, k1: float = 1.5, b: float = 0.75
-    ) -> BM25Index:
+    def build(cls, chunks: Iterable[Chunk], *, k1: float = 1.5, b: float = 0.75) -> BM25Index:
         """Build a :class:`BM25Index` over ``chunks`` (computes IDF + length norms)."""
         ordered = tuple(chunks)
         token_lists = [_tokenize(chunk.text) for chunk in ordered]
@@ -293,8 +289,7 @@ class BM25Index:
         # Robertson/Spärck-Jones IDF with the +1 shift, so a term in every document
         # still contributes a small positive weight rather than going negative.
         idf = {
-            term: math.log(1.0 + (n_docs - df + 0.5) / (df + 0.5))
-            for term, df in doc_freq.items()
+            term: math.log(1.0 + (n_docs - df + 0.5) / (df + 0.5)) for term, df in doc_freq.items()
         }
         avg_length = sum(lengths) / n_docs if n_docs else 0.0
         return cls(
@@ -331,9 +326,7 @@ class BM25Index:
         deterministic; fewer than ``k`` pairs come back when fewer chunks match.
         """
         query_terms = _tokenize(query)
-        scored = (
-            (index, self._score(query_terms, index)) for index in range(len(self.chunks))
-        )
+        scored = ((index, self._score(query_terms, index)) for index in range(len(self.chunks)))
         ranked = sorted(
             (pair for pair in scored if pair[1] > 0.0),
             key=lambda pair: (-pair[1], pair[0]),
@@ -383,7 +376,10 @@ class AliasResolver:
             entity_id = record.get("entity_id")
             if not isinstance(entity_id, str):
                 continue
-            surfaces = [record.get("canonical"), *(record.get("aliases") or [])]
+            aliases = record.get("aliases")
+            surfaces = [record.get("canonical")]
+            if isinstance(aliases, list):
+                surfaces.extend(aliases)
             for surface in surfaces:
                 if isinstance(surface, str) and surface.strip():
                     mapping[surface.strip().lower()].add(entity_id)
@@ -468,9 +464,7 @@ class RagRunner:
     def answer(self, pair: QAPair, client: LLMClient, *, model: str | None = None) -> Prediction:
         """Retrieve, ask ``client`` to answer ``pair``, and resolve the answer to ids."""
         hits = self.index.search(pair.question, self.top_k)
-        prompt = assemble_prompt(
-            system=_SYSTEM, brief=_brief(pair.question, _format_context(hits))
-        )
+        prompt = assemble_prompt(system=_SYSTEM, brief=_brief(pair.question, _format_context(hits)))
         result = client.generate_content(prompt, model=model)
         predicted = self.resolver.resolve(result.content)
         return Prediction(qa_id=pair.id, predicted_ids=tuple(sorted(predicted)))
@@ -482,9 +476,7 @@ class RagRunner:
         return Predictions.of(self.answer(pair, client, model=model) for pair in benchmark)
 
 
-def build_runner(
-    run_dir: str | Path, world: World | None = None, *, top_k: int = 5
-) -> RagRunner:
+def build_runner(run_dir: str | Path, world: World | None = None, *, top_k: int = 5) -> RagRunner:
     """Wire a :class:`RagRunner` for ``run_dir``: index the corpus + load the resolver.
 
     Reconstructs the gold :class:`~enterprise_sim.core.world.World` from the run
