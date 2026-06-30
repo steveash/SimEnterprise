@@ -18,9 +18,15 @@ queries — highlighting the answer right on the graph.
   text mentions that ground it; click a mention to read the artifact.
 - **Agent chat** — a Claude Agent SDK harness with in-process graph tools. It searches,
   runs Cypher (traversal) or SPARQL (reasoning over an inferred ontology), and highlights
-  results. A live **tool-trace** shows every query it generated.
-- **Manual query console** — write Cypher/SPARQL yourself with schema reference + samples.
-- **Run diff** — compare two runs to see structural drift (added/removed nodes & edges).
+  results. A live **tool-trace** shows every query it generated, and each turn ends with a
+  structured **engine + final query** block (see below) so you can see *exactly* which
+  engine answered and copy the query that did it.
+- **Manual query console** — write Cypher/SPARQL yourself with schema reference + samples,
+  and **save any query as a lens** (see below) to re-run it later in one click.
+- **Saved lenses** — promote a console query to a named, persistent **lens**; lenses
+  survive app restarts and re-run with a single click.
+- **Run diff** — compare two runs to see structural drift, with a **typed breakdown**
+  (per node/edge type added/removed counts) and click-through to each changed element.
 
 ## Architecture
 
@@ -52,6 +58,34 @@ RDF and an **ontology** materializes *inferred* predicates that are not in the r
 This is the entailment that SPARQL buys over raw Cypher traversal. The agent is told to
 prefer SPARQL when a question needs these derived facts.
 
+### Agent engine + final-query display
+
+Every agent turn surfaces, as a structured block, **which engine it chose** (Cypher or
+SPARQL) and **the exact query** that produced the answer — distinct from the live
+tool-trace, which lists *all* attempts (including failed/abandoned ones).
+
+The block is derived purely from the turn's event stream by `finalQueryFromEvents`
+(`src/sidecar/agent/harness.ts`): it takes the **last successful** `cypher_query` /
+`sparql_query` tool call of the turn, labels it with its engine, and emits it as a
+`final_query` event. Turns that ran no query engine surface no block. The renderer
+(`ChatPanel`) renders it as a copyable, mono code block with an `engine: …` badge. This
+derivation is unit-tested in `tests/agent.test.ts` and asserted on a real turn by the
+gated live test.
+
+### Saved lenses (persistence)
+
+A **lens** is a named, reusable query promoted from the query console. Lenses persist
+across app restarts as JSON in Electron's `userData` dir (`lenses.json`), managed by
+`LensStore` (`src/main/lenses.ts`) and exposed to the renderer over the
+`lenses-list` / `lenses-save` / `lenses-delete` IPC channels.
+
+`LensStore` is deliberately decoupled from Electron — it takes a plain file path — so the
+full save → restart → delete lifecycle (plus corrupt-file degradation and round-trip
+serialization) is unit-tested under plain node in `tests/lenses.test.ts`, mocking the
+`userData` path with a temp dir. The on-disk shape is validated on read by `isLens`
+(`src/shared/lenses.ts`), so a corrupt or partially-malformed file degrades to dropping
+only the bad entries rather than crashing.
+
 ## Run it
 
 ```bash
@@ -63,10 +97,55 @@ npm run dev        # launches Vite + Electron
 Set `ANTHROPIC_API_KEY` in your environment to enable the agent, or paste a key into the
 in-app banner. The agent model is selectable (Sonnet / Opus / Haiku).
 
-Build a production bundle: `npm run build`. Typecheck: `npm run typecheck`.
-
 > **Headless / container note:** if Electron aborts with a `chrome-sandbox` SUID error,
 > launch with `--no-sandbox` (only needed where the sandbox helper isn't root-owned).
+
+## Build & package (dist)
+
+```bash
+npm run typecheck   # tsc over node + web project refs (no emit)
+npm run build       # electron-vite build → out/
+npm run preview     # run the built bundle through Electron
+```
+
+`electron-vite build` bundles **only** the three Electron-owned entry points into `out/`:
+
+```
+out/
+  main/index.js      Electron main (window + sidecar lifecycle + lens IPC)
+  preload/index.js   contextBridge API
+  renderer/…         the React UI (loaded via loadFile in production)
+```
+
+**The sidecar is intentionally *not* bundled.** The native query engines (Kùzu, Oxigraph)
+and the Agent SDK are run in a child process spawned with the **system `node`** via `tsx`,
+so their prebuilt native addons match the system ABI rather than Electron's. In production,
+`out/main/index.js` resolves the app root two levels up and spawns
+`node_modules/.bin/tsx src/sidecar/index.ts` — therefore a packaged/dist build must ship,
+alongside `out/`, the **`src/sidecar/` sources and the production `node_modules`** (not just
+the bundled `out/`). There is no `electron-builder` step wired up yet; `npm run build` +
+`npm run preview` is the current dist target.
+
+## Test
+
+```bash
+npm test            # vitest run (one shot)
+npm run test:watch  # vitest watch
+```
+
+The suite runs under plain **node** (not Electron) — the kuzu/oxigraph addons and the Agent
+SDK all load under the system node, so a node test environment is all it needs. Two kinds of
+tests:
+
+- **Always-on, deterministic** — pure-logic units that hold on any checkout: the structural
+  run-diff and its typed breakdown (`tests/diff.test.ts`), the agent's MCP tool wiring and
+  `finalQueryFromEvents` engine/query derivation (`tests/agent.test.ts`), and the full lens
+  persistence lifecycle (`tests/lenses.test.ts`).
+- **Gated** — tests that need real inputs skip cleanly when the input is absent. The
+  end-to-end RPC test (`tests/rpc.test.ts`, including `diffRuns` over the wire) and the
+  loader/engine tests run only when the **golden run** is present under `runs/`; the live
+  agent turn runs only when **`ANTHROPIC_API_KEY`** is set. Neither is required for a green
+  `npm test` on a bare checkout.
 
 ## Layout
 
