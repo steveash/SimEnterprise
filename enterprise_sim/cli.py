@@ -19,6 +19,8 @@ from enterprise_sim import __version__
 
 if TYPE_CHECKING:
     from enterprise_sim.authoring.sdk import Playbook
+    from enterprise_sim.benchmark.schema import Benchmark
+    from enterprise_sim.benchmark.score import Predictions
     from enterprise_sim.core.config import RunConfig
 
 
@@ -247,38 +249,37 @@ def _cmd_bench_score(args: argparse.Namespace) -> int:
 
 
 def _cmd_bench_run(args: argparse.Namespace) -> int:
-    """Run a benchmark runner over the corpus and write its predictions (esim-uzc.5).
+    """Run a benchmark runner over the gold KG/corpus and write its predictions.
 
-    Currently registers one runner, ``rag``: the retrieval-augmented baseline that
-    answers each question from the raw artifact corpus and resolves the answer back
-    to KG node ids (so it scores on the same basis as the graph runner). Reads the
-    gold benchmark, indexes the run directory's corpus (a fresh golden run by
-    default, or ``--run``), answers every pair through the selected LLM backend,
-    and writes the predictions JSONL to ``-o`` (stdout when omitted).
+    Two runners share this command, selected by ``--runner`` (epic esim-uzc):
 
-    The retrieval-augmented answer step needs a real model: with the default
-    ``anthropic_api`` backend it requires ``ANTHROPIC_API_KEY``. A one-line summary
-    goes to stderr.
+    * ``rag`` (esim-uzc.5) — the retrieval-augmented baseline: answers each question
+      from the RAW artifact corpus and resolves the answer back to KG node ids,
+      through the selected LLM ``--backend`` (``--top-k`` chunks per question).
+    * ``graph`` (esim-uzc.4) — the graph agent: loads the gold KG into embedded
+      Cypher (kuzu) and SPARQL (oxigraph, with the materialized ontology) engines
+      and lets a Claude ``--model`` reason over them (``--limit`` caps the subset).
+
+    Both read the gold benchmark, default to a fresh golden run (or ``--run``), and
+    write predictions JSONL to ``-o`` (stdout when omitted), with a one-line summary
+    on stderr. Both answer steps need a real model/key.
     """
-    import contextlib
-    import tempfile
-
-    from enterprise_sim.benchmark.runners.rag import run_rag
     from enterprise_sim.benchmark.schema import Benchmark
-    from enterprise_sim.core.llm import LLMConfig, build_client
 
     benchmark = Benchmark.read_jsonl(args.bench)
-    client = build_client(LLMConfig(backend=args.backend))
+    run_dir = str(args.run) if args.run is not None else None
 
-    with contextlib.ExitStack() as stack:
-        run_dir = args.run
-        if run_dir is None:
-            from enterprise_sim.benchmark.fixtures import golden_run
+    if args.runner == "graph":
+        predictions = _run_graph_runner(args, benchmark, run_dir)
+        if predictions is None:
+            return 2
+        detail = f"model {args.model}"
+    else:
+        predictions = _run_rag_runner(args, benchmark, run_dir)
+        detail = f"backend {args.backend}"
 
-            tmp = stack.enter_context(tempfile.TemporaryDirectory(prefix="esim-bench-rag-"))
-            run_dir = golden_run(tmp).run_dir
-        predictions = run_rag(run_dir, benchmark, client, top_k=args.top_k)
-
+    if predictions is None:
+        return 2
     if args.output is None:
         print(predictions.to_jsonl(), end="")
     else:
@@ -288,29 +289,69 @@ def _cmd_bench_run(args: argparse.Namespace) -> int:
     print(
         f"enterprise-sim bench run --runner {args.runner}: "
         f"{len(predictions)} predictions over {len(benchmark)} questions "
-        f"(backend {args.backend}) -> {destination}",
+        f"({detail}) -> {destination}",
         file=sys.stderr,
     )
     return 0
 
 
+def _run_rag_runner(
+    args: argparse.Namespace,
+    benchmark: Benchmark,
+    run_dir: str | None,
+) -> Predictions:
+    """The RAG baseline path of ``bench run`` (esim-uzc.5)."""
+    import contextlib
+    import tempfile
+
+    from enterprise_sim.benchmark.runners.rag import run_rag
+    from enterprise_sim.core.llm import LLMConfig, build_client
+
+    client = build_client(LLMConfig(backend=args.backend))
+    with contextlib.ExitStack() as stack:
+        resolved: str | Path | None = run_dir
+        if resolved is None:
+            from enterprise_sim.benchmark.fixtures import golden_run
+
+            tmp = stack.enter_context(tempfile.TemporaryDirectory(prefix="esim-bench-rag-"))
+            resolved = golden_run(tmp).run_dir
+        return run_rag(resolved, benchmark, client, top_k=args.top_k)
+
+
+def _run_graph_runner(
+    args: argparse.Namespace,
+    benchmark: Benchmark,
+    run_dir: str | None,
+) -> Predictions | None:
+    """The graph-agent path of ``bench run`` (esim-uzc.4); ``None`` on missing key."""
+    from enterprise_sim.benchmark.runners.graph_agent import run_benchmark
+
+    try:
+        return run_benchmark(benchmark, run_dir=run_dir, model=args.model, limit=args.limit)
+    except RuntimeError as exc:
+        print(f"enterprise-sim bench run: {exc}", file=sys.stderr)
+        return None
+
+
 def _add_bench_run_parser(
     bench_subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
 ) -> None:
-    """Wire ``bench run --runner rag --bench bench.jsonl -o pred.rag.jsonl`` (esim-uzc.5)."""
+    """Wire ``bench run --runner {rag,graph} --bench bench.jsonl -o pred.jsonl`` (esim-uzc.4/5)."""
     run_parser = bench_subparsers.add_parser(
         "run",
-        help="run a benchmark runner (e.g. the RAG baseline) over the corpus",
+        help="run a benchmark runner (RAG baseline or graph agent) over the gold KG/corpus",
         description=(
             "Answer the gold benchmark with a runner and write its predictions "
             "JSONL. The 'rag' runner retrieves from the raw artifact corpus, asks "
-            "an LLM to answer, and resolves the answer back to KG node ids."
+            "an LLM to answer, and resolves the answer back to KG node ids; the "
+            "'graph' runner reasons over the gold KG via embedded Cypher (kuzu) and "
+            "SPARQL (oxigraph) engines with a Claude agent."
         ),
     )
     run_parser.add_argument(
         "--runner",
         default="rag",
-        choices=["rag"],
+        choices=["rag", "graph"],
         help="which runner to use (default: rag, the retrieval-augmented baseline)",
     )
     run_parser.add_argument(
@@ -325,7 +366,7 @@ def _add_bench_run_parser(
         type=Path,
         default=None,
         metavar="DIR",
-        help="read the corpus from an existing run dir (default: a fresh golden run)",
+        help="read the gold KG/corpus from an existing run dir (default: a fresh golden run)",
     )
     run_parser.add_argument(
         "-o",
@@ -335,18 +376,33 @@ def _add_bench_run_parser(
         metavar="PATH",
         help="write the predictions JSONL to PATH (default: stdout)",
     )
+    # RAG-runner options.
     run_parser.add_argument(
         "--backend",
         default="anthropic_api",
         choices=["fake", "anthropic_api", "bedrock", "claude_cli"],
-        help="LLM backend for the answer step (default: anthropic_api, needs a key)",
+        help="[rag] LLM backend for the answer step (default: anthropic_api, needs a key)",
     )
     run_parser.add_argument(
         "--top-k",
         type=int,
         default=5,
         metavar="N",
-        help="number of corpus chunks to retrieve per question (default: 5)",
+        help="[rag] number of corpus chunks to retrieve per question (default: 5)",
+    )
+    # Graph-runner options.
+    run_parser.add_argument(
+        "--model",
+        default="claude-sonnet-4-6",
+        metavar="MODEL",
+        help="[graph] the Claude model the agent uses (default: claude-sonnet-4-6)",
+    )
+    run_parser.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        metavar="N",
+        help="[graph] answer only the first N questions (default: all)",
     )
     run_parser.set_defaults(func=_cmd_bench_run)
 
