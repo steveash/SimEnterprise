@@ -217,6 +217,42 @@ def _cmd_eval(args: argparse.Namespace) -> int:
     return 0 if report.ok else 1
 
 
+def _cmd_bench(args: argparse.Namespace) -> int:
+    """The ``bench`` command group: KG-QA benchmark generation/scoring (epic esim-uzc).
+
+    This scaffold registers the group; its subcommands (``generate``, ``score``,
+    ``report``) are added by later beads. Invoked without a subcommand it prints
+    the group's usage and exits non-zero.
+    """
+    args.bench_parser.print_help()
+    return 2
+
+
+def _add_bench_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
+    """Wire the ``bench`` command group; later beads append its subcommands.
+
+    The nested subparser object is stashed on the parser's defaults as
+    ``bench_subparsers`` so subsequent milestones (the generator, runners, the
+    grader, the report) can register ``generate``/``score``/``report`` without
+    re-deriving the group here.
+    """
+    bench_parser = subparsers.add_parser(
+        "bench",
+        help="KG-QA benchmark: generate/score/report over the gold KG",
+        description=(
+            "Generate a question/answer benchmark from the gold knowledge graph, "
+            "score agent runners against it, and report results by reasoning type."
+        ),
+    )
+    bench_subparsers = bench_parser.add_subparsers(
+        dest="bench_command",
+        metavar="{generate,score,report}",
+    )
+    bench_parser.set_defaults(func=_cmd_bench, bench_parser=bench_parser)
+    # Exposed for later beads to attach subcommands to the same group.
+    bench_parser.set_defaults(bench_subparsers=bench_subparsers)
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Construct the top-level argument parser and its subcommands."""
     parser = argparse.ArgumentParser(
@@ -286,6 +322,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="LLM backend for --judge (default: fake, deterministic)",
     )
     eval_parser.set_defaults(func=_cmd_eval)
+
+    _add_bench_parser(subparsers)
 
     return parser
 
