@@ -228,6 +228,53 @@ def _cmd_bench(args: argparse.Namespace) -> int:
     return 2
 
 
+def _cmd_bench_score(args: argparse.Namespace) -> int:
+    """Score a predictions JSONL against a benchmark JSONL (esim-uzc.3).
+
+    Pure and deterministic: reads the gold benchmark and the agent's predictions,
+    grades the predicted node-id sets against the expected ones, and prints the
+    macro-averaged report (overall and per reasoning type). No LLM involved.
+    """
+    from enterprise_sim.benchmark.schema import Benchmark
+    from enterprise_sim.benchmark.score import Predictions, format_report, score
+
+    benchmark = Benchmark.read_jsonl(args.bench)
+    predictions = Predictions.read_jsonl(args.pred)
+    report = score(benchmark, predictions)
+    print(format_report(report))
+    return 0
+
+
+def _add_bench_score_parser(
+    bench_subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
+    """Wire ``bench score --bench bench.jsonl --pred pred.jsonl`` (esim-uzc.3)."""
+    score_parser = bench_subparsers.add_parser(
+        "score",
+        help="score a predictions JSONL against a benchmark JSONL",
+        description=(
+            "Score predicted answer sets against the gold benchmark over node-id "
+            "sets: per-item exact-match and precision/recall/F1, macro-averaged "
+            "overall and per reasoning type. Pure and deterministic (no LLM)."
+        ),
+    )
+    score_parser.add_argument(
+        "--bench",
+        required=True,
+        type=Path,
+        metavar="PATH",
+        help="path to the gold benchmark JSONL (one QAPair per line)",
+    )
+    score_parser.add_argument(
+        "--pred",
+        required=True,
+        type=Path,
+        metavar="PATH",
+        help="path to the predictions JSONL (one {qa_id, predicted_ids} per line)",
+    )
+    score_parser.set_defaults(func=_cmd_bench_score)
+
+
 def _add_bench_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     """Wire the ``bench`` command group; later beads append its subcommands.
 
@@ -251,6 +298,7 @@ def _add_bench_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentPa
     bench_parser.set_defaults(func=_cmd_bench, bench_parser=bench_parser)
     # Exposed for later beads to attach subcommands to the same group.
     bench_parser.set_defaults(bench_subparsers=bench_subparsers)
+    _add_bench_score_parser(bench_subparsers)
 
 
 def build_parser() -> argparse.ArgumentParser:

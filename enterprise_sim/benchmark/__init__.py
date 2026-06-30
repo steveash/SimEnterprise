@@ -20,9 +20,25 @@ from enterprise_sim.benchmark.schema import (
     Benchmark,
     QAPair,
 )
+from enterprise_sim.benchmark.score import (
+    Aggregate,
+    ItemScore,
+    Prediction,
+    Predictions,
+    Report,
+    score,
+    score_item,
+)
 
 __all__ = [
     "REASONING_TYPES",
+    "Aggregate",
     "Benchmark",
+    "ItemScore",
+    "Prediction",
+    "Predictions",
     "QAPair",
+    "Report",
+    "score",
+    "score_item",
 ]
