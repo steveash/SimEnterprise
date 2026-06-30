@@ -38,11 +38,42 @@ export interface EvalSummary {
   ok: boolean
 }
 
+/** A node that appears on exactly one side of a diff, with display metadata. */
+export interface DiffNode {
+  id: string
+  type: string
+  label: string
+}
+
+/** An edge that appears on exactly one side of a diff, with endpoint labels. */
+export interface DiffEdge {
+  id: string
+  type: string
+  src: string
+  dst: string
+  srcLabel: string
+  dstLabel: string
+}
+
+/** Per-type addition/removal counts (one row per node-type or edge-type that changed). */
+export interface TypeDelta {
+  type: string
+  added: number
+  removed: number
+}
+
 export interface DiffResult {
   a: RunSummary
   b: RunSummary
+  // Raw id partitions (added = only in B, removed = only in A, common = both).
   nodes: { added: string[]; removed: string[]; common: string[] }
   edges: { added: string[]; removed: string[]; common: string[] }
+  // Typed details for the changed items, resolved against whichever side has them.
+  nodeChanges: { added: DiffNode[]; removed: DiffNode[] }
+  edgeChanges: { added: DiffEdge[]; removed: DiffEdge[] }
+  // Per-type breakdowns of additions/removals, sorted by total magnitude.
+  nodeTypeDeltas: TypeDelta[]
+  edgeTypeDeltas: TypeDelta[]
 }
 
 export const OPS = {
