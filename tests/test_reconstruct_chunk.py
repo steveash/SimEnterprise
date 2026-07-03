@@ -124,9 +124,7 @@ def test_chunk_run_over_golden_produces_located_deterministic_chunks() -> None:
         chunks = chunk_run(run_dir)
 
         assert chunks, "golden run should yield chunks from md + jira"
-        media = {
-            "jira" if c.source_path.endswith(".jira.json") else "md" for c in chunks
-        }
+        media = {"jira" if c.source_path.endswith(".jira.json") else "md" for c in chunks}
         assert media == {"md", "jira"}, "both media are chunked"
 
         # Every chunk carries a resolvable source locator...
