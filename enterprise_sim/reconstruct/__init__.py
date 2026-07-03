@@ -18,6 +18,12 @@ reconstruct`` subcommands.
 
 from __future__ import annotations
 
+from enterprise_sim.reconstruct.build import (
+    BuildConfig,
+    aggregate_relations,
+    build_kg,
+    run_pipeline,
+)
 from enterprise_sim.reconstruct.chunk import (
     chunk_jira,
     chunk_markdown,
@@ -72,6 +78,7 @@ __all__ = [
     "PRF",
     "RELATION_GLOSSES",
     "RELATION_TYPES",
+    "BuildConfig",
     "CandidateTriple",
     "CanonicalEntity",
     "Chunk",
@@ -86,8 +93,10 @@ __all__ = [
     "Resolution",
     "ResolutionConfig",
     "adjudicate_pair",
+    "aggregate_relations",
     "build_adjudication_prompt",
     "build_extraction_prompt",
+    "build_kg",
     "chunk_jira",
     "chunk_markdown",
     "chunk_run",
@@ -97,5 +106,6 @@ __all__ = [
     "iter_corpus_files",
     "parse_extraction",
     "resolve_entities",
+    "run_pipeline",
     "score_fidelity",
 ]

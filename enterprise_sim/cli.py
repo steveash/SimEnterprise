@@ -647,7 +647,103 @@ def _add_reconstruct_parser(
     )
     # Exposed for later beads to attach subcommands to the same group.
     reconstruct_parser.set_defaults(reconstruct_subparsers=reconstruct_subparsers)
+    _add_reconstruct_build_parser(reconstruct_subparsers)
     _add_reconstruct_fidelity_parser(reconstruct_subparsers)
+
+
+def _cmd_reconstruct_build(args: argparse.Namespace) -> int:
+    """Build + persist the reconstructed KG from a run's corpus (esim-nc6.5).
+
+    Runs chunk → extract → resolve → aggregate end to end over the raw artifact
+    corpus (a fresh golden run by default, or ``--run``'s), then writes the
+    reconstructed KG (``nodes.jsonl`` / ``edges.jsonl`` in the gold schema, plus
+    ``provenance.jsonl``) to ``-o`` — the build-once artifact reused by fidelity /
+    reason. The gated LLM steps use ``--backend`` (``fake`` by default, so the
+    keyless path still emits a small KG with no key); ``--model`` picks the model.
+    """
+    import contextlib
+    import tempfile
+
+    from enterprise_sim.core.llm import LLMConfig, build_client
+    from enterprise_sim.reconstruct import BuildConfig, run_pipeline
+
+    config = BuildConfig(edge_confidence_threshold=args.edge_threshold)
+    client = build_client(LLMConfig(backend=args.backend, model=args.model))
+    with contextlib.ExitStack() as stack:
+        if args.run is not None:
+            run_dir = str(args.run)
+        else:
+            from enterprise_sim.benchmark.fixtures import golden_run
+
+            tmp = stack.enter_context(tempfile.TemporaryDirectory(prefix="esim-reconstruct-"))
+            run_dir = str(golden_run(tmp).run_dir)
+
+        kg = run_pipeline(run_dir, client, model=args.model, config=config)
+
+    kg.write(args.output)
+    print(
+        f"enterprise-sim reconstruct build: {kg.node_count} nodes, {kg.edge_count} edges "
+        f"(edge threshold={args.edge_threshold:.2f}, backend={args.backend}) -> {args.output}",
+        file=sys.stderr,
+    )
+    return 0
+
+
+def _add_reconstruct_build_parser(
+    reconstruct_subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
+    """Wire ``reconstruct build -o DIR [--run DIR] [--model M] [--backend B]`` (esim-nc6.5)."""
+    from enterprise_sim.reconstruct import HAIKU_MODEL
+
+    build_parser = reconstruct_subparsers.add_parser(
+        "build",
+        help="build + persist the reconstructed KG from the corpus (build-once)",
+        description=(
+            "Reconstruct a knowledge graph from the raw artifact corpus and persist "
+            "it once: chunk the corpus, extract typed mentions + candidate relations, "
+            "resolve entities, aggregate relations over canonical ids (deduped, with "
+            "support counts + provenance, gated by an edge confidence threshold), and "
+            "write nodes/edges/provenance.jsonl (gold schema) to the output dir. The "
+            "gated LLM steps use the selected backend; the keyless fake backend still "
+            "emits a small, loadable KG."
+        ),
+    )
+    build_parser.add_argument(
+        "-o",
+        "--output",
+        required=True,
+        type=Path,
+        metavar="DIR",
+        help="reconstruction output dir (writes nodes/edges/provenance.jsonl)",
+    )
+    build_parser.add_argument(
+        "--run",
+        type=Path,
+        default=None,
+        metavar="DIR",
+        help="run dir whose raw corpus is reconstructed; default: a fresh golden run",
+    )
+    build_parser.add_argument(
+        "--backend",
+        default="fake",
+        choices=["fake", "anthropic_api", "bedrock", "claude_cli"],
+        help="LLM backend for the gated extract/resolve steps (default: fake, keyless)",
+    )
+    build_parser.add_argument(
+        "--model",
+        default=HAIKU_MODEL,
+        metavar="MODEL",
+        help=f"model for the gated LLM steps (default: {HAIKU_MODEL})",
+    )
+    build_parser.add_argument(
+        "--edge-threshold",
+        dest="edge_threshold",
+        type=float,
+        default=0.0,
+        metavar="CONF",
+        help="drop aggregated edges below this confidence (precision/recall knob; default: 0.0)",
+    )
+    build_parser.set_defaults(func=_cmd_reconstruct_build)
 
 
 def _cmd_reconstruct_fidelity(args: argparse.Namespace) -> int:
