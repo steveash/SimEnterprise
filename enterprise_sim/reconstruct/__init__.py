@@ -24,6 +24,15 @@ from enterprise_sim.reconstruct.chunk import (
     chunk_run,
     iter_corpus_files,
 )
+from enterprise_sim.reconstruct.extract import (
+    EXTRACTION_SCHEMA,
+    HAIKU_MODEL,
+    Extraction,
+    build_extraction_prompt,
+    extract_chunk,
+    extract_chunks,
+    parse_extraction,
+)
 from enterprise_sim.reconstruct.fidelity import (
     PRF,
     EdgeFidelity,
@@ -31,6 +40,12 @@ from enterprise_sim.reconstruct.fidelity import (
     FidelityReport,
     NodeFidelity,
     score_fidelity,
+)
+from enterprise_sim.reconstruct.ontology import (
+    NODE_TYPES,
+    RELATION_GLOSSES,
+    RELATION_TYPES,
+    describe_ontology,
 )
 from enterprise_sim.reconstruct.schema import (
     CandidateTriple,
@@ -41,19 +56,30 @@ from enterprise_sim.reconstruct.schema import (
 )
 
 __all__ = [
+    "EXTRACTION_SCHEMA",
+    "HAIKU_MODEL",
+    "NODE_TYPES",
     "PRF",
+    "RELATION_GLOSSES",
+    "RELATION_TYPES",
     "CandidateTriple",
     "Chunk",
     "EdgeFidelity",
     "EntityResolution",
+    "Extraction",
     "FidelityReport",
     "MentionSpan",
     "NodeFidelity",
     "Provenance",
     "ReconstructedKG",
+    "build_extraction_prompt",
     "chunk_jira",
     "chunk_markdown",
     "chunk_run",
+    "describe_ontology",
+    "extract_chunk",
+    "extract_chunks",
     "iter_corpus_files",
+    "parse_extraction",
     "score_fidelity",
 ]

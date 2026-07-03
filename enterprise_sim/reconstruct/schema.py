@@ -107,8 +107,15 @@ class MentionSpan:
     Attributes:
         chunk_id: The :class:`Chunk` this mention was found in.
         surface_form: The exact text of the mention.
-        start: Character offset of the mention within the chunk's ``text``.
-        end: Character offset just past the mention within the chunk's ``text``.
+        start: Character offset of the mention within the chunk's ``text``, or
+            ``-1`` when the surface form could not be located in the chunk (the
+            extractor named an entity it did not quote verbatim).
+        end: Character offset just past the mention within the chunk's ``text``
+            (``-1`` when unlocated; see ``start``).
+        entity_type: The ontology entity type the extractor assigned this mention
+            (one of :data:`~enterprise_sim.reconstruct.ontology.NODE_TYPES`), or
+            ``None`` if untyped. Entity resolution (esim-nc6.4) uses it to type the
+            reconstructed :class:`~enterprise_sim.core.world.Node`.
         entity_id: The reconstructed entity id this mention was linked to, or
             ``None`` before entity linking has run.
     """
@@ -117,6 +124,7 @@ class MentionSpan:
     surface_form: str
     start: int
     end: int
+    entity_type: str | None = None
     entity_id: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
@@ -126,6 +134,7 @@ class MentionSpan:
             "surface_form": self.surface_form,
             "start": self.start,
             "end": self.end,
+            "entity_type": self.entity_type,
             "entity_id": self.entity_id,
         }
 
@@ -137,6 +146,7 @@ class MentionSpan:
             surface_form=data["surface_form"],
             start=data["start"],
             end=data["end"],
+            entity_type=data.get("entity_type"),
             entity_id=data.get("entity_id"),
         )
 
