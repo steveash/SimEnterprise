@@ -647,6 +647,94 @@ def _add_reconstruct_parser(
     )
     # Exposed for later beads to attach subcommands to the same group.
     reconstruct_parser.set_defaults(reconstruct_subparsers=reconstruct_subparsers)
+    _add_reconstruct_fidelity_parser(reconstruct_subparsers)
+
+
+def _cmd_reconstruct_fidelity(args: argparse.Namespace) -> int:
+    """Score a reconstructed KG against the gold KG (esim-nc6.6).
+
+    Pure and deterministic (no LLM): loads the reconstruction written by
+    :meth:`~enterprise_sim.reconstruct.schema.ReconstructedKG.write` and the gold
+    graph (from ``--run``'s ``kg/`` or a fresh golden run), aligns nodes by id then
+    type+name, and emits node/edge P/R/F1 plus entity-resolution error counts as a
+    markdown report (``--json`` for machine-readable output) to ``-o`` (stdout when
+    omitted). Scoring gold against itself yields node + edge F1 = 1.0.
+    """
+    import contextlib
+    import tempfile
+
+    from enterprise_sim.benchmark.generate import load_world_from_run
+    from enterprise_sim.reconstruct import ReconstructedKG, score_fidelity
+
+    reconstructed = ReconstructedKG.read(args.reconstructed)
+    with contextlib.ExitStack() as stack:
+        if args.run is not None:
+            gold = load_world_from_run(args.run)
+        else:
+            from enterprise_sim.benchmark.fixtures import golden_run
+
+            tmp = stack.enter_context(tempfile.TemporaryDirectory(prefix="esim-fidelity-"))
+            gold = golden_run(tmp).world
+
+        report = score_fidelity(reconstructed, gold)
+
+    rendered = report.to_json() if args.json else report.to_markdown()
+    if args.output is None:
+        print(rendered, end="" if args.json else "\n")
+    else:
+        args.output.write_text(rendered + ("" if args.json else "\n"), encoding="utf-8")
+        print(
+            f"enterprise-sim reconstruct fidelity: "
+            f"node F1={report.nodes.overall.f1:.3f} edge F1={report.edges.overall.f1:.3f} "
+            f"(over-merges={report.entity_resolution.over_merges}, "
+            f"under-merges={report.entity_resolution.under_merges}) -> {args.output}",
+            file=sys.stderr,
+        )
+    return 0
+
+
+def _add_reconstruct_fidelity_parser(
+    reconstruct_subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
+    """Wire ``reconstruct fidelity --reconstructed DIR [--run DIR]`` (esim-nc6.6)."""
+    fidelity_parser = reconstruct_subparsers.add_parser(
+        "fidelity",
+        help="score a reconstructed KG against the gold KG",
+        description=(
+            "Score a reconstructed knowledge graph against the gold graph: node and "
+            "edge precision/recall/F1 (overall and per type) after aligning "
+            "reconstructed node ids to gold ids, plus entity-resolution over/under-"
+            "merge counts. Pure and deterministic (no LLM); gold-vs-gold scores 1.0."
+        ),
+    )
+    fidelity_parser.add_argument(
+        "--reconstructed",
+        required=True,
+        type=Path,
+        metavar="DIR",
+        help="reconstruction dir with nodes.jsonl/edges.jsonl (ReconstructedKG.write output)",
+    )
+    fidelity_parser.add_argument(
+        "--run",
+        type=Path,
+        default=None,
+        metavar="DIR",
+        help="gold run dir (reads DIR/kg/*.jsonl); default: a fresh golden run",
+    )
+    fidelity_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="emit the report as JSON instead of markdown",
+    )
+    fidelity_parser.add_argument(
+        "-o",
+        "--output",
+        type=Path,
+        default=None,
+        metavar="PATH",
+        help="write the report to PATH (default: stdout)",
+    )
+    fidelity_parser.set_defaults(func=_cmd_reconstruct_fidelity)
 
 
 def build_parser() -> argparse.ArgumentParser:

@@ -24,6 +24,14 @@ from enterprise_sim.reconstruct.chunk import (
     chunk_run,
     iter_corpus_files,
 )
+from enterprise_sim.reconstruct.fidelity import (
+    PRF,
+    EdgeFidelity,
+    EntityResolution,
+    FidelityReport,
+    NodeFidelity,
+    score_fidelity,
+)
 from enterprise_sim.reconstruct.schema import (
     CandidateTriple,
     Chunk,
@@ -33,13 +41,19 @@ from enterprise_sim.reconstruct.schema import (
 )
 
 __all__ = [
+    "PRF",
     "CandidateTriple",
     "Chunk",
+    "EdgeFidelity",
+    "EntityResolution",
+    "FidelityReport",
     "MentionSpan",
+    "NodeFidelity",
     "Provenance",
     "ReconstructedKG",
     "chunk_jira",
     "chunk_markdown",
     "chunk_run",
     "iter_corpus_files",
+    "score_fidelity",
 ]
