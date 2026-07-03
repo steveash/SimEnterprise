@@ -318,9 +318,7 @@ def _align_nodes(
 
     # ER errors are read off the candidate graph (before greedy 1:1 resolution).
     over_detail = tuple(
-        (rid, tuple(golds))
-        for rid, golds in sorted(recon_to_golds.items())
-        if len(golds) >= 2
+        (rid, tuple(golds)) for rid, golds in sorted(recon_to_golds.items()) if len(golds) >= 2
     )
     under_detail = tuple(
         (gid, tuple(sorted(recons)))
@@ -551,10 +549,14 @@ def render_markdown(report: FidelityReport, *, title: str = "Reconstruct fidelit
     if unmatched_recon or unmatched_gold:
         lines.extend(["", "## Unmatched nodes", ""])
         if unmatched_gold:
-            lines.append(f"- Gold with no reconstruction ({len(unmatched_gold)}): "
-                         f"{', '.join(unmatched_gold)}")
+            lines.append(
+                f"- Gold with no reconstruction ({len(unmatched_gold)}): "
+                f"{', '.join(unmatched_gold)}"
+            )
         if unmatched_recon:
-            lines.append(f"- Reconstructed with no gold ({len(unmatched_recon)}): "
-                         f"{', '.join(unmatched_recon)}")
+            lines.append(
+                f"- Reconstructed with no gold ({len(unmatched_recon)}): "
+                f"{', '.join(unmatched_recon)}"
+            )
 
     return "\n".join(lines) + "\n"
