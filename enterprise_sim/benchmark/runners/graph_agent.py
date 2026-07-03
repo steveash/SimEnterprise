@@ -261,7 +261,14 @@ async def _predict_pair(
         "it. Use search_nodes to resolve names to node ids first. The answer is a SET of "
         "node ids; submit an empty list only if nothing matches."
     )
-    async for _message in query(prompt=prompt, options=options):
+    try:
+        async for _message in query(prompt=prompt, options=options):
+            pass
+    except Exception:
+        # A single question exhausting its turn budget (the agent flailing on a
+        # sparse/degraded KG) or a transient agent error must NOT abort the whole
+        # benchmark run — that would lose every other question's answer. Salvage
+        # whatever the agent already submitted via submit_answer (empty if none).
         pass
     return sorted(set(answer["ids"]))
 
