@@ -47,6 +47,15 @@ from enterprise_sim.reconstruct.ontology import (
     RELATION_TYPES,
     describe_ontology,
 )
+from enterprise_sim.reconstruct.resolve import (
+    ADJUDICATION_SCHEMA,
+    CanonicalEntity,
+    Resolution,
+    ResolutionConfig,
+    adjudicate_pair,
+    build_adjudication_prompt,
+    resolve_entities,
+)
 from enterprise_sim.reconstruct.schema import (
     CandidateTriple,
     Chunk,
@@ -56,6 +65,7 @@ from enterprise_sim.reconstruct.schema import (
 )
 
 __all__ = [
+    "ADJUDICATION_SCHEMA",
     "EXTRACTION_SCHEMA",
     "HAIKU_MODEL",
     "NODE_TYPES",
@@ -63,6 +73,7 @@ __all__ = [
     "RELATION_GLOSSES",
     "RELATION_TYPES",
     "CandidateTriple",
+    "CanonicalEntity",
     "Chunk",
     "EdgeFidelity",
     "EntityResolution",
@@ -72,6 +83,10 @@ __all__ = [
     "NodeFidelity",
     "Provenance",
     "ReconstructedKG",
+    "Resolution",
+    "ResolutionConfig",
+    "adjudicate_pair",
+    "build_adjudication_prompt",
     "build_extraction_prompt",
     "chunk_jira",
     "chunk_markdown",
@@ -81,5 +96,6 @@ __all__ = [
     "extract_chunks",
     "iter_corpus_files",
     "parse_extraction",
+    "resolve_entities",
     "score_fidelity",
 ]
