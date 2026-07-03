@@ -18,6 +18,12 @@ reconstruct`` subcommands.
 
 from __future__ import annotations
 
+from enterprise_sim.reconstruct.chunk import (
+    chunk_jira,
+    chunk_markdown,
+    chunk_run,
+    iter_corpus_files,
+)
 from enterprise_sim.reconstruct.schema import (
     CandidateTriple,
     Chunk,
@@ -32,4 +38,8 @@ __all__ = [
     "MentionSpan",
     "Provenance",
     "ReconstructedKG",
+    "chunk_jira",
+    "chunk_markdown",
+    "chunk_run",
+    "iter_corpus_files",
 ]
