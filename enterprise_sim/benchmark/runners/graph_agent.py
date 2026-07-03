@@ -33,8 +33,10 @@ if TYPE_CHECKING:
 
 # Default model for the agent (overridable per call / via the CLI).
 DEFAULT_MODEL = "claude-sonnet-4-6"
-# Default per-question tool-call budget — enough to search, query, and submit.
-DEFAULT_MAX_TURNS = 12
+# Default per-question tool-call budget. Generous headroom so the agent can
+# search, run several exploratory queries, and refine before submitting — the
+# per-question resilience below still caps any single question that runs away.
+DEFAULT_MAX_TURNS = 64
 # Cap rows returned to the agent so a broad query cannot blow up the context.
 _MAX_ROWS = 50
 
