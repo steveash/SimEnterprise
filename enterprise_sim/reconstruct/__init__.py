@@ -18,6 +18,16 @@ reconstruct`` subcommands.
 
 from __future__ import annotations
 
+from enterprise_sim.reconstruct.attribution import (
+    ORACLE_NAME,
+    RAG_NAME,
+    RECONSTRUCTED_NAME,
+    Attribution,
+    FidelityContext,
+    Gap,
+    build_attribution,
+    render_markdown,
+)
 from enterprise_sim.reconstruct.build import (
     BuildConfig,
     aggregate_relations,
@@ -75,9 +85,13 @@ __all__ = [
     "EXTRACTION_SCHEMA",
     "HAIKU_MODEL",
     "NODE_TYPES",
+    "ORACLE_NAME",
     "PRF",
+    "RAG_NAME",
+    "RECONSTRUCTED_NAME",
     "RELATION_GLOSSES",
     "RELATION_TYPES",
+    "Attribution",
     "BuildConfig",
     "CandidateTriple",
     "CanonicalEntity",
@@ -85,7 +99,9 @@ __all__ = [
     "EdgeFidelity",
     "EntityResolution",
     "Extraction",
+    "FidelityContext",
     "FidelityReport",
+    "Gap",
     "MentionSpan",
     "NodeFidelity",
     "Provenance",
@@ -95,6 +111,7 @@ __all__ = [
     "adjudicate_pair",
     "aggregate_relations",
     "build_adjudication_prompt",
+    "build_attribution",
     "build_extraction_prompt",
     "build_kg",
     "chunk_jira",
@@ -105,6 +122,7 @@ __all__ = [
     "extract_chunks",
     "iter_corpus_files",
     "parse_extraction",
+    "render_markdown",
     "resolve_entities",
     "run_pipeline",
     "score_fidelity",

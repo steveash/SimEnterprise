@@ -650,6 +650,7 @@ def _add_reconstruct_parser(
     _add_reconstruct_build_parser(reconstruct_subparsers)
     _add_reconstruct_fidelity_parser(reconstruct_subparsers)
     _add_reconstruct_reason_parser(reconstruct_subparsers)
+    _add_reconstruct_report_parser(reconstruct_subparsers)
 
 
 def _cmd_reconstruct_build(args: argparse.Namespace) -> int:
@@ -931,6 +932,121 @@ def _add_reconstruct_reason_parser(
         help="answer only the first N questions (default: all)",
     )
     reason_parser.set_defaults(func=_cmd_reconstruct_reason)
+
+
+def _cmd_reconstruct_report(args: argparse.Namespace) -> int:
+    """Attribute the graph's advantage: understanding vs reasoning (esim-nc6.8).
+
+    Closes the reconstruct loop with a three-way comparison on ONE benchmark:
+    ``--oracle`` (graph agent on the gold KG, the ceiling), ``--reconstructed``
+    (the *same* agent on the reconstructed KG, nc6.7), and ``--rag`` (the corpus
+    baseline). Scores all three with the keyless grader and renders a markdown
+    report — overall + per-reasoning-type F1 per system plus the decomposition of
+    the oracle's advantage into an *understanding* gap (oracle − reconstructed) and
+    a *reasoning/structure* gap (reconstructed − rag). With ``--fidelity`` (the
+    JSON from ``reconstruct fidelity --json``) it also carries the reconstructed
+    KG's fidelity numbers as context. Pure and deterministic (no LLM); writes to
+    ``-o`` (stdout when omitted).
+    """
+    import json
+
+    from enterprise_sim.benchmark.schema import Benchmark
+    from enterprise_sim.benchmark.score import Predictions
+    from enterprise_sim.reconstruct import FidelityContext, build_attribution, render_markdown
+
+    benchmark = Benchmark.read_jsonl(args.bench)
+    oracle = Predictions.read_jsonl(args.oracle)
+    reconstructed = Predictions.read_jsonl(args.reconstructed)
+    rag = Predictions.read_jsonl(args.rag)
+
+    fidelity: FidelityContext | None = None
+    if args.fidelity is not None:
+        fidelity = FidelityContext.from_dict(json.loads(args.fidelity.read_text(encoding="utf-8")))
+
+    attribution = build_attribution(
+        benchmark,
+        oracle=oracle,
+        reconstructed=reconstructed,
+        rag=rag,
+        fidelity=fidelity,
+    )
+    markdown = render_markdown(attribution)
+
+    if args.output is None:
+        print(markdown, end="")
+    else:
+        args.output.write_text(markdown, encoding="utf-8")
+        gap = attribution.gap()
+        print(
+            f"enterprise-sim reconstruct report: {attribution.benchmark_size} questions "
+            f"(understanding={gap.understanding:+.3f}, reasoning={gap.reasoning:+.3f}, "
+            f"total={gap.total:+.3f}) -> {args.output}",
+            file=sys.stderr,
+        )
+    return 0
+
+
+def _add_reconstruct_report_parser(
+    reconstruct_subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
+    """Wire ``reconstruct report --bench … --oracle … --reconstructed … --rag …`` (esim-nc6.8)."""
+    report_parser = reconstruct_subparsers.add_parser(
+        "report",
+        help="attribute the graph's advantage: understanding vs reasoning",
+        description=(
+            "Compare three systems on one benchmark — the oracle (graph agent on "
+            "the gold KG), the reconstructed KG's agent, and the RAG baseline — and "
+            "emit a markdown attribution report: overall + per-reasoning-type F1 per "
+            "system, plus the split of the oracle's advantage over RAG into an "
+            "understanding gap (oracle − reconstructed) and a reasoning gap "
+            "(reconstructed − rag), with the reconstruction's fidelity numbers as "
+            "context. Pure and deterministic (operates on prediction files, no LLM)."
+        ),
+    )
+    report_parser.add_argument(
+        "--bench",
+        required=True,
+        type=Path,
+        metavar="PATH",
+        help="path to the gold benchmark JSONL (one QAPair per line)",
+    )
+    report_parser.add_argument(
+        "--oracle",
+        required=True,
+        type=Path,
+        metavar="PATH",
+        help="predictions JSONL of the graph agent on the GOLD KG (the ceiling)",
+    )
+    report_parser.add_argument(
+        "--reconstructed",
+        required=True,
+        type=Path,
+        metavar="PATH",
+        help="predictions JSONL of the graph agent on the RECONSTRUCTED KG (nc6.7)",
+    )
+    report_parser.add_argument(
+        "--rag",
+        required=True,
+        type=Path,
+        metavar="PATH",
+        help="predictions JSONL of the RAG corpus baseline",
+    )
+    report_parser.add_argument(
+        "--fidelity",
+        type=Path,
+        default=None,
+        metavar="PATH",
+        help="reconstruction fidelity JSON ('reconstruct fidelity --json') for context",
+    )
+    report_parser.add_argument(
+        "-o",
+        "--output",
+        type=Path,
+        default=None,
+        metavar="PATH",
+        help="write the markdown report to PATH (default: stdout)",
+    )
+    report_parser.set_defaults(func=_cmd_reconstruct_report)
 
 
 def build_parser() -> argparse.ArgumentParser:

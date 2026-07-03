@@ -1,0 +1,148 @@
+# Reconstruct → Reason — reading the corpus back into a KG
+
+The simulator runs *forward*: it projects a gold **knowledge graph** into a
+grounded, multi-format **artifact corpus** (markdown, Word, Jira, email). The
+`enterprise_sim.reconstruct` package runs that arrow *backward* — it reads the raw
+corpus back out into a **reconstructed knowledge graph**, measures how faithfully
+it recovered the gold graph, then reasons over the reconstruction to answer the
+same KG-QA benchmark the gold graph answers.
+
+- **Package:** [`enterprise_sim/reconstruct/`](../enterprise_sim/reconstruct/)
+- **Epic:** `esim-nc6` · **CLI:** `enterprise-sim reconstruct …`
+- **Ground truth:** the [golden run](GOLDEN_RUN.md); the same
+  [KG-QA benchmark](BENCHMARK.md) grades every system here.
+
+---
+
+## The inverse-of-generation thesis
+
+Most "build a KG from documents" pipelines have no answer key: you extract a
+graph, but nothing tells you which entities and edges you *should* have found, so
+you can't separate "the extractor is bad" from "the documents didn't say." This
+project does have one. Because the corpus was **generated from** a gold graph, we
+know the exact graph the corpus encodes. That makes reconstruction a *measurable*
+inverse of generation:
+
+```
+        generate (forward)                     reconstruct (inverse)
+ gold KG ───────────────────▶ corpus ───────────────────▶ reconstructed KG
+              │                                  │
+              └───────────── the same gold KG is the answer key ──────────┘
+```
+
+So we can score the reconstructed KG against the gold KG **exactly and
+keylessly** (node/edge precision/recall/F1, entity-resolution errors), and — the
+payoff — decompose an agent's end-to-end error into *understanding* the corpus
+vs. *reasoning* over what it understood.
+
+---
+
+## The pipeline
+
+`reconstruct build` runs four stages end to end (`run_pipeline`), turning the raw
+corpus into a persisted KG in the **exact gold on-disk schema** so the benchmark's
+graph engines load it unchanged:
+
+| Stage | Bead | What it does |
+|-------|------|--------------|
+| **chunk** | nc6.2 | Hierarchically carve each corpus artifact (markdown, Jira) into `Chunk`s. |
+| **extract** | nc6.3 | Read each chunk into typed `MentionSpan`s + candidate `(src, rel, dst)` triples, schema-guided by the ontology. *Gated LLM step.* |
+| **resolve** | nc6.4 | Cluster surface-form mentions into canonical typed `Node`s (entity resolution / canonicalization). *Gated LLM step.* |
+| **aggregate** | nc6.5 | Rewrite every candidate triple over canonical ids, dedupe to one edge per `(src, rel, dst)` with a support count + provenance, and gate on an aggregated confidence. |
+
+The ontology (`enterprise_sim.reconstruct.ontology`) fixes the target vocabulary —
+node types like `Person`, `Team`, `Department`, `Project`, `Goal`, `Initiative`,
+and relations like `reports_to`, `member_of`, `has_department`, `advances_goal`,
+`subgoal_of` — so extraction and scoring share one schema.
+
+Only **extract** and **resolve** call an LLM. With the deterministic `fake`
+backend the whole pipeline still emits a small, loadable KG with **no key**, so
+`build` / `fidelity` / `report` are all exercised in keyless CI.
+
+### Build-once, answer-many
+
+Reconstruction is expensive (LLM extraction + resolution over the whole corpus);
+reasoning is per-question. So the KG is **built once and persisted**
+(`nodes.jsonl` / `edges.jsonl` / `provenance.jsonl`), and every downstream
+step — fidelity scoring, and *every* benchmark question the reasoner answers —
+reuses that single artifact. The reasoner loads it **once** into the embedded
+Cypher (kuzu) + SPARQL (oxigraph) engines and answers the whole benchmark over
+that one set of engines; nothing is rebuilt per query.
+
+---
+
+## Running it
+
+The full workflow is four commands. `--run` points every step at one golden run so
+the gold graph, the reconstruction, and the benchmark all agree; omit it and each
+step spins a fresh golden run.
+
+```bash
+# 0. A shared benchmark + a golden run to reconstruct.
+enterprise-sim run examples/golden.toml -o runs/            # -> runs/<run-id>
+enterprise-sim bench generate --run runs/<run-id> -o bench.jsonl
+
+# 1. BUILD — reconstruct + persist the KG once (keyless with --backend fake).
+enterprise-sim reconstruct build --run runs/<run-id> -o recon/ \
+    --backend anthropic_api          # 'fake' for a keyless smoke build
+
+# 2. FIDELITY — how faithful is the reconstruction? (keyless, no LLM)
+enterprise-sim reconstruct fidelity --reconstructed recon/ --run runs/<run-id> \
+    --json -o fidelity.json          # drop --json for a markdown report
+
+# 3. REASON — answer the benchmark three ways (each writes predictions JSONL).
+#    ORACLE = graph agent on the GOLD KG (the ceiling):
+enterprise-sim bench run --runner graph --run runs/<run-id> --bench bench.jsonl \
+    -o pred.oracle.jsonl
+#    RECONSTRUCTED = the SAME agent on the reconstructed KG (build-once):
+enterprise-sim reconstruct reason --reconstructed recon/ --bench bench.jsonl \
+    -o pred.reconstructed.jsonl
+#    RAG = the corpus-retrieval baseline:
+enterprise-sim bench run --runner rag --run runs/<run-id> --bench bench.jsonl \
+    -o pred.rag.jsonl
+
+# 4. REPORT — attribute the graph's advantage (keyless, no LLM).
+enterprise-sim reconstruct report --bench bench.jsonl \
+    --oracle pred.oracle.jsonl \
+    --reconstructed pred.reconstructed.jsonl \
+    --rag pred.rag.jsonl \
+    --fidelity fidelity.json -o attribution.md
+```
+
+Steps 1 (real backend) and 3 (all three reasoners) need a model/key; steps 2 and
+4 are pure and deterministic.
+
+---
+
+## Reading the attribution report
+
+The report puts three systems on **one** benchmark:
+
+- **oracle** — the graph agent on the **gold** KG. The ceiling: a perfect graph
+  *and* the graph reasoner. What's achievable when understanding the corpus is free.
+- **reconstructed** — the **same** graph agent on the **reconstructed** KG. Same
+  reasoner, imperfect graph.
+- **rag** — the retrieval baseline: no graph, read the answer off the corpus.
+
+Because oracle and reconstructed share the reasoner and differ *only* in graph
+quality, the oracle's advantage over RAG splits cleanly into two additive gaps:
+
+```
+ (oracle − rag)   =   (oracle − reconstructed)   +   (reconstructed − rag)
+ total graph adv.        understanding gap             reasoning gap
+```
+
+| Gap | Formula | What it measures |
+|-----|---------|------------------|
+| **understanding** | oracle − reconstructed | The cost of imperfectly *understanding* the corpus — reconstruction error — with the reasoner held constant. This is the loss the fidelity numbers explain. |
+| **reasoning** | reconstructed − rag | What the graph *structure* still buys over plain retrieval, even reconstructed imperfectly. |
+| **total** | oracle − rag | The full advantage of the graph ceiling over RAG. |
+
+The report shows overall **and per-reasoning-type** F1 for all three systems, then
+the signed gaps per reasoning type — so you can see *where* each kind of error
+lives. A large **understanding** gap on `transitive` rows says the reconstruction
+dropped the edges those chains walk (look at edge fidelity + under-merges); a large
+**reasoning** gap on `aggregation`/`goal_tree` rows says the graph structure is
+what makes those answerable at all, and RAG can't chain the facts. The
+reconstruction's fidelity numbers (node/edge F1, over/under-merge counts) ride
+along at the top as the context that *explains* the understanding gap.
