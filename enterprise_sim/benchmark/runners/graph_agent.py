@@ -114,28 +114,37 @@ def run_benchmark(
     benchmark: Benchmark,
     *,
     run_dir: str | None = None,
+    runner: GraphRunner | None = None,
     model: str = DEFAULT_MODEL,
     limit: int | None = None,
     max_turns: int = DEFAULT_MAX_TURNS,
 ) -> Predictions:
     """Run the graph agent over ``benchmark`` and return its :class:`Predictions`.
 
-    Builds the engines from the gold KG (a fresh golden run, or ``run_dir`` when
-    given — so the graph matches the benchmark's gold answers) and runs one agent
-    per question (the first ``limit`` if set). Requires ``ANTHROPIC_API_KEY`` and
-    ``claude-agent-sdk``; raises :class:`RuntimeError` if the key is missing.
+    The engines are built **once** and reused for every question (build-once /
+    answer-many): from ``runner`` when the caller supplies a pre-built
+    :class:`GraphRunner` — e.g. one loaded from a reconstructed KG, whose lifecycle
+    the caller then owns — otherwise from the gold KG (a fresh golden run, or
+    ``run_dir`` when given, so the graph matches the benchmark's gold answers). One
+    agent answers each question (the first ``limit`` if set) against that single
+    runner. Requires ``ANTHROPIC_API_KEY`` and ``claude-agent-sdk``; raises
+    :class:`RuntimeError` if the key is missing.
     """
     if not os.environ.get("ANTHROPIC_API_KEY"):
         raise RuntimeError("graph runner needs ANTHROPIC_API_KEY (the agent calls the Claude API)")
 
     import asyncio
 
-    runner = _build_runner(run_dir)
+    # Build the engines once, before the per-question loop. A caller-supplied runner
+    # is left open for the caller to close; one we build here we also close.
+    owns_runner = runner is None
+    active = _build_runner(run_dir) if runner is None else runner
     pairs = list(benchmark)[: limit if limit is not None else len(benchmark)]
     try:
-        rows = asyncio.run(_run_all(runner, pairs, model=model, max_turns=max_turns))
+        rows = asyncio.run(_run_all(active, pairs, model=model, max_turns=max_turns))
     finally:
-        runner.close()
+        if owns_runner:
+            active.close()
     return Predictions.of(rows)
 
 

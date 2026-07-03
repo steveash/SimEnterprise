@@ -609,9 +609,9 @@ def _add_bench_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentPa
 def _cmd_reconstruct(args: argparse.Namespace) -> int:
     """The ``reconstruct`` command group: rebuild a KG from the corpus (epic esim-nc6).
 
-    This scaffold registers the group; its subcommands (``build``, ``fidelity``,
-    ``reason``, ``report``) are added by later beads. Invoked without a subcommand
-    it prints the group's usage and exits non-zero — mirroring ``bench``.
+    Registers the group and its subcommands (``build``, ``fidelity``, ``reason``;
+    ``report`` is added by a later bead). Invoked without a subcommand it prints the
+    group's usage and exits non-zero — mirroring ``bench``.
     """
     args.reconstruct_parser.print_help()
     return 2
@@ -649,6 +649,7 @@ def _add_reconstruct_parser(
     reconstruct_parser.set_defaults(reconstruct_subparsers=reconstruct_subparsers)
     _add_reconstruct_build_parser(reconstruct_subparsers)
     _add_reconstruct_fidelity_parser(reconstruct_subparsers)
+    _add_reconstruct_reason_parser(reconstruct_subparsers)
 
 
 def _cmd_reconstruct_build(args: argparse.Namespace) -> int:
@@ -831,6 +832,105 @@ def _add_reconstruct_fidelity_parser(
         help="write the report to PATH (default: stdout)",
     )
     fidelity_parser.set_defaults(func=_cmd_reconstruct_fidelity)
+
+
+def _cmd_reconstruct_reason(args: argparse.Namespace) -> int:
+    """Reason over a persisted reconstructed KG via the graph agent (esim-nc6.7).
+
+    The build-once/answer-many payoff: the reconstructed KG written by
+    :meth:`~enterprise_sim.reconstruct.schema.ReconstructedKG.write` (nc6.5) is
+    loaded **once** into the embedded Cypher (kuzu) + SPARQL (oxigraph, with the
+    materialized ontology) engines — the *same* projection the gold KG uses — and
+    the existing graph-agent runner answers the whole benchmark over that single
+    set of engines (no per-question reconstruction, no per-question rebuild).
+    Predictions JSONL goes to ``-o`` (stdout when omitted). The agent step is gated
+    (needs ``ANTHROPIC_API_KEY``); on a missing key it reports cleanly and exits 2.
+    """
+    from enterprise_sim.benchmark.runners.graph_agent import GraphRunner, run_benchmark
+    from enterprise_sim.benchmark.runners.projection import GraphModel
+    from enterprise_sim.benchmark.schema import Benchmark
+    from enterprise_sim.reconstruct import ReconstructedKG
+
+    benchmark = Benchmark.read_jsonl(args.bench)
+    kg = ReconstructedKG.read(args.reconstructed)
+    # Load the reconstruction into the engines once; the runner owns that build and
+    # is reused for every question below (and closed here, not by run_benchmark).
+    runner = GraphRunner(GraphModel.from_world(kg.to_world()))
+    try:
+        predictions = run_benchmark(benchmark, runner=runner, model=args.model, limit=args.limit)
+    except RuntimeError as exc:
+        print(f"enterprise-sim reconstruct reason: {exc}", file=sys.stderr)
+        return 2
+    finally:
+        runner.close()
+
+    if args.output is None:
+        print(predictions.to_jsonl(), end="")
+    else:
+        predictions.write_jsonl(args.output)
+
+    destination = "stdout" if args.output is None else str(args.output)
+    print(
+        f"enterprise-sim reconstruct reason: {len(predictions)} predictions over "
+        f"{len(benchmark)} questions "
+        f"(model {args.model}, {kg.node_count} nodes / {kg.edge_count} edges) -> {destination}",
+        file=sys.stderr,
+    )
+    return 0
+
+
+def _add_reconstruct_reason_parser(
+    reconstruct_subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
+    """Wire ``reconstruct reason --reconstructed DIR --bench bench.jsonl -o pred`` (esim-nc6.7)."""
+    reason_parser = reconstruct_subparsers.add_parser(
+        "reason",
+        help="answer the benchmark by reasoning over a reconstructed KG (build-once)",
+        description=(
+            "Reason over a persisted reconstructed knowledge graph: load it once "
+            "into the embedded Cypher (kuzu) and SPARQL (oxigraph, with the "
+            "materialized ontology) engines — the same projection the gold KG uses "
+            "— and answer the whole KG-QA benchmark with the graph agent, reusing "
+            "the engines across every question. Writes a predictions JSONL scorable "
+            "by 'bench score'. The agent step needs ANTHROPIC_API_KEY."
+        ),
+    )
+    reason_parser.add_argument(
+        "--reconstructed",
+        required=True,
+        type=Path,
+        metavar="DIR",
+        help="reconstruction dir with nodes.jsonl/edges.jsonl (ReconstructedKG.write output)",
+    )
+    reason_parser.add_argument(
+        "--bench",
+        required=True,
+        type=Path,
+        metavar="PATH",
+        help="path to the gold benchmark JSONL (one QAPair per line)",
+    )
+    reason_parser.add_argument(
+        "-o",
+        "--output",
+        type=Path,
+        default=None,
+        metavar="PATH",
+        help="write the predictions JSONL to PATH (default: stdout)",
+    )
+    reason_parser.add_argument(
+        "--model",
+        default="claude-sonnet-4-6",
+        metavar="MODEL",
+        help="the Claude model the agent uses (default: claude-sonnet-4-6)",
+    )
+    reason_parser.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        metavar="N",
+        help="answer only the first N questions (default: all)",
+    )
+    reason_parser.set_defaults(func=_cmd_reconstruct_reason)
 
 
 def build_parser() -> argparse.ArgumentParser:
