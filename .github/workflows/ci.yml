@@ -19,14 +19,9 @@ jobs:
       - name: Install dependencies
         run: uv sync --extra dev
 
-      - name: Ruff lint
-        run: uv run ruff check .
-
-      - name: Ruff format check
-        run: uv run ruff format --check .
-
-      - name: Mypy (strict)
-        run: uv run mypy
-
-      - name: Pytest
-        run: uv run pytest
+      # Single source of truth: the exact gate contributors/agents run locally
+      # (scripts/gate.sh), invoked in --check mode so unformatted / lint / type /
+      # test issues fail the build. Keeping CI and the local gate as one script
+      # means they cannot drift — the root cause of "passed locally, red on main".
+      - name: Quality gate (ruff lint + format + mypy + pytest)
+        run: ./scripts/gate.sh --check
