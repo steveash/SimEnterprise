@@ -606,6 +606,49 @@ def _add_bench_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentPa
     generate_parser.set_defaults(func=_cmd_bench_generate)
 
 
+def _cmd_reconstruct(args: argparse.Namespace) -> int:
+    """The ``reconstruct`` command group: rebuild a KG from the corpus (epic esim-nc6).
+
+    This scaffold registers the group; its subcommands (``build``, ``fidelity``,
+    ``reason``, ``report``) are added by later beads. Invoked without a subcommand
+    it prints the group's usage and exits non-zero — mirroring ``bench``.
+    """
+    args.reconstruct_parser.print_help()
+    return 2
+
+
+def _add_reconstruct_parser(
+    subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
+    """Wire the ``reconstruct`` command group (epic esim-nc6), mirroring ``bench``.
+
+    The nested subparser object is stashed on the parser's defaults as
+    ``reconstruct_subparsers`` so subsequent beads (chunking, extraction, the
+    fidelity scorer, the reasoner) can register ``build``/``fidelity``/``reason``/
+    ``report`` without re-deriving the group here.
+    """
+    reconstruct_parser = subparsers.add_parser(
+        "reconstruct",
+        help="reconstruct a KG from the corpus, then score/reason over it",
+        description=(
+            "Read the raw artifact corpus back out into a reconstructed knowledge "
+            "graph (in the gold KG's on-disk schema), score its fidelity against "
+            "the gold graph, and reason over it. Subcommands (build/fidelity/"
+            "reason/report) are added by later beads of epic esim-nc6."
+        ),
+    )
+    reconstruct_subparsers = reconstruct_parser.add_subparsers(
+        dest="reconstruct_command",
+        metavar="{build,fidelity,reason,report}",
+    )
+    reconstruct_parser.set_defaults(
+        func=_cmd_reconstruct,
+        reconstruct_parser=reconstruct_parser,
+    )
+    # Exposed for later beads to attach subcommands to the same group.
+    reconstruct_parser.set_defaults(reconstruct_subparsers=reconstruct_subparsers)
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Construct the top-level argument parser and its subcommands."""
     parser = argparse.ArgumentParser(
@@ -677,6 +720,7 @@ def build_parser() -> argparse.ArgumentParser:
     eval_parser.set_defaults(func=_cmd_eval)
 
     _add_bench_parser(subparsers)
+    _add_reconstruct_parser(subparsers)
 
     return parser
 
