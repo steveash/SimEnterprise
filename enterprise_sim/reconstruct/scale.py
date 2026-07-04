@@ -337,7 +337,15 @@ def run_scale(
     if not spec_list:
         raise ValueError("run_scale needs at least one RunSpec")
 
-    reconstruct_client = client or build_client(LLMConfig(backend=backend, model=model))
+    if client is not None:
+        reconstruct_client = client
+    else:
+        # ``model=None`` means "the pipeline default"; let LLMConfig keep its own
+        # default model rather than forcing None onto its str field.
+        llm_config = (
+            LLMConfig(backend=backend) if model is None else LLMConfig(backend=backend, model=model)
+        )
+        reconstruct_client = build_client(llm_config)
     root = Path(work_dir)
     runs: list[RunFidelity] = []
     for spec in spec_list:

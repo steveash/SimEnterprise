@@ -117,6 +117,28 @@ Steps 2 and 4 are pure and deterministic and run on `--extra dev` alone.
 
 ---
 
+## Scale — beyond the single golden run
+
+Steps 1–4 evaluate one company. A single run can't tell "the reconstructor
+generalizes" from "it happens to fit this one company", so `reconstruct scale`
+runs the eval across **several varied runs** and aggregates the fidelity:
+
+```bash
+# Generate N deterministic, varied gold runs (engineering vs retail, size bands),
+# reconstruct + score each, and aggregate node/edge P/R/F1 as mean ± spread.
+# Keyless with --backend fake; a real keyed aggregation is --backend anthropic_api.
+enterprise-sim reconstruct scale --runs 2 -o aggregate.md
+```
+
+Each run's gold graph is the deterministic `fake` sim (so the answer key is
+reproducible no matter the reconstruction backend); only the reconstruction's LLM
+steps use `--backend`. The report has a per-run table (archetype, size, node/edge
+F1, sizes) and an aggregate table (mean, population stdev, min, max) over every
+metric — so the headline is a *distribution* across companies, not one number.
+`--json` emits the same aggregate machine-readably.
+
+---
+
 ## Reading the attribution report
 
 The report puts three systems on **one** benchmark:
