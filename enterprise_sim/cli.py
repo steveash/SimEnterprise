@@ -633,13 +633,13 @@ def _add_reconstruct_parser(
         description=(
             "Read the raw artifact corpus back out into a reconstructed knowledge "
             "graph (in the gold KG's on-disk schema), score its fidelity against "
-            "the gold graph, and reason over it. Subcommands (build/fidelity/"
-            "reason/report) are added by later beads of epic esim-nc6."
+            "the gold graph, and reason over it. Subcommands: build/fidelity/"
+            "reason/report (epic esim-nc6) and scale (esim-ecr.5)."
         ),
     )
     reconstruct_subparsers = reconstruct_parser.add_subparsers(
         dest="reconstruct_command",
-        metavar="{build,fidelity,reason,report}",
+        metavar="{build,fidelity,reason,report,scale}",
     )
     reconstruct_parser.set_defaults(
         func=_cmd_reconstruct,
@@ -651,6 +651,7 @@ def _add_reconstruct_parser(
     _add_reconstruct_fidelity_parser(reconstruct_subparsers)
     _add_reconstruct_reason_parser(reconstruct_subparsers)
     _add_reconstruct_report_parser(reconstruct_subparsers)
+    _add_reconstruct_scale_parser(reconstruct_subparsers)
 
 
 def _cmd_reconstruct_build(args: argparse.Namespace) -> int:
@@ -1047,6 +1048,133 @@ def _add_reconstruct_report_parser(
         help="write the markdown report to PATH (default: stdout)",
     )
     report_parser.set_defaults(func=_cmd_reconstruct_report)
+
+
+def _cmd_reconstruct_scale(args: argparse.Namespace) -> int:
+    """Reconstruct + score several varied runs and aggregate the fidelity (esim-ecr.5).
+
+    Generates ``--runs`` deterministic, varied gold runs (different archetype —
+    engineering vs retail — and size band), reconstructs and scores each with the
+    existing pipeline, and emits an aggregate fidelity report (mean/spread across
+    runs). The sim step is always the deterministic ``fake`` backend; only the
+    reconstruction's gated LLM steps use ``--backend`` (``fake`` by default, so the
+    whole harness runs keyless). Runs land under ``--work-dir`` (a temp dir when
+    omitted). ``--json`` emits machine-readable output; ``-o`` writes to a file.
+    """
+    import contextlib
+    import tempfile
+
+    from enterprise_sim.reconstruct import BuildConfig, default_run_specs, run_scale
+
+    build_config = BuildConfig(edge_confidence_threshold=args.edge_threshold)
+    specs = default_run_specs(args.runs, seed=args.seed)
+    with contextlib.ExitStack() as stack:
+        if args.work_dir is not None:
+            work_dir: str = str(args.work_dir)
+        else:
+            work_dir = stack.enter_context(
+                tempfile.TemporaryDirectory(prefix="esim-reconstruct-scale-")
+            )
+        aggregate = run_scale(
+            specs,
+            work_dir,
+            backend=args.backend,
+            model=args.model,
+            build_config=build_config,
+        )
+
+    rendered = aggregate.to_json() if args.json else aggregate.to_markdown()
+    if args.output is None:
+        print(rendered, end="" if args.json else "\n")
+    else:
+        args.output.write_text(rendered + ("" if args.json else "\n"), encoding="utf-8")
+        node_f1 = aggregate.metrics["node_f1"]
+        edge_f1 = aggregate.metrics["edge_f1"]
+        print(
+            f"enterprise-sim reconstruct scale: {aggregate.run_count} runs "
+            f"(node F1 mean={node_f1.mean:.3f}±{node_f1.stdev:.3f}, "
+            f"edge F1 mean={edge_f1.mean:.3f}±{edge_f1.stdev:.3f}, "
+            f"backend={args.backend}) -> {args.output}",
+            file=sys.stderr,
+        )
+    return 0
+
+
+def _add_reconstruct_scale_parser(
+    reconstruct_subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
+    """Wire ``reconstruct scale [--runs N] [--backend B] -o PATH`` (esim-ecr.5)."""
+    from enterprise_sim.reconstruct import HAIKU_MODEL
+
+    scale_parser = reconstruct_subparsers.add_parser(
+        "scale",
+        help="reconstruct + score several varied runs and aggregate the fidelity",
+        description=(
+            "Run the reconstruction eval across MORE than the single golden run: "
+            "generate several deterministic, varied gold runs (different archetype — "
+            "engineering vs retail — and size band), reconstruct and score each, and "
+            "emit an aggregate fidelity report (mean/spread across runs). The gold "
+            "runs are always the deterministic fake sim; only the reconstruction's "
+            "gated LLM steps use the selected backend, so the whole harness runs "
+            "keyless with the fake backend."
+        ),
+    )
+    scale_parser.add_argument(
+        "--runs",
+        type=int,
+        default=2,
+        metavar="N",
+        help="number of varied runs to generate + aggregate (default: 2, the keyless minimum)",
+    )
+    scale_parser.add_argument(
+        "--seed",
+        type=int,
+        default=7,
+        metavar="SEED",
+        help="root seed for the varied run configs (each run uses seed+index; default: 7)",
+    )
+    scale_parser.add_argument(
+        "--work-dir",
+        dest="work_dir",
+        type=Path,
+        default=None,
+        metavar="DIR",
+        help="dir the generated runs land in (default: a temporary dir, removed after)",
+    )
+    scale_parser.add_argument(
+        "--backend",
+        default="fake",
+        choices=["fake", "anthropic_api", "bedrock", "claude_cli"],
+        help="LLM backend for the gated reconstruction steps (default: fake, keyless)",
+    )
+    scale_parser.add_argument(
+        "--model",
+        default=HAIKU_MODEL,
+        metavar="MODEL",
+        help=f"model for the gated reconstruction steps (default: {HAIKU_MODEL})",
+    )
+    scale_parser.add_argument(
+        "--edge-threshold",
+        dest="edge_threshold",
+        type=float,
+        default=0.0,
+        metavar="CONF",
+        help="drop aggregated edges below this confidence (precision/recall knob; default: 0.0)",
+    )
+    scale_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="emit the aggregate as JSON instead of markdown",
+    )
+    scale_parser.add_argument(
+        "-o",
+        "--output",
+        type=Path,
+        default=None,
+        metavar="PATH",
+        help="write the report to PATH (default: stdout)",
+    )
+    scale_parser.set_defaults(func=_cmd_reconstruct_scale)
 
 
 def build_parser() -> argparse.ArgumentParser:
