@@ -136,6 +136,53 @@ def test_type_mismatch_blocks_name_alignment() -> None:
 
 
 # --------------------------------------------------------------------------- #
+# Goal alignment: statement-text match, robust to trailing-punctuation drift.
+# --------------------------------------------------------------------------- #
+
+
+def _goal_gold_world() -> World:
+    """A gold KG shaped like the builder's goals: statement text as label/alias."""
+    world = World()
+    world.add_node(_node("goal:1", "Goal", ["Expand into two new regional markets."]))
+    world.add_node(_node("goal:1.1", "Goal", ["Stand up the supporting platform and tooling."]))
+    world.add_edge(_edge("edge:subgoal_of:1.1:1", "subgoal_of", "goal:1.1", "goal:1"))
+    return world
+
+
+def test_goal_aligns_by_statement_text() -> None:
+    # A reconstructed Goal labeled with the gold statement aligns despite a
+    # content-derived id different from the gold ``goal:N`` id.
+    gold = _goal_gold_world()
+    kg = ReconstructedKG()
+    kg.add_node(
+        _node(
+            "goal:expand-into-two-new-regional-markets",
+            "Goal",
+            [],
+            "Expand into two new regional markets.",
+        )
+    )
+    report = score_fidelity(kg, gold)
+    assert report.nodes.alignment == {"goal:expand-into-two-new-regional-markets": "goal:1"}
+    assert report.nodes.by_type["Goal"].true_positives == 1
+
+
+def test_goal_aligns_when_trailing_period_dropped() -> None:
+    # The extractor copied the statement without its terminal period; the two still
+    # align on the trailing-punctuation-trimmed form, so the goal is recovered.
+    gold = _goal_gold_world()
+    kg = ReconstructedKG()
+    kg.add_node(_node("g:1", "Goal", ["Expand into two new regional markets"]))  # no period
+    kg.add_node(_node("g:2", "Goal", ["Stand up the supporting platform and tooling"]))
+    kg.add_edge(_edge("e:sub", "subgoal_of", "g:2", "g:1"))
+
+    report = score_fidelity(kg, gold)
+    assert report.nodes.by_type["Goal"].f1 == 1.0
+    # Goal-tree edge is recovered too, since both endpoints aligned.
+    assert report.edges.by_type["subgoal_of"].f1 == 1.0
+
+
+# --------------------------------------------------------------------------- #
 # Perturbations: dropped / added nodes and edges.
 # --------------------------------------------------------------------------- #
 

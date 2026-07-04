@@ -26,6 +26,7 @@ from typing import Any
 import pytest
 from enterprise_sim.cli import build_parser, main
 from enterprise_sim.core.llm import LLMConfig, build_client
+from enterprise_sim.core.world import Edge, Node, World
 from enterprise_sim.reconstruct import (
     BuildConfig,
     CandidateTriple,
@@ -204,6 +205,64 @@ def test_built_kg_round_trips_and_scores(tmp_path: Path) -> None:
     report = score_fidelity(kg, kg.to_world())
     assert report.nodes.overall.f1 == 1.0
     assert report.edges.overall.f1 == 1.0
+
+
+def test_goal_statements_reconstruct_and_score_above_zero() -> None:
+    """End to end (keyless): goal statements → Goal nodes + tree edge → F1 > 0.
+
+    Mirrors the recovery path esim-ecr.1 fixes: the extractor emits each objective
+    *statement* as a Goal mention (full sentence as surface form) plus the
+    ``subgoal_of`` tree edge; resolution + build assemble Goal nodes labeled with the
+    statement, which the fidelity scorer aligns to the gold ``goal:N`` ids by
+    statement text — recovering goals that previously scored F1 0.000.
+    """
+    from datetime import datetime
+
+    ts = datetime(1970, 1, 1)
+    parent = "Expand into two new regional markets."
+    child = "Stand up the supporting platform and tooling."
+    chunk = Chunk(
+        id="cG",
+        text=f"## Goals\n- **{parent}**\n    - {child}\n",
+        source_path="org/company.md",
+    )
+
+    mentions = [_mention(chunk, parent, "Goal"), _mention(chunk, child, "Goal")]
+    assert all(m.start >= 0 for m in mentions)  # both statements located verbatim
+    resolution = resolve_entities(mentions, [chunk])
+    extractions = [
+        Extraction(
+            chunk_id="cG",
+            mentions=tuple(mentions),
+            triples=(_triple(child, "subgoal_of", parent, "cG"),),
+        )
+    ]
+    kg = build_kg([chunk], extractions, resolution)
+
+    # The gold KG's goal shape: statement text as label/alias, ``goal:N`` ids.
+    gold = World()
+    gold.add_node(
+        Node(id="goal:1", type="Goal", created_at=ts, props={"statement": parent}, aliases=[parent])
+    )
+    gold.add_node(
+        Node(id="goal:1.1", type="Goal", created_at=ts, props={"statement": child}, aliases=[child])
+    )
+    gold.add_edge(
+        Edge(
+            id="edge:subgoal_of:1.1:1",
+            type="subgoal_of",
+            src="goal:1.1",
+            dst="goal:1",
+            created_at=ts,
+        )
+    )
+
+    report = score_fidelity(kg, gold)
+    # Goals are recovered and aligned by statement — the F1 > 0 acceptance bar.
+    assert report.nodes.by_type["Goal"].f1 > 0.0
+    assert report.nodes.by_type["Goal"].true_positives == 2
+    # The goal tree is answerable: the subgoal_of edge round-trips to gold.
+    assert report.edges.by_type["subgoal_of"].f1 == 1.0
 
 
 def test_build_is_deterministic(tmp_path: Path) -> None:

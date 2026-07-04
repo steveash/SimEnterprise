@@ -58,6 +58,7 @@ from enterprise_sim.reconstruct.fidelity import (
     score_fidelity,
 )
 from enterprise_sim.reconstruct.ontology import (
+    NODE_GLOSSES,
     NODE_TYPES,
     RELATION_GLOSSES,
     RELATION_TYPES,
@@ -84,6 +85,7 @@ __all__ = [
     "ADJUDICATION_SCHEMA",
     "EXTRACTION_SCHEMA",
     "HAIKU_MODEL",
+    "NODE_GLOSSES",
     "NODE_TYPES",
     "ORACLE_NAME",
     "PRF",

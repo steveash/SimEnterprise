@@ -158,6 +158,25 @@ def test_prompt_labels_missing_section() -> None:
     assert "(document preamble)" in prompt.user_text
 
 
+def test_ontology_teaches_goal_is_a_statement() -> None:
+    # The Goal gloss is what lets the extractor recognize objective statements as
+    # Goal entities (the esim-ecr.1 recovery gap), so it must reach the prompt.
+    description = describe_ontology()
+    assert "Goal:" in description
+    assert "statement" in description.casefold()
+    prompt = build_extraction_prompt(_chunk("Some prose."))
+    assert "Goal:" in prompt.system_text
+
+
+def test_prompt_instructs_goal_statement_extraction() -> None:
+    system = build_extraction_prompt(_chunk("Some prose.")).system_text.casefold()
+    # An explicit rule tells the model to emit goal statements as Goal mentions and
+    # to wire up the goal tree (subgoal_of / advances_goal).
+    assert "goal" in system
+    assert "statement" in system
+    assert "subgoal_of" in system and "advances_goal" in system
+
+
 # ---------------------------------------------------------------------------
 # parse_extraction: pure validation, span location, dedup.
 # ---------------------------------------------------------------------------
@@ -363,6 +382,51 @@ def test_extract_chunk_canned_backend_locates_and_filters() -> None:
     assert result.triples[0].confidence == 0.8
 
 
+_GOAL_TEXT = (
+    "## Goals\n\n"
+    "- **Expand into two new regional markets.**\n"
+    "    - Stand up the supporting platform and tooling.\n"
+)
+
+
+def test_extract_locates_goal_statements_and_tree() -> None:
+    # What a model should return for a goals section: each statement as a Goal
+    # mention (the full sentence, verbatim) plus the subgoal_of tree edge.
+    envelope = {
+        "mentions": [
+            {"surface_form": "Expand into two new regional markets.", "type": "Goal"},
+            {"surface_form": "Stand up the supporting platform and tooling.", "type": "Goal"},
+        ],
+        "triples": [
+            {
+                "src": "Stand up the supporting platform and tooling.",
+                "rel": "subgoal_of",
+                "dst": "Expand into two new regional markets.",
+                "confidence": 0.9,
+            }
+        ],
+    }
+    chunk = _chunk(_GOAL_TEXT, section="Company > Goals")
+    client = LLMClient(_CannedBackend(envelope), config=LLMConfig(backend="canned"))
+    result = extract_chunk(chunk, client)
+
+    # Both goal statements survive as Goal mentions, located verbatim in the chunk
+    # (the bold "**" around the first is outside the quoted statement).
+    assert [(m.surface_form, m.entity_type) for m in result.mentions] == [
+        ("Expand into two new regional markets.", "Goal"),
+        ("Stand up the supporting platform and tooling.", "Goal"),
+    ]
+    for mention in result.mentions:
+        assert chunk.text[mention.start : mention.end] == mention.surface_form
+    # The goal-tree edge is retained (a gold, text-assertable relation).
+    (triple,) = result.triples
+    assert (triple.src_mention, triple.rel, triple.dst_mention) == (
+        "Stand up the supporting platform and tooling.",
+        "subgoal_of",
+        "Expand into two new regional markets.",
+    )
+
+
 def test_extract_chunks_preserves_order() -> None:
     envelope: dict[str, Any] = {"mentions": [], "triples": []}
     client = LLMClient(_CannedBackend(envelope), config=LLMConfig(backend="canned"))
@@ -394,3 +458,16 @@ def test_extract_chunk_with_haiku() -> None:  # pragma: no cover - needs a key +
     assert all(t.rel in RELATION_TYPES for t in result.triples)
     assert all(t.provenance == chunk.id for t in result.triples)
     assert result.mentions or result.triples
+
+
+@requires_key
+def test_extract_recovers_goal_statements_with_haiku() -> None:  # pragma: no cover - key+network
+    # The esim-ecr.1 recovery: a real model reads goal statements out of a goals
+    # section as Goal mentions carrying the full statement text (located verbatim).
+    client = build_client(LLMConfig(backend="anthropic_api", model=HAIKU_MODEL))
+    chunk = _chunk(_GOAL_TEXT, section="Company > Goals")
+    result = extract_chunk(chunk, client, model=HAIKU_MODEL)
+    goals = [m for m in result.mentions if m.entity_type == "Goal"]
+    assert goals, "expected at least one Goal mention from the goals section"
+    # A recovered goal's surface form is a real span of the chunk (the statement).
+    assert any(m.start >= 0 and len(m.surface_form.split()) >= 3 for m in goals)

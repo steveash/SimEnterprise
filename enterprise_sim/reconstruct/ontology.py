@@ -14,7 +14,10 @@ Two frozen sets bound the extractor:
 * :data:`NODE_TYPES` — the entity labels (``Person``, ``Team``, … ``CalendarEvent``),
   matching the gold builders' node-type constants
   (:mod:`enterprise_sim.world_builders.builder`, the ``Artifact`` producers, the
-  scheduler's derived ``CalendarEvent`` nodes).
+  scheduler's derived ``CalendarEvent`` nodes). :data:`NODE_GLOSSES` pairs each label
+  with a one-line description of what it denotes and what surface form to quote for
+  it — the extractor's system prompt renders these so the model can tell a ``Goal``
+  (a full objective *statement*) from a name-shaped type.
 * :data:`RELATION_TYPES` — the **text-assertable** gold relations: the org / goal /
   authorship edges a reader could state or strongly infer from prose. The gold
   graph also carries *mechanical* edges that are not extracted from text — ``mentions``
@@ -32,6 +35,7 @@ is a subset of the gold constants, so a rename on the gold side fails loudly her
 from __future__ import annotations
 
 __all__ = [
+    "NODE_GLOSSES",
     "NODE_TYPES",
     "RELATION_GLOSSES",
     "RELATION_TYPES",
@@ -41,20 +45,33 @@ __all__ = [
 ]
 
 
+#: Entity types, each with a one-line gloss teaching the extractor what the type
+#: denotes and — crucially for the non-name-shaped types — what its *surface form*
+#: is. ``Goal`` is the load-bearing case: goals appear in org docs as whole
+#: objective *statements* (a bold bullet under "Goals", or a line under a
+#: department's "Advances goals"), not as short proper names, so the extractor must
+#: be told to emit the complete statement sentence as the mention's surface form —
+#: that statement text is the gold Goal node's label/alias the fidelity scorer
+#: aligns on.
+NODE_GLOSSES: dict[str, str] = {
+    "Company": "The organization the corpus describes (a proper name).",
+    "Department": "A top-level org unit, e.g. Engineering or Sales (a proper name).",
+    "Team": "A group within a department, e.g. the Platform team (a proper name).",
+    "Person": "A named individual (their name is the surface form).",
+    "Goal": (
+        "A company or department objective, stated as a full sentence — e.g. "
+        '"Reduce customer churn by 20%." Surface form = the COMPLETE statement '
+        "sentence exactly as written (a bold bullet under a Goals heading, or a "
+        "line under a department's Advances-goals list), NOT a short name."
+    ),
+    "Initiative": ("A named strategic initiative or program that advances a goal (a proper name)."),
+    "Project": "A named project delivering part of an initiative (a proper name).",
+    "Artifact": "A document/deliverable, e.g. a deck or spec (its title is the surface form).",
+    "CalendarEvent": "A scheduled meeting or event (its title is the surface form).",
+}
+
 #: Entity labels the extractor may assign to a mention (gold ``node.type`` values).
-NODE_TYPES: frozenset[str] = frozenset(
-    {
-        "Company",
-        "Department",
-        "Team",
-        "Person",
-        "Goal",
-        "Initiative",
-        "Project",
-        "Artifact",
-        "CalendarEvent",
-    }
-)
+NODE_TYPES: frozenset[str] = frozenset(NODE_GLOSSES)
 
 #: The text-assertable gold relations, each with a one-line gloss of its shape.
 #: Ordered domain→range hints mirror the gold builders' edge comments so the
@@ -97,10 +114,12 @@ def describe_ontology() -> str:
 
     Lists the entity types then the relations (each with its gloss), in a fixed
     sorted order so the extractor's system prompt — and therefore its prompt-cache
-    key — is deterministic across runs.
+    key — is deterministic across runs. The per-type glosses teach the model what
+    each label denotes and what surface form to quote — decisive for ``Goal``, whose
+    mentions are objective *statements* rather than short names.
     """
-    entities = ", ".join(sorted(NODE_TYPES))
+    entity_lines = "\n".join(f"- {node}: {NODE_GLOSSES[node]}" for node in sorted(NODE_TYPES))
     relation_lines = "\n".join(
         f"- {rel}: {RELATION_GLOSSES[rel]}" for rel in sorted(RELATION_TYPES)
     )
-    return f"Entity types: {entities}\n\nRelation types:\n{relation_lines}"
+    return f"Entity types:\n{entity_lines}\n\nRelation types:\n{relation_lines}"

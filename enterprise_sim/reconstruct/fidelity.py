@@ -114,6 +114,14 @@ class PRF:
 # --------------------------------------------------------------------------- #
 
 
+#: Sentence-final punctuation trimmed from a name's trailing edge before matching,
+#: so a Goal statement quoted with its period ("… markets.") still aligns with the
+#: same statement quoted without one — the common drift when the extractor copies a
+#: goal sentence. Trimming only the trailing edge leaves name-shaped types (which
+#: rarely end in punctuation) untouched.
+_TRAILING_PUNCT = ".!?;:,"
+
+
 def _normalize(text: str) -> str:
     """Casefold and collapse whitespace so surface forms compare canonically."""
     return " ".join(text.split()).casefold()
@@ -123,17 +131,22 @@ def _name_tokens(node: Node) -> frozenset[str]:
     """Normalized surface forms for ``node`` (canonical name + aliases).
 
     Draws from the node's ``aliases`` (which carry the canonical name plus known
-    surface forms) and its ``props["name"]`` when present. Empty strings are
-    dropped; an entity with no usable name yields an empty set and can only be
-    aligned by exact id.
+    surface forms) and its ``props["name"]`` when present. Each form contributes its
+    normalized value *and* a trailing-punctuation-trimmed variant, so a goal
+    statement aligns whether or not its terminal period survived extraction. Empty
+    strings are dropped; an entity with no usable name yields an empty set and can
+    only be aligned by exact id.
     """
     tokens: set[str] = set()
-    for alias in node.aliases:
-        if isinstance(alias, str) and alias.strip():
-            tokens.add(_normalize(alias))
-    name = node.props.get("name")
-    if isinstance(name, str) and name.strip():
-        tokens.add(_normalize(name))
+    forms = [*node.aliases, node.props.get("name")]
+    for form in forms:
+        if not isinstance(form, str) or not form.strip():
+            continue
+        normalized = _normalize(form)
+        tokens.add(normalized)
+        trimmed = normalized.rstrip(_TRAILING_PUNCT).strip()
+        if trimmed:
+            tokens.add(trimmed)
     return frozenset(tokens)
 
 
