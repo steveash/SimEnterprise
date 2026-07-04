@@ -40,7 +40,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
 from enterprise_sim.core.llm import LLMClient
-from enterprise_sim.core.world import Edge, Node
+from enterprise_sim.core.world import Edge, Node, World
 from enterprise_sim.reconstruct.chunk import chunk_run
 from enterprise_sim.reconstruct.extract import HAIKU_MODEL, Extraction, extract_chunks
 from enterprise_sim.reconstruct.resolve import (
@@ -62,8 +62,13 @@ __all__ = [
     "aggregate_relations",
     "build_kg",
     "extract_once",
+    "project_with_groundings",
     "run_pipeline",
 ]
+
+#: The node type used for artifacts, both in the gold KG and in the synthesized
+#: grounding nodes below (matches the ``Artifact`` producers' ``N_ARTIFACT``).
+_ARTIFACT_TYPE = "Artifact"
 
 
 #: A reconstruction carries no real sim-time, so its nodes/edges are stamped with a
@@ -354,3 +359,53 @@ def run_pipeline(
     """
     extraction = extract_once(run_dir, client, model=model, resolution=config.resolution)
     return extraction.build(config=config)
+
+
+def project_with_groundings(kg: ReconstructedKG) -> tuple[World, dict[str, list[str]]]:
+    """Load ``kg`` into a queryable world plus the grounding map the projection needs.
+
+    The reconstruction persists *which artifacts ground each entity* as node
+    :class:`~enterprise_sim.reconstruct.schema.Provenance` records
+    (:meth:`~enterprise_sim.reconstruct.schema.ReconstructedKG.entity_groundings`),
+    but the benchmark's provenance family is answered over derived ``mentions`` edges
+    that :meth:`~enterprise_sim.benchmark.runners.projection.GraphModel.from_world`
+    only mints from a ``{entity id → artifact node ids}`` map whose artifact endpoints
+    **exist as nodes**. This bridges the two: it resolves each grounding artifact path
+    to an existing ``Artifact`` node (matched by its ``path`` prop) or, when the
+    reconstruction never surfaced that artifact as an entity, synthesizes a minimal
+    ``Artifact`` node keyed by the path so the grounding edge has a real endpoint.
+
+    Returns the augmented :class:`~enterprise_sim.core.world.World` (the reconstructed
+    graph plus any synthesized artifact nodes) and the ``{entity id → artifact node
+    ids}`` grounding map, ready for ``GraphModel.from_world(world, groundings)``.
+    Pure and deterministic: the same KG always yields the same world and map.
+    """
+    world = kg.to_world()
+    path_to_id: dict[str, str] = {}
+    for node in world.nodes():
+        if node.type == _ARTIFACT_TYPE:
+            path = node.props.get("path")
+            if isinstance(path, str) and path:
+                path_to_id.setdefault(path, node.id)
+
+    groundings: dict[str, list[str]] = {}
+    for entity_id, paths in kg.entity_groundings().items():
+        artifact_ids: list[str] = []
+        for path in paths:
+            artifact_id = path_to_id.get(path)
+            if artifact_id is None:
+                artifact_id = path
+                path_to_id[path] = artifact_id
+                if world.get_node(artifact_id) is None:
+                    world.add_node(
+                        Node(
+                            id=artifact_id,
+                            type=_ARTIFACT_TYPE,
+                            created_at=_RECONSTRUCTED_AT,
+                            props={"path": path},
+                        )
+                    )
+            artifact_ids.append(artifact_id)
+        if artifact_ids:
+            groundings[entity_id] = artifact_ids
+    return world, groundings

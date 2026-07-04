@@ -21,7 +21,7 @@ from typing import Any
 import pytest
 from enterprise_sim.cli import build_parser, main
 from enterprise_sim.core.world import Edge, Node, World
-from enterprise_sim.reconstruct import ReconstructedKG, score_fidelity
+from enterprise_sim.reconstruct import Provenance, ReconstructedKG, score_fidelity
 from enterprise_sim.reconstruct.fidelity import PRF
 
 _TS = datetime(2026, 1, 2, 3, 4, 5)
@@ -343,6 +343,94 @@ def test_markdown_lists_unmatched_nodes() -> None:
 
 
 # --------------------------------------------------------------------------- #
+# Provenance (grounding) fidelity (esim-ecr.2).
+# --------------------------------------------------------------------------- #
+
+#: Gold grounding key: entity id → the artifact paths that mention/ground it.
+_GOLD_GROUNDING = {
+    "person:ada": ["a.md", "b.md"],
+    "company:acme": ["a.md"],
+}
+
+
+def _grounded_kg(world: World, grounding: dict[str, list[str]]) -> ReconstructedKG:
+    """A reconstruction of ``world`` carrying node grounding as Provenance records."""
+    kg = _kg_from_world(world)
+    for entity_id, paths in grounding.items():
+        kg.add_provenance(Provenance(target_id=entity_id, source_paths=tuple(paths)))
+    return kg
+
+
+def test_provenance_not_scored_without_gold_grounding() -> None:
+    gold = _gold_world()
+    report = score_fidelity(_grounded_kg(gold, _GOLD_GROUNDING), gold)
+    assert report.provenance is None
+    assert "provenance" not in report.to_dict()
+    assert "## Provenance" not in report.to_markdown()
+
+
+def test_provenance_gold_vs_gold_is_perfect() -> None:
+    gold = _gold_world()
+    report = score_fidelity(
+        _grounded_kg(gold, _GOLD_GROUNDING), gold, gold_grounding=_GOLD_GROUNDING
+    )
+    assert report.provenance is not None
+    # Three grounding pairs: (ada,a), (ada,b), (acme,a).
+    assert report.provenance.overall == PRF(true_positives=3, predicted=3, gold=3)
+    assert report.provenance.overall.f1 == 1.0
+    assert report.provenance.by_type["Person"].f1 == 1.0
+    assert report.provenance.by_type["Company"].f1 == 1.0
+
+
+def test_provenance_missing_grounding_lowers_recall_only() -> None:
+    gold = _gold_world()
+    # Recover only one of the three grounding pairs.
+    kg = _grounded_kg(gold, {"person:ada": ["a.md"]})
+    report = score_fidelity(kg, gold, gold_grounding=_GOLD_GROUNDING)
+    assert report.provenance is not None
+    prov = report.provenance.overall
+    assert prov.precision == 1.0
+    assert prov.recall == pytest.approx(1 / 3)
+
+
+def test_provenance_spurious_grounding_lowers_precision_only() -> None:
+    gold = _gold_world()
+    # All gold pairs recovered, plus one artifact that does not ground Babbage.
+    kg = _grounded_kg(gold, {**_GOLD_GROUNDING, "person:babbage": ["c.md"]})
+    report = score_fidelity(kg, gold, gold_grounding=_GOLD_GROUNDING)
+    assert report.provenance is not None
+    prov = report.provenance.overall
+    assert prov.recall == 1.0
+    assert prov.true_positives == 3
+    assert prov.predicted == 4
+    assert prov.precision == pytest.approx(3 / 4)
+
+
+def test_provenance_grounding_aligns_by_name_across_ids() -> None:
+    # A reconstruction with a different entity id but a matching name still aligns,
+    # so its grounding is credited against the gold key (path is the shared join).
+    gold = _gold_world()
+    kg = ReconstructedKG()
+    kg.add_node(_node("e0", "Person", ["Ada Lovelace", "Ada"], "Ada Lovelace"))
+    kg.add_provenance(Provenance(target_id="e0", source_paths=("a.md", "b.md")))
+    report = score_fidelity(kg, gold, gold_grounding={"person:ada": ["a.md", "b.md"]})
+    assert report.provenance is not None
+    assert report.provenance.overall.f1 == 1.0
+
+
+def test_provenance_renders_in_markdown_and_json() -> None:
+    gold = _gold_world()
+    report = score_fidelity(
+        _grounded_kg(gold, _GOLD_GROUNDING), gold, gold_grounding=_GOLD_GROUNDING
+    )
+    md = report.to_markdown()
+    assert "## Provenance (grounding)" in md
+    data = json.loads(report.to_json())
+    assert data["provenance"]["overall"]["f1"] == 1.0
+    assert data["provenance"]["by_type"]["Person"]["gold"] == 2
+
+
+# --------------------------------------------------------------------------- #
 # CLI.
 # --------------------------------------------------------------------------- #
 
@@ -407,3 +495,49 @@ def test_fidelity_cli_writes_markdown_to_output(tmp_path: Path, capsys: Any) -> 
     assert "# Reconstruct fidelity" in out.read_text(encoding="utf-8")
     # A one-line summary goes to stderr.
     assert "node F1=1.000" in capsys.readouterr().err
+
+
+def test_fidelity_cli_scores_provenance_from_mentions(tmp_path: Path, capsys: Any) -> None:
+    # A gold run whose mentions.jsonl grounds an entity in an artifact drives the
+    # provenance section; a reconstruction that recovers that grounding scores 1.0.
+    gold = _gold_world()
+    gold.add_node(
+        Node(
+            id="artifact:doc",
+            type="Artifact",
+            created_at=_TS,
+            props={"path": "doc.md"},
+            aliases=["Doc"],
+        )
+    )
+    run_dir = _write_gold_run(tmp_path / "gold", gold)
+    (run_dir / "kg" / "mentions.jsonl").write_text(
+        json.dumps(
+            {
+                "artifact_path": "doc.md",
+                "entity_id": "person:ada",
+                "surface_form": "Ada",
+                "locator": None,
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    recon_dir = tmp_path / "recon"
+    _grounded_kg(gold, {"person:ada": ["doc.md"]}).write(recon_dir)
+
+    rc = main(
+        [
+            "reconstruct",
+            "fidelity",
+            "--reconstructed",
+            str(recon_dir),
+            "--run",
+            str(run_dir),
+            "--json",
+        ]
+    )
+    assert rc == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["provenance"]["overall"]["f1"] == 1.0
+    assert data["provenance"]["overall"]["gold"] == 1

@@ -43,6 +43,7 @@ __all__ = [
     "FidelityReport",
     "NodeFidelity",
     "PRF",
+    "ProvenanceFidelity",
     "score_fidelity",
 ]
 
@@ -235,6 +236,44 @@ class EntityResolution:
 
 
 @dataclass(frozen=True)
+class ProvenanceFidelity:
+    """Grounding fidelity: does the reconstruction recover which artifacts ground each entity?
+
+    Provenance is the one reasoning family a reconstruction can miss *structurally*:
+    the answer key ("which artifacts mention/ground entity X") lives in the derived
+    ``mentions`` edges, so a reconstruction that carries no grounding scores a flat
+    zero. This metric measures the recovery directly — comparing the reconstruction's
+    entity→grounding-artifact relation (aggregated from :class:`MentionSpan`
+    provenance into node :class:`~enterprise_sim.reconstruct.schema.Provenance`
+    records, exposed by
+    :meth:`~enterprise_sim.reconstruct.schema.ReconstructedKG.entity_groundings`)
+    against the gold grounding answer key the benchmark's provenance questions are
+    graded on.
+
+    Scored as micro-averaged P/R/F1 over ``(entity, artifact-path)`` grounding pairs:
+    reconstructed entity ids are mapped through the node alignment (so a faithful
+    reconstruction with different ids still lines up), and artifacts join on their
+    shared **source path** — the natural key both graphs carve from the same corpus,
+    independent of each side's artifact-id scheme.
+
+    Attributes:
+        overall: Micro-averaged P/R/F1 over all grounding pairs.
+        by_type: P/R/F1 per entity type (keyed by the gold type for aligned entities,
+            the reconstructed type for unaligned ones — mirroring node fidelity).
+    """
+
+    overall: PRF
+    by_type: dict[str, PRF]
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return a JSON-serializable dict."""
+        return {
+            "overall": self.overall.to_dict(),
+            "by_type": {t: prf.to_dict() for t, prf in sorted(self.by_type.items())},
+        }
+
+
+@dataclass(frozen=True)
 class FidelityReport:
     """The full graph-fidelity result: node, edge, and ER metrics together."""
 
@@ -246,10 +285,14 @@ class FidelityReport:
     gold_node_count: int = 0
     reconstructed_edge_count: int = 0
     gold_edge_count: int = 0
+    #: Grounding fidelity, present only when a gold grounding key was supplied to
+    #: :func:`score_fidelity` (``None`` ⇒ not scored, keeping the report backward
+    #: compatible with callers that pass no grounding).
+    provenance: ProvenanceFidelity | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-serializable dict of the whole report."""
-        return {
+        result: dict[str, Any] = {
             "sizes": {
                 "reconstructed_nodes": self.reconstructed_node_count,
                 "gold_nodes": self.gold_node_count,
@@ -260,6 +303,9 @@ class FidelityReport:
             "edges": self.edges.to_dict(),
             "entity_resolution": self.entity_resolution.to_dict(),
         }
+        if self.provenance is not None:
+            result["provenance"] = self.provenance.to_dict()
+        return result
 
     def to_json(self, *, indent: int | None = 2) -> str:
         """Serialize the report to a deterministic JSON string."""
@@ -455,12 +501,75 @@ def _edge_fidelity(
     return EdgeFidelity(overall=overall, by_type=by_type)
 
 
-def score_fidelity(reconstructed: ReconstructedKG, gold: World) -> FidelityReport:
+def _provenance_fidelity(
+    reconstructed: ReconstructedKG,
+    gold_grounding: Mapping[str, Sequence[str]],
+    alignment: Mapping[str, str],
+    recon_node_types: Mapping[str, str],
+    gold_node_types: Mapping[str, str],
+) -> ProvenanceFidelity:
+    """P/R/F1 over ``(entity, artifact-path)`` grounding pairs, overall and per type.
+
+    The reconstruction's grounding (``entity_groundings``) is rewritten from
+    reconstructed entity ids to gold ids through ``alignment`` (an unaligned entity
+    keeps its own id, so it can never coincide with a gold entity), and the resulting
+    ``(entity, path)`` pair set is scored against the gold pair set built from
+    ``gold_grounding``. Each pair is bucketed by entity type — the gold type for an
+    aligned entity, the reconstructed type otherwise — so a mistyped match is visible.
+    """
+    recon_pairs: set[tuple[str, str]] = set()
+    recon_pair_type: dict[tuple[str, str], str] = {}
+    for entity_id, paths in reconstructed.entity_groundings().items():
+        mapped = alignment.get(entity_id, entity_id)
+        etype = gold_node_types.get(mapped) or recon_node_types.get(entity_id, "")
+        for path in paths:
+            pair = (mapped, path)
+            recon_pairs.add(pair)
+            recon_pair_type[pair] = etype
+
+    gold_pairs: set[tuple[str, str]] = set()
+    gold_pair_type: dict[tuple[str, str], str] = {}
+    for entity_id, gold_paths in gold_grounding.items():
+        etype = gold_node_types.get(entity_id, "")
+        for path in gold_paths:
+            pair = (entity_id, path)
+            gold_pairs.add(pair)
+            gold_pair_type[pair] = etype
+
+    overall = PRF(
+        true_positives=len(recon_pairs & gold_pairs),
+        predicted=len(recon_pairs),
+        gold=len(gold_pairs),
+    )
+    by_type: dict[str, PRF] = {}
+    for etype in set(recon_pair_type.values()) | set(gold_pair_type.values()):
+        rec = {p for p, t in recon_pair_type.items() if t == etype}
+        gld = {p for p, t in gold_pair_type.items() if t == etype}
+        by_type[etype] = PRF(
+            true_positives=len(rec & gld),
+            predicted=len(rec),
+            gold=len(gld),
+        )
+    return ProvenanceFidelity(overall=overall, by_type=by_type)
+
+
+def score_fidelity(
+    reconstructed: ReconstructedKG,
+    gold: World,
+    *,
+    gold_grounding: Mapping[str, Sequence[str]] | None = None,
+) -> FidelityReport:
     """Score a :class:`ReconstructedKG` against the gold :class:`World`.
 
     Pure and deterministic (no LLM): aligns nodes by id then name, scores node and
     edge P/R/F1 over that alignment, and counts entity-resolution errors. Scoring
     the gold graph against itself yields node + edge F1 = 1.0 and zero ER errors.
+
+    When ``gold_grounding`` (gold entity id → the artifact **paths** that ground it,
+    e.g. from the gold ``mentions.jsonl`` answer key) is supplied, the report also
+    carries :class:`ProvenanceFidelity` measuring how faithfully the reconstruction
+    recovered that grounding relation; omitting it leaves ``report.provenance`` as
+    ``None``. A faithful reconstruction of the grounding scores provenance F1 = 1.0.
     """
     recon_world = reconstructed.to_world()
     recon_nodes = recon_world.nodes()
@@ -469,6 +578,17 @@ def score_fidelity(reconstructed: ReconstructedKG, gold: World) -> FidelityRepor
     alignment, entity_resolution = _align_nodes(recon_nodes, gold_nodes)
     nodes = _node_fidelity(recon_nodes, gold_nodes, alignment)
     edges = _edge_fidelity(recon_world, gold, alignment)
+    provenance = (
+        _provenance_fidelity(
+            reconstructed,
+            gold_grounding,
+            alignment,
+            {n.id: n.type for n in recon_nodes},
+            {n.id: n.type for n in gold_nodes},
+        )
+        if gold_grounding is not None
+        else None
+    )
 
     return FidelityReport(
         nodes=nodes,
@@ -478,6 +598,7 @@ def score_fidelity(reconstructed: ReconstructedKG, gold: World) -> FidelityRepor
         gold_node_count=len(gold_nodes),
         reconstructed_edge_count=recon_world.edge_count,
         gold_edge_count=gold.edge_count,
+        provenance=provenance,
     )
 
 
@@ -545,6 +666,15 @@ def render_markdown(report: FidelityReport, *, title: str = "Reconstruct fidelit
 
     lines.extend(["", "## Edges", ""])
     lines.extend(_markdown_table(header, _prf_rows(report.edges.overall, report.edges.by_type)))
+
+    if report.provenance is not None:
+        lines.extend(["", "## Provenance (grounding)", ""])
+        lines.extend(
+            _markdown_table(
+                header,
+                _prf_rows(report.provenance.overall, report.provenance.by_type),
+            )
+        )
 
     er = report.entity_resolution
     lines.extend(

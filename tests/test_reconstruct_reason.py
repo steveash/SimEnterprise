@@ -31,7 +31,8 @@ from enterprise_sim.benchmark.runners.reference import REFERENCES_BY_KEY
 from enterprise_sim.benchmark.schema import Benchmark, QAPair
 from enterprise_sim.cli import build_parser, main
 from enterprise_sim.core.world import Edge, Node
-from enterprise_sim.reconstruct import ReconstructedKG
+from enterprise_sim.reconstruct import ReconstructedKG, project_with_groundings
+from enterprise_sim.reconstruct.schema import Provenance
 
 _AT = datetime(1970, 1, 1, tzinfo=UTC)
 
@@ -115,6 +116,30 @@ def test_reference_query_returns_ids_over_reconstruction(tmp_path: Path) -> None
         ref = REFERENCES_BY_KEY["in_department"]
         assert set(runner.kuzu.node_ids(ref.cypher("person:alice"))) == {"dept:eng"}
         assert set(runner.oxigraph.node_ids(ref.sparql("person:alice"))) == {"dept:eng"}
+    finally:
+        runner.close()
+
+
+def test_provenance_query_answerable_over_reconstruction(tmp_path: Path) -> None:
+    """Keyless proof of esim-ecr.2: the provenance reference query returns the
+    grounding artifacts when the reconstruction is projected with its groundings.
+
+    ``project_with_groundings`` (the CLI's ``reconstruct reason`` path) turns the
+    persisted node provenance into derived ``mentions`` edges, so the provenance
+    family — a structural zero without groundings — becomes answerable over the
+    reconstructed KG via the same reference Cypher/SPARQL the gold KG uses.
+    """
+    kg = _reconstructed_kg()
+    kg.add_provenance(
+        Provenance(target_id="person:alice", source_paths=("docs/plan.md", "docs/spec.md"))
+    )
+    world, groundings = project_with_groundings(kg)
+    runner = GraphRunner(GraphModel.from_world(world, groundings))
+    try:
+        ref = REFERENCES_BY_KEY["provenance"]
+        expected = {"docs/plan.md", "docs/spec.md"}
+        assert set(runner.kuzu.node_ids(ref.cypher("person:alice"))) == expected
+        assert set(runner.oxigraph.node_ids(ref.sparql("person:alice"))) == expected
     finally:
         runner.close()
 

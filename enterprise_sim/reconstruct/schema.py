@@ -285,6 +285,31 @@ class ReconstructedKG:
         self.provenance.append(provenance)
         return provenance
 
+    def entity_groundings(self) -> dict[str, list[str]]:
+        """Map each reconstructed *node* id to the artifact paths that ground it.
+
+        The reconstruction's answer to the provenance reasoning family ("which
+        artifacts mention/ground entity X"), read off the persisted
+        :class:`Provenance` records: every record whose ``target_id`` is a node id
+        (as opposed to an edge id) contributes its ``source_paths`` — the artifacts
+        the entity's backing mentions were carved from. Aggregated upstream from the
+        :class:`MentionSpan` provenance that already ties each mention to its chunk
+        and source artifact (:func:`enterprise_sim.reconstruct.build._node_provenance`).
+
+        Keyed by node id with each path list sorted and de-duplicated; nodes with no
+        grounding artifact are omitted. Pure — the same KG always yields the same map.
+        """
+        node_ids = {node.id for node in self.nodes}
+        groundings: dict[str, list[str]] = {}
+        for record in self.provenance:
+            if record.target_id not in node_ids or not record.source_paths:
+                continue
+            paths = groundings.setdefault(record.target_id, [])
+            for path in record.source_paths:
+                if path not in paths:
+                    paths.append(path)
+        return {node_id: sorted(paths) for node_id, paths in groundings.items()}
+
     def to_world(self) -> World:
         """Load the reconstruction into a :class:`~enterprise_sim.core.world.World`.
 

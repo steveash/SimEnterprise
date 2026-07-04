@@ -31,9 +31,10 @@ inverse of generation:
 ```
 
 So we can score the reconstructed KG against the gold KG **exactly and
-keylessly** (node/edge precision/recall/F1, entity-resolution errors), and — the
-payoff — decompose an agent's end-to-end error into *understanding* the corpus
-vs. *reasoning* over what it understood.
+keylessly** (node/edge precision/recall/F1, entity-resolution errors, and
+**provenance grounding** — whether the reconstruction recovers which artifacts
+ground each entity), and — the payoff — decompose an agent's end-to-end error
+into *understanding* the corpus vs. *reasoning* over what it understood.
 
 ---
 
@@ -67,7 +68,10 @@ reasoning is per-question. So the KG is **built once and persisted**
 step — fidelity scoring, and *every* benchmark question the reasoner answers —
 reuses that single artifact. The reasoner loads it **once** into the embedded
 Cypher (kuzu) + SPARQL (oxigraph) engines and answers the whole benchmark over
-that one set of engines; nothing is rebuilt per query.
+that one set of engines; nothing is rebuilt per query. The persisted node
+provenance is projected into derived `mentions` edges at load time (as the gold
+KG's is), so the provenance reasoning family — "which artifacts ground X" — is
+answerable over the reconstruction rather than a structural zero.
 
 The same principle powers the **threshold sweep** (`extract_once` →
 `PipelineExtraction`): chunk/extract/resolve run **once**, and only the final

@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from enterprise_sim.benchmark.schema import Benchmark
     from enterprise_sim.benchmark.score import Predictions
     from enterprise_sim.core.config import RunConfig
+    from enterprise_sim.core.world import World
 
 
 def _cmd_run(args: argparse.Namespace) -> int:
@@ -751,6 +752,34 @@ def _add_reconstruct_build_parser(
     build_parser.set_defaults(func=_cmd_reconstruct_build)
 
 
+def _gold_grounding_by_path(run_dir: Path, gold: World) -> dict[str, list[str]] | None:
+    """Gold grounding answer key as ``{entity id → artifact paths}`` for provenance fidelity.
+
+    Reuses the benchmark's own provenance key
+    (:func:`enterprise_sim.benchmark.generate.load_groundings`, which reads
+    ``kg/mentions.jsonl``) — the exact grounding the provenance reasoning family is
+    graded on — and rewrites its artifact node ids to the ``path`` prop the
+    reconstruction joins on. Returns ``None`` when the run carries no
+    ``mentions.jsonl`` (so provenance fidelity is simply not scored) rather than
+    failing the whole fidelity run.
+    """
+    from enterprise_sim.benchmark.generate import load_groundings
+
+    if not (Path(run_dir) / "kg" / "mentions.jsonl").is_file():
+        return None
+    path_of = {
+        node.id: node.props["path"]
+        for node in gold.nodes_by_type("Artifact")
+        if "path" in node.props
+    }
+    grounding: dict[str, list[str]] = {}
+    for entity_id, artifact_ids in load_groundings(run_dir, gold).items():
+        paths = sorted({path_of[aid] for aid in artifact_ids if aid in path_of})
+        if paths:
+            grounding[entity_id] = paths
+    return grounding
+
+
 def _cmd_reconstruct_fidelity(args: argparse.Namespace) -> int:
     """Score a reconstructed KG against the gold KG (esim-nc6.6).
 
@@ -771,22 +800,32 @@ def _cmd_reconstruct_fidelity(args: argparse.Namespace) -> int:
     with contextlib.ExitStack() as stack:
         if args.run is not None:
             gold = load_world_from_run(args.run)
+            gold_run_dir = args.run
         else:
             from enterprise_sim.benchmark.fixtures import golden_run
 
             tmp = stack.enter_context(tempfile.TemporaryDirectory(prefix="esim-fidelity-"))
-            gold = golden_run(tmp).world
+            run = golden_run(tmp)
+            gold, gold_run_dir = run.world, run.run_dir
 
-        report = score_fidelity(reconstructed, gold)
+        report = score_fidelity(
+            reconstructed, gold, gold_grounding=_gold_grounding_by_path(gold_run_dir, gold)
+        )
 
     rendered = report.to_json() if args.json else report.to_markdown()
     if args.output is None:
         print(rendered, end="" if args.json else "\n")
     else:
         args.output.write_text(rendered + ("" if args.json else "\n"), encoding="utf-8")
+        provenance = (
+            f" provenance F1={report.provenance.overall.f1:.3f}"
+            if report.provenance is not None
+            else ""
+        )
         print(
             f"enterprise-sim reconstruct fidelity: "
-            f"node F1={report.nodes.overall.f1:.3f} edge F1={report.edges.overall.f1:.3f} "
+            f"node F1={report.nodes.overall.f1:.3f} edge F1={report.edges.overall.f1:.3f}"
+            f"{provenance} "
             f"(over-merges={report.entity_resolution.over_merges}, "
             f"under-merges={report.entity_resolution.under_merges}) -> {args.output}",
             file=sys.stderr,
@@ -988,13 +1027,17 @@ def _cmd_reconstruct_reason(args: argparse.Namespace) -> int:
     from enterprise_sim.benchmark.runners.graph_agent import GraphRunner, run_benchmark
     from enterprise_sim.benchmark.runners.projection import GraphModel
     from enterprise_sim.benchmark.schema import Benchmark
-    from enterprise_sim.reconstruct import ReconstructedKG
+    from enterprise_sim.reconstruct import ReconstructedKG, project_with_groundings
 
     benchmark = Benchmark.read_jsonl(args.bench)
     kg = ReconstructedKG.read(args.reconstructed)
     # Load the reconstruction into the engines once; the runner owns that build and
     # is reused for every question below (and closed here, not by run_benchmark).
-    runner = GraphRunner(GraphModel.from_world(kg.to_world()))
+    # The grounding map projects the reconstruction's provenance into ``mentions``
+    # edges (as the gold projection does), so the provenance reasoning family is
+    # answerable over the reconstructed KG rather than a structural zero.
+    world, groundings = project_with_groundings(kg)
+    runner = GraphRunner(GraphModel.from_world(world, groundings))
     try:
         predictions = run_benchmark(benchmark, runner=runner, model=args.model, limit=args.limit)
     except RuntimeError as exc:

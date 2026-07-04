@@ -276,6 +276,63 @@ def test_build_is_deterministic(tmp_path: Path) -> None:
 
 
 # --------------------------------------------------------------------------- #
+# Mention → provenance grounding aggregation (esim-ecr.2).
+# --------------------------------------------------------------------------- #
+
+
+def test_entity_groundings_aggregate_mentions_into_grounding_artifacts() -> None:
+    # No triples: the KG is nodes + node provenance only. Each entity's grounding is
+    # the set of artifacts its MentionSpans were carved from, aggregated by node id.
+    kg = build_kg(_CHUNKS, _extractions({}), _resolution())
+    assert kg.entity_groundings() == {
+        "person:ada": ["org/a.md", "org/b.md"],
+        "team:platform": ["org/a.md", "org/b.md"],
+    }
+
+
+def test_entity_groundings_exclude_edge_provenance() -> None:
+    # An aggregated edge also gets a Provenance record keyed by its edge id; grounding
+    # must count only node targets, so edge provenance never leaks in as an entity.
+    extractions = _extractions({"cA": [_triple("Ada", "member_of", "Platform", "cA")]})
+    kg = build_kg(_CHUNKS, extractions, _resolution())
+    edge_ids = {e.id for e in kg.edges}
+    assert edge_ids  # an edge was built
+    groundings = kg.entity_groundings()
+    assert set(groundings) == {"person:ada", "team:platform"}
+    assert edge_ids.isdisjoint(groundings)
+
+
+def test_project_with_groundings_mints_mention_edges_to_grounding_artifacts() -> None:
+    from enterprise_sim.benchmark.runners.projection import MENTIONS_EDGE_TYPE, GraphModel
+    from enterprise_sim.reconstruct import project_with_groundings
+
+    kg = build_kg(_CHUNKS, _extractions({}), _resolution())
+    world, groundings = project_with_groundings(kg)
+
+    # Grounding artifacts absent as reconstructed entities are synthesized as Artifact
+    # nodes so each mention edge has a real endpoint.
+    artifact_paths = {n.props.get("path") for n in world.nodes() if n.type == "Artifact"}
+    assert {"org/a.md", "org/b.md"} <= artifact_paths
+
+    # The projection derives mentions edges (artifact → entity) so provenance
+    # questions are answerable over the reconstructed KG.
+    model = GraphModel.from_world(world, groundings)
+    mention_edges = {(e.src, e.dst) for e in model.edges if e.type == MENTIONS_EDGE_TYPE}
+    assert ("org/a.md", "person:ada") in mention_edges
+    assert ("org/b.md", "team:platform") in mention_edges
+
+
+def test_project_with_groundings_is_deterministic() -> None:
+    from enterprise_sim.reconstruct import project_with_groundings
+
+    kg = build_kg(_CHUNKS, _extractions({}), _resolution())
+    world_a, grounding_a = project_with_groundings(kg)
+    world_b, grounding_b = project_with_groundings(kg)
+    assert grounding_a == grounding_b
+    assert [n.id for n in world_a.nodes()] == [n.id for n in world_b.nodes()]
+
+
+# --------------------------------------------------------------------------- #
 # Keyless end to end (fake backend).
 # --------------------------------------------------------------------------- #
 

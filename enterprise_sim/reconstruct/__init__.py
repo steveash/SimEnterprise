@@ -34,6 +34,7 @@ from enterprise_sim.reconstruct.build import (
     aggregate_relations,
     build_kg,
     extract_once,
+    project_with_groundings,
     run_pipeline,
 )
 from enterprise_sim.reconstruct.chunk import (
@@ -57,6 +58,7 @@ from enterprise_sim.reconstruct.fidelity import (
     EntityResolution,
     FidelityReport,
     NodeFidelity,
+    ProvenanceFidelity,
     score_fidelity,
 )
 from enterprise_sim.reconstruct.ontology import (
@@ -127,6 +129,7 @@ __all__ = [
     "NodeFidelity",
     "PipelineExtraction",
     "Provenance",
+    "ProvenanceFidelity",
     "ReconstructedKG",
     "Resolution",
     "ResolutionConfig",
@@ -151,6 +154,7 @@ __all__ = [
     "extract_once",
     "iter_corpus_files",
     "parse_extraction",
+    "project_with_groundings",
     "reconstruct_and_score",
     "render_markdown",
     "resolve_entities",
