@@ -61,6 +61,12 @@ from enterprise_sim.reconstruct.fidelity import (
     ProvenanceFidelity,
     score_fidelity,
 )
+from enterprise_sim.reconstruct.model_sweep import (
+    AnswerScorer,
+    ModelPoint,
+    ModelSweepReport,
+    sweep_models,
+)
 from enterprise_sim.reconstruct.ontology import (
     NODE_GLOSSES,
     NODE_TYPES,
@@ -102,6 +108,7 @@ from enterprise_sim.reconstruct.sweep import (
 
 __all__ = [
     "ADJUDICATION_SCHEMA",
+    "AnswerScorer",
     "EXTRACTION_SCHEMA",
     "HAIKU_MODEL",
     "NODE_GLOSSES",
@@ -126,6 +133,8 @@ __all__ = [
     "FidelityReport",
     "Gap",
     "MentionSpan",
+    "ModelPoint",
+    "ModelSweepReport",
     "NodeFidelity",
     "PipelineExtraction",
     "Provenance",
@@ -161,5 +170,6 @@ __all__ = [
     "run_pipeline",
     "run_scale",
     "score_fidelity",
+    "sweep_models",
     "sweep_thresholds",
 ]

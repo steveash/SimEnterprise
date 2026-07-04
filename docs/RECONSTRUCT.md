@@ -104,6 +104,32 @@ raising the threshold only *removes* edges, edge recall and the kept-edge count
 are monotonically non-increasing across the sweep while precision trends up toward
 the sweet spot. With `--backend fake` the whole sweep runs keyless.
 
+### Comparing extraction models
+
+Extraction quality is the ceiling on fidelity: a stronger model reads more
+entities and relations correctly out of the corpus, so the same corpus
+reconstructed by Haiku vs Sonnet yields different graphs. `reconstruct sweep
+--models` sweeps that orthogonal axis. Unlike the threshold sweep it can't reuse
+one extraction — each model runs its own `chunk → extract → resolve` — so it
+reconstructs the corpus once per model and compares:
+
+```bash
+enterprise-sim reconstruct sweep --run runs/<run-id> \
+    --models claude-haiku-4-5-20251001,claude-sonnet-4-6 \
+    --backend anthropic_api \
+    --edge-threshold 0.5 \            # single build threshold for every model
+    -o model-sweep.md                # '--json' for a machine-readable table
+```
+
+The output is a per-model node/edge P/R/F1 comparison table with a callout of the
+edge-F1 leader. Add `--bench bench.jsonl` and each model's KG is also reasoned
+over — by that *same* model, via the graph agent — and graded, adding an
+**answer-F1** column and an answer-F1 leader callout (the agent step needs
+`ANTHROPIC_API_KEY`). With `--backend fake` the iteration and reporting run
+keyless: the fake backend invents meaningless entities that never match the gold
+graph, so every model scores the same degenerate fidelity — the model label is
+just recorded, and real per-model numbers are a keyed crew run.
+
 ---
 
 ## Running it

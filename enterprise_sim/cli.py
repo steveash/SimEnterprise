@@ -897,17 +897,35 @@ def _parse_thresholds(raw: str) -> list[float]:
     return values
 
 
-def _cmd_reconstruct_sweep(args: argparse.Namespace) -> int:
-    """Sweep the edge-confidence threshold over one build-once extraction (esim-ecr.3).
+def _parse_models(raw: str) -> list[str]:
+    """Parse a comma-separated ``--models`` list into model ids (argparse type).
 
-    Extracts the corpus **once** (chunk → extract → resolve, the gated LLM prefix)
-    and then re-aggregates that single extraction at every ``--thresholds`` value —
-    no re-extraction per threshold — scoring each rebuilt KG against the gold graph
-    with the keyless fidelity scorer. Emits a threshold → node/edge P/R/F1 table
-    (markdown, or ``--json``) to ``-o`` (stdout when omitted), locating the edge-F1
-    precision/recall sweet spot. The gated extraction uses ``--backend`` (``fake`` by
+    Empty entries are ignored (so trailing commas are tolerated); an all-empty
+    result raises ``argparse.ArgumentTypeError`` for a clean usage error. Order is
+    preserved — the model sweep de-duplicates while keeping first-seen order.
+    """
+    models = [token for part in raw.split(",") if (token := part.strip())]
+    if not models:
+        raise argparse.ArgumentTypeError("no models given")
+    return models
+
+
+def _cmd_reconstruct_sweep(args: argparse.Namespace) -> int:
+    """Sweep the edge-confidence threshold, or the extraction model (esim-ecr.3/ecr.4).
+
+    Two axes share this command. Without ``--models`` it sweeps the **edge-confidence
+    threshold**: extract the corpus once (chunk → extract → resolve, the gated LLM
+    prefix) and re-aggregate that single extraction at every ``--thresholds`` value —
+    no re-extraction per threshold — scoring each rebuilt KG against the gold graph.
+    With ``--models`` it sweeps the **model axis** (:func:`_cmd_reconstruct_model_sweep`):
+    reconstruct the corpus once per model and compare their fidelity (and answer-F1
+    when ``--bench`` is given). Both emit a comparison table (markdown, or ``--json``)
+    to ``-o`` (stdout when omitted); the gated steps use ``--backend`` (``fake`` by
     default, so the keyless path still sweeps a small KG with no key).
     """
+    if args.models is not None:
+        return _cmd_reconstruct_model_sweep(args)
+
     import contextlib
     import tempfile
 
@@ -950,6 +968,94 @@ def _cmd_reconstruct_sweep(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_reconstruct_model_sweep(args: argparse.Namespace) -> int:
+    """Sweep the extraction model axis and compare reconstructions (esim-ecr.4).
+
+    Reconstructs the corpus once per ``--models`` entry (each runs its own gated
+    chunk → extract → resolve through the same ``--backend`` client, the per-call
+    model override picking the model), builds every KG at ``--edge-threshold``, and
+    scores each against the gold graph with the keyless fidelity scorer — a per-model
+    node/edge P/R/F1 comparison table. With ``--bench`` each model's KG is also
+    reasoned over (by the *same* model, via the graph agent) and graded, adding an
+    answer-F1 column; the agent step needs ``ANTHROPIC_API_KEY`` (a keyed crew run),
+    while the keyless ``fake`` backend records the label and reports fidelity only.
+    """
+    import contextlib
+    import tempfile
+
+    from enterprise_sim.benchmark.generate import load_world_from_run
+    from enterprise_sim.benchmark.schema import Benchmark
+    from enterprise_sim.benchmark.score import Report, score
+    from enterprise_sim.core.llm import LLMConfig, build_client
+    from enterprise_sim.reconstruct import (
+        AnswerScorer,
+        BuildConfig,
+        ReconstructedKG,
+        sweep_models,
+    )
+
+    client = build_client(LLMConfig(backend=args.backend, model=args.models[0]))
+    build_config = BuildConfig(edge_confidence_threshold=args.edge_threshold)
+
+    answer_scorer: AnswerScorer | None = None
+    if args.bench is not None:
+        from enterprise_sim.benchmark.runners.graph_agent import GraphRunner, run_benchmark
+        from enterprise_sim.benchmark.runners.projection import GraphModel
+
+        benchmark = Benchmark.read_jsonl(args.bench)
+
+        def _score_answers(kg: ReconstructedKG, model: str) -> Report:
+            runner = GraphRunner(GraphModel.from_world(kg.to_world()))
+            try:
+                predictions = run_benchmark(benchmark, runner=runner, model=model, limit=args.limit)
+            finally:
+                runner.close()
+            return score(benchmark, predictions)
+
+        answer_scorer = _score_answers
+
+    with contextlib.ExitStack() as stack:
+        if args.run is not None:
+            run_dir = str(args.run)
+            gold = load_world_from_run(args.run)
+        else:
+            from enterprise_sim.benchmark.fixtures import golden_run
+
+            tmp = stack.enter_context(tempfile.TemporaryDirectory(prefix="esim-model-sweep-"))
+            run = golden_run(tmp)
+            run_dir = str(run.run_dir)
+            gold = run.world
+
+        try:
+            report = sweep_models(
+                run_dir,
+                gold,
+                args.models,
+                client,
+                build_config=build_config,
+                answer_scorer=answer_scorer,
+                backend=args.backend,
+            )
+        except RuntimeError as exc:
+            # The graph-agent answer step raises cleanly on a missing key.
+            print(f"enterprise-sim reconstruct sweep --models: {exc}", file=sys.stderr)
+            return 2
+
+    rendered = report.to_json() if args.json else report.to_markdown()
+    if args.output is None:
+        print(rendered, end="" if args.json else "\n")
+    else:
+        args.output.write_text(rendered + ("" if args.json else "\n"), encoding="utf-8")
+        best = report.best_edge_f1()
+        leader = "no models" if best is None else f"best edge F1={best.edge_f1:.3f} by {best.model}"
+        print(
+            f"enterprise-sim reconstruct sweep: {len(report.points)} models "
+            f"(backend={args.backend}, {leader}) -> {args.output}",
+            file=sys.stderr,
+        )
+    return 0
+
+
 def _add_reconstruct_sweep_parser(
     reconstruct_subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
 ) -> None:
@@ -958,15 +1064,16 @@ def _add_reconstruct_sweep_parser(
 
     sweep_parser = reconstruct_subparsers.add_parser(
         "sweep",
-        help="sweep the edge-confidence threshold and score fidelity at each (build-once)",
+        help="sweep the edge-confidence threshold, or the extraction model (--models)",
         description=(
-            "Find the edge-confidence precision/recall sweet spot: extract the corpus "
-            "once (chunk/extract/resolve) and re-aggregate that single extraction at "
-            "every --thresholds value — no re-extraction per threshold — scoring each "
-            "rebuilt KG against the gold graph with the keyless fidelity scorer. Emits "
-            "a threshold -> node/edge P/R/F1 table (markdown or --json). The gated "
-            "extraction uses the selected backend; the keyless fake backend still "
-            "sweeps a small KG."
+            "Sweep one of two axes. Default (no --models): find the edge-confidence "
+            "precision/recall sweet spot — extract the corpus once (chunk/extract/"
+            "resolve) and re-aggregate that single extraction at every --thresholds "
+            "value (no re-extraction per threshold), scoring each rebuilt KG against "
+            "the gold graph. With --models: sweep the model axis — reconstruct the "
+            "corpus once per model and compare their fidelity (and answer-F1 when "
+            "--bench is given, which needs a key). Both emit a comparison table "
+            "(markdown or --json); the keyless fake backend still sweeps a small KG."
         ),
     )
     sweep_parser.add_argument(
@@ -974,7 +1081,39 @@ def _add_reconstruct_sweep_parser(
         type=_parse_thresholds,
         default=[0.0, 0.25, 0.5, 0.75],
         metavar="CONF,CONF,...",
-        help="comma-separated edge-confidence thresholds to sweep (default: 0,0.25,0.5,0.75)",
+        help="threshold axis (no --models): comma-separated edge-confidence "
+        "thresholds to sweep (default: 0,0.25,0.5,0.75)",
+    )
+    sweep_parser.add_argument(
+        "--models",
+        type=_parse_models,
+        default=None,
+        metavar="MODEL,MODEL,...",
+        help="model axis: comma-separated models to reconstruct with and compare "
+        "(e.g. claude-haiku-4-5-20251001,claude-sonnet-4-6); enables the model sweep",
+    )
+    sweep_parser.add_argument(
+        "--edge-threshold",
+        type=float,
+        default=0.0,
+        metavar="CONF",
+        help="model axis: single edge-confidence threshold each model's KG is built "
+        "at (default: 0.0, keep every edge)",
+    )
+    sweep_parser.add_argument(
+        "--bench",
+        type=Path,
+        default=None,
+        metavar="PATH",
+        help="model axis: gold benchmark JSONL — when given, each model's KG is "
+        "reasoned over (same model) and answer-F1 is added to the table (needs a key)",
+    )
+    sweep_parser.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        metavar="N",
+        help="model axis: with --bench, answer only the first N questions (default: all)",
     )
     sweep_parser.add_argument(
         "--run",
