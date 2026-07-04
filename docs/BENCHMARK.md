@@ -81,6 +81,33 @@ present.
 
 ---
 
+## Installing — keyless tests vs. running the real runners
+
+The generate/score/report path and the whole keyless test suite need only the
+`dev` extra:
+
+```bash
+uv sync --extra dev        # keyless: generate/score/report + full test suite
+```
+
+To actually **run** the LLM/agent runners — `bench run --runner graph`, the RAG
+runner, and (in the reconstruct pipeline) `reconstruct build --backend
+anthropic_api` / `reconstruct reason` — you need the `bench` extra, which adds
+the real-LLM runtime deps (`anthropic`, `claude-agent-sdk`) on top of the query
+engines:
+
+```bash
+uv sync --extra bench      # everything above + the real-LLM runtime deps
+export ANTHROPIC_API_KEY=…  # the live paths also need a key
+```
+
+`--extra dev` alone is intentionally keyless — both SDKs are imported lazily, so
+the deterministic gate stays green with no key and no network. `scripts/import_smoke.py`
+(run in CI against the `bench` extra) imports those runtime deps directly, so a
+missing declaration fails the build rather than surfacing only on a live run.
+
+---
+
 ## Generate · run · report
 
 All commands are also runnable as `python -m enterprise_sim.cli …`.
@@ -235,5 +262,7 @@ import time, so `import enterprise_sim.benchmark` stays keyless (enforced by
 | `esim-uzc.6` | comparison report + `bench report` CLI | ✅ |
 
 The graph/ontology query *engine* and the LLM runners (`esim-uzc.4/.5`) bring in
-`kuzu`, `pyoxigraph`, and `claude-agent-sdk`; their tests gate on
-`requires_llm_runner` and skip when those are absent, so keyless CI stays green.
+`kuzu`, `pyoxigraph`, `claude-agent-sdk`, and `anthropic` (all in the `bench`
+extra); their tests gate on `requires_llm_runner` and skip when those are absent,
+so keyless CI stays green. See [Installing](#installing--keyless-tests-vs-running-the-real-runners)
+for which extra to use to actually run the runners.

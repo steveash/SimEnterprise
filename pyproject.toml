@@ -14,13 +14,22 @@ dependencies = [
 enterprise-sim = "enterprise_sim.cli:main"
 
 [project.optional-dependencies]
-# The KG-QA graph runner (esim-uzc.4): embedded Cypher/SPARQL engines plus the
-# Claude agent that reasons over them. The engines (kuzu, pyoxigraph) are needed
-# to run the keyless engine tests; claude-agent-sdk only to run the agent.
+# The real-LLM evaluation extra: everything needed to actually RUN (not just
+# keyless-test) the agent/LLM paths — `reconstruct build --backend anthropic_api`,
+# `reconstruct reason`, `bench run --runner graph`, and the RAG runner.
+#   * kuzu / pyoxigraph — the embedded Cypher/SPARQL engines (also in `dev`, since
+#     the keyless engine tests exercise them).
+#   * claude-agent-sdk — the graph-agent runner's `import claude_agent_sdk`.
+#   * anthropic — the official SDK the `anthropic_api`/`bedrock` backends
+#     (core/llm) import lazily; the RAG runner and reconstruct build need it.
+# Both SDKs are imported lazily, so `--extra dev` alone stays keyless-green; you
+# need `--extra bench` to run the real paths. The CI import-smoke installs this
+# extra so a missing runtime dep here fails the build (scripts/import_smoke.py).
 bench = [
     "kuzu>=0.11",
     "pyoxigraph>=0.5",
     "claude-agent-sdk>=0.1",
+    "anthropic>=0.40",
 ]
 dev = [
     "mypy>=1.9",

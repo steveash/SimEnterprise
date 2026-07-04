@@ -109,8 +109,11 @@ enterprise-sim reconstruct report --bench bench.jsonl \
     --fidelity fidelity.json -o attribution.md
 ```
 
-Steps 1 (real backend) and 3 (all three reasoners) need a model/key; steps 2 and
-4 are pure and deterministic.
+Steps 1 (real backend) and 3 (all three reasoners) need a model/key **and the
+`bench` extra** — `--backend anthropic_api`, `reconstruct reason`, and `bench run
+--runner graph` import the `anthropic` / `claude-agent-sdk` runtime deps that only
+`--extra bench` installs (`uv sync --extra bench`; `--extra dev` is keyless-only).
+Steps 2 and 4 are pure and deterministic and run on `--extra dev` alone.
 
 ---
 
