@@ -274,15 +274,24 @@ scripts/reconstruct_eval.sh --keyless-smoke -o /tmp/eval
 
 | System | BEFORE F1 | AFTER F1 |
 |--------|-----------|----------|
-| **oracle** (graph agent on gold KG — the ceiling) | 0.984 | _TBD (keyed run)_ |
-| **reconstructed** (same agent on reconstructed KG) | 0.240 | _TBD_ |
-| **rag** (corpus-retrieval baseline) | 0.223 | _TBD_ |
+| **oracle** (graph agent on gold KG — the ceiling) | 0.984 | 0.984 |
+| **reconstructed** (same agent on reconstructed KG) | 0.240 | **0.289** |
+| **rag** (corpus-retrieval baseline) | 0.223 | 0.223 |
 
 | Gap (oracle advantage split) | BEFORE | AFTER |
 |------------------------------|--------|-------|
-| **understanding** (oracle − reconstructed) | +0.744 | _TBD_ |
-| **reasoning** (reconstructed − rag) | +0.017 | _TBD_ |
-| **total** (oracle − rag) | +0.761 | _TBD_ |
+| **understanding** (oracle − reconstructed) | +0.744 | **+0.695** |
+| **reasoning** (reconstructed − rag) | +0.017 | **+0.066** |
+| **total** (oracle − rag) | +0.761 | +0.761 |
+
+_AFTER measured on the golden run, Haiku, all 64 questions (oracle + rag reused
+— gold KG and corpus are unchanged). The understanding gap shrank (+0.744 →
++0.695) and the reasoning gap ~4×'d (+0.017 → +0.066): `transitive` reasoning
+nearly doubled (0.216 → 0.412) as recovered structure let the agent walk more
+chains. `goal_tree` and `provenance` **answer**-F1 remain 0.000 — the Goal/
+provenance **nodes** are recovered (see fidelity below) but the `subgoal_of` /
+`advances_goal` edges and mention→artifact grounding those questions traverse
+are not yet sufficiently reconstructed; that edge/grounding recovery is next._
 
 BEFORE reading: the graph ceiling is near-perfect (0.984) but the *reconstructed*
 graph barely clears RAG — almost the entire graph advantage (+0.761) is the
@@ -295,10 +304,10 @@ oracle held ~constant (the gold KG and reasoner are unchanged).
 
 | Metric | BEFORE | AFTER | Fixed by |
 |--------|--------|-------|----------|
-| node F1 | 0.506 | _TBD_ | — |
-| edge F1 | 0.219 | _TBD_ | `esim-ecr.3` threshold sweep (edge-threshold was 0.00 → low precision) |
-| **Goal** fidelity F1 | **0.000** | _TBD_ | **`esim-ecr.1`** (Goal recovery) |
-| **provenance** fidelity F1 | **0.000** | _TBD_ | **`esim-ecr.2`** (provenance grounding edges) |
+| node F1 | 0.506 | **0.564** (precision 0.778 → **1.000**) | — |
+| edge F1 | 0.219 | **0.256** | `esim-ecr.3` threshold sweep (edge-threshold was 0.00 → low precision) |
+| **Goal** fidelity F1 | **0.000** | **1.000** (all 3 recovered) | **`esim-ecr.1`** (Goal recovery) |
+| **provenance** fidelity F1 | **0.000** | **0.400** | **`esim-ecr.2`** (provenance grounding edges) |
 | edge-confidence threshold | 0.00 | _sweep-tuned_ | `esim-ecr.3` |
 
 Per-reasoning-type BEFORE, the graph decisively beat RAG on structured/multi-hop
