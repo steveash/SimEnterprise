@@ -30,8 +30,10 @@ from enterprise_sim.reconstruct.attribution import (
 )
 from enterprise_sim.reconstruct.build import (
     BuildConfig,
+    PipelineExtraction,
     aggregate_relations,
     build_kg,
+    extract_once,
     run_pipeline,
 )
 from enterprise_sim.reconstruct.chunk import (
@@ -90,6 +92,11 @@ from enterprise_sim.reconstruct.schema import (
     Provenance,
     ReconstructedKG,
 )
+from enterprise_sim.reconstruct.sweep import (
+    SweepPoint,
+    SweepReport,
+    sweep_thresholds,
+)
 
 __all__ = [
     "ADJUDICATION_SCHEMA",
@@ -118,12 +125,15 @@ __all__ = [
     "Gap",
     "MentionSpan",
     "NodeFidelity",
+    "PipelineExtraction",
     "Provenance",
     "ReconstructedKG",
     "Resolution",
     "ResolutionConfig",
     "RunFidelity",
     "RunSpec",
+    "SweepPoint",
+    "SweepReport",
     "adjudicate_pair",
     "aggregate_relations",
     "build_adjudication_prompt",
@@ -138,6 +148,7 @@ __all__ = [
     "extract_chunk",
     "extract_chunks",
     "default_run_specs",
+    "extract_once",
     "iter_corpus_files",
     "parse_extraction",
     "reconstruct_and_score",
@@ -146,4 +157,5 @@ __all__ = [
     "run_pipeline",
     "run_scale",
     "score_fidelity",
+    "sweep_thresholds",
 ]

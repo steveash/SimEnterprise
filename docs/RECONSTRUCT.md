@@ -69,6 +69,37 @@ reuses that single artifact. The reasoner loads it **once** into the embedded
 Cypher (kuzu) + SPARQL (oxigraph) engines and answers the whole benchmark over
 that one set of engines; nothing is rebuilt per query.
 
+The same principle powers the **threshold sweep** (`extract_once` →
+`PipelineExtraction`): chunk/extract/resolve run **once**, and only the final
+`aggregate` stage re-runs at each edge-confidence threshold
+(`PipelineExtraction.build`). Extracting once and re-thresholding many is what
+makes the sweep affordable — no LLM call per threshold.
+
+### Tuning the edge-confidence threshold
+
+The `aggregate` stage gates each deduped edge on its aggregated confidence (the
+greatest confidence among the chunks that attest it). `--edge-threshold 0.0` (the
+default) keeps **every** resolvable edge — maximal recall, but low-confidence
+wrong edges tank precision (edge F1 ≈ 0.219 on the golden run). Raising the bar
+drops the weakest edges: precision climbs, recall falls, and the F1 sweet spot
+sits in between.
+
+`reconstruct sweep` finds it. It extracts the corpus once and re-aggregates that
+single extraction at each `--thresholds` value, scoring every rebuilt KG against
+the gold graph with the keyless fidelity scorer:
+
+```bash
+enterprise-sim reconstruct sweep --run runs/<run-id> \
+    --thresholds 0,0.25,0.5,0.75 --backend anthropic_api \
+    -o sweep.md                      # '--json' for a machine-readable curve
+```
+
+The output is a threshold → node/edge P/R/F1 table (node metrics are invariant —
+the threshold gates edges only) plus a callout of the best edge F1. Because
+raising the threshold only *removes* edges, edge recall and the kept-edge count
+are monotonically non-increasing across the sweep while precision trends up toward
+the sweet spot. With `--backend fake` the whole sweep runs keyless.
+
 ---
 
 ## Running it

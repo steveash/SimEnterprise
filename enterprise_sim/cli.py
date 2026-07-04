@@ -633,13 +633,14 @@ def _add_reconstruct_parser(
         description=(
             "Read the raw artifact corpus back out into a reconstructed knowledge "
             "graph (in the gold KG's on-disk schema), score its fidelity against "
-            "the gold graph, and reason over it. Subcommands: build/fidelity/"
-            "reason/report (epic esim-nc6) and scale (esim-ecr.5)."
+            "the gold graph, sweep the edge-confidence threshold, and reason over "
+            "it. Subcommands: build/fidelity/sweep/reason/report (epic esim-nc6) "
+            "and scale (esim-ecr.5)."
         ),
     )
     reconstruct_subparsers = reconstruct_parser.add_subparsers(
         dest="reconstruct_command",
-        metavar="{build,fidelity,reason,report,scale}",
+        metavar="{build,fidelity,sweep,reason,report,scale}",
     )
     reconstruct_parser.set_defaults(
         func=_cmd_reconstruct,
@@ -649,6 +650,7 @@ def _add_reconstruct_parser(
     reconstruct_parser.set_defaults(reconstruct_subparsers=reconstruct_subparsers)
     _add_reconstruct_build_parser(reconstruct_subparsers)
     _add_reconstruct_fidelity_parser(reconstruct_subparsers)
+    _add_reconstruct_sweep_parser(reconstruct_subparsers)
     _add_reconstruct_reason_parser(reconstruct_subparsers)
     _add_reconstruct_report_parser(reconstruct_subparsers)
     _add_reconstruct_scale_parser(reconstruct_subparsers)
@@ -834,6 +836,141 @@ def _add_reconstruct_fidelity_parser(
         help="write the report to PATH (default: stdout)",
     )
     fidelity_parser.set_defaults(func=_cmd_reconstruct_fidelity)
+
+
+def _parse_thresholds(raw: str) -> list[float]:
+    """Parse a comma-separated ``--thresholds`` list into floats (argparse type).
+
+    Empty entries are ignored; a non-numeric or empty result raises
+    ``argparse.ArgumentTypeError`` so the CLI reports a clean usage error.
+    """
+    values: list[float] = []
+    for part in raw.split(","):
+        token = part.strip()
+        if not token:
+            continue
+        try:
+            values.append(float(token))
+        except ValueError as exc:
+            raise argparse.ArgumentTypeError(f"invalid threshold {token!r}: not a number") from exc
+    if not values:
+        raise argparse.ArgumentTypeError("no thresholds given")
+    return values
+
+
+def _cmd_reconstruct_sweep(args: argparse.Namespace) -> int:
+    """Sweep the edge-confidence threshold over one build-once extraction (esim-ecr.3).
+
+    Extracts the corpus **once** (chunk → extract → resolve, the gated LLM prefix)
+    and then re-aggregates that single extraction at every ``--thresholds`` value —
+    no re-extraction per threshold — scoring each rebuilt KG against the gold graph
+    with the keyless fidelity scorer. Emits a threshold → node/edge P/R/F1 table
+    (markdown, or ``--json``) to ``-o`` (stdout when omitted), locating the edge-F1
+    precision/recall sweet spot. The gated extraction uses ``--backend`` (``fake`` by
+    default, so the keyless path still sweeps a small KG with no key).
+    """
+    import contextlib
+    import tempfile
+
+    from enterprise_sim.benchmark.generate import load_world_from_run
+    from enterprise_sim.core.llm import LLMConfig, build_client
+    from enterprise_sim.reconstruct import extract_once, sweep_thresholds
+
+    client = build_client(LLMConfig(backend=args.backend, model=args.model))
+    with contextlib.ExitStack() as stack:
+        if args.run is not None:
+            run_dir = str(args.run)
+            gold = load_world_from_run(args.run)
+        else:
+            from enterprise_sim.benchmark.fixtures import golden_run
+
+            tmp = stack.enter_context(tempfile.TemporaryDirectory(prefix="esim-sweep-"))
+            run = golden_run(tmp)
+            run_dir = str(run.run_dir)
+            gold = run.world
+
+        extraction = extract_once(run_dir, client, model=args.model)
+        report = sweep_thresholds(extraction, gold, args.thresholds)
+
+    rendered = report.to_json() if args.json else report.to_markdown()
+    if args.output is None:
+        print(rendered, end="" if args.json else "\n")
+    else:
+        args.output.write_text(rendered + ("" if args.json else "\n"), encoding="utf-8")
+        best = report.best_edge_f1()
+        sweet_spot = (
+            "no edges"
+            if best is None
+            else f"best edge F1={best.edges.f1:.3f} @ {best.threshold:.2f}"
+        )
+        print(
+            f"enterprise-sim reconstruct sweep: {len(report.points)} thresholds "
+            f"(backend={args.backend}, {sweet_spot}) -> {args.output}",
+            file=sys.stderr,
+        )
+    return 0
+
+
+def _add_reconstruct_sweep_parser(
+    reconstruct_subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
+    """Wire ``reconstruct sweep --thresholds 0,0.25,0.5,0.75 [--run DIR]`` (esim-ecr.3)."""
+    from enterprise_sim.reconstruct import HAIKU_MODEL
+
+    sweep_parser = reconstruct_subparsers.add_parser(
+        "sweep",
+        help="sweep the edge-confidence threshold and score fidelity at each (build-once)",
+        description=(
+            "Find the edge-confidence precision/recall sweet spot: extract the corpus "
+            "once (chunk/extract/resolve) and re-aggregate that single extraction at "
+            "every --thresholds value — no re-extraction per threshold — scoring each "
+            "rebuilt KG against the gold graph with the keyless fidelity scorer. Emits "
+            "a threshold -> node/edge P/R/F1 table (markdown or --json). The gated "
+            "extraction uses the selected backend; the keyless fake backend still "
+            "sweeps a small KG."
+        ),
+    )
+    sweep_parser.add_argument(
+        "--thresholds",
+        type=_parse_thresholds,
+        default=[0.0, 0.25, 0.5, 0.75],
+        metavar="CONF,CONF,...",
+        help="comma-separated edge-confidence thresholds to sweep (default: 0,0.25,0.5,0.75)",
+    )
+    sweep_parser.add_argument(
+        "--run",
+        type=Path,
+        default=None,
+        metavar="DIR",
+        help="run dir whose raw corpus is reconstructed + whose kg/ is the gold graph; "
+        "default: a fresh golden run",
+    )
+    sweep_parser.add_argument(
+        "--backend",
+        default="fake",
+        choices=["fake", "anthropic_api", "bedrock", "claude_cli"],
+        help="LLM backend for the gated extract/resolve steps (default: fake, keyless)",
+    )
+    sweep_parser.add_argument(
+        "--model",
+        default=HAIKU_MODEL,
+        metavar="MODEL",
+        help=f"model for the gated LLM steps (default: {HAIKU_MODEL})",
+    )
+    sweep_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="emit the sweep as JSON instead of markdown",
+    )
+    sweep_parser.add_argument(
+        "-o",
+        "--output",
+        type=Path,
+        default=None,
+        metavar="PATH",
+        help="write the report to PATH (default: stdout)",
+    )
+    sweep_parser.set_defaults(func=_cmd_reconstruct_sweep)
 
 
 def _cmd_reconstruct_reason(args: argparse.Namespace) -> int:

@@ -58,8 +58,10 @@ from enterprise_sim.reconstruct.schema import (
 
 __all__ = [
     "BuildConfig",
+    "PipelineExtraction",
     "aggregate_relations",
     "build_kg",
+    "extract_once",
     "run_pipeline",
 ]
 
@@ -269,6 +271,68 @@ def build_kg(
     return ReconstructedKG(nodes=nodes, edges=edges, provenance=provenance)
 
 
+@dataclass(frozen=True)
+class PipelineExtraction:
+    """The build-once intermediate: the pipeline output *before* threshold gating.
+
+    Chunking, extraction, and resolution are the pipeline's expensive, gated stages
+    (extraction + adjudication call an LLM); aggregation is a pure, cheap function of
+    their output plus a :class:`BuildConfig`. Capturing chunks + extractions +
+    resolution once lets the caller build the KG at *many* edge-confidence thresholds
+    without re-running the LLM — the "extract once, re-threshold many" primitive the
+    :mod:`~enterprise_sim.reconstruct.sweep` harness runs on. Produced by
+    :func:`extract_once`; :meth:`build` runs the final aggregate stage.
+
+    Attributes:
+        chunks: The chunked corpus (carries each chunk's ``source_path`` for provenance).
+        extractions: Per-chunk typed mentions + candidate triples.
+        resolution: The canonical entities the mentions resolved to.
+    """
+
+    chunks: list[Chunk]
+    extractions: list[Extraction]
+    resolution: Resolution
+
+    def build(self, *, config: BuildConfig = DEFAULT_BUILD_CONFIG) -> ReconstructedKG:
+        """Aggregate this extraction into a :class:`ReconstructedKG` under ``config``.
+
+        A pure, deterministic re-run of the final aggregate stage
+        (:func:`build_kg`): only ``config.edge_confidence_threshold`` (the
+        precision/recall knob) varies the result — resolution is already fixed — so
+        the same extraction builds a different KG at every threshold with no LLM call.
+        """
+        return build_kg(self.chunks, self.extractions, self.resolution, config=config)
+
+
+def extract_once(
+    run_dir: str,
+    client: LLMClient,
+    *,
+    model: str | None = HAIKU_MODEL,
+    resolution: ResolutionConfig = DEFAULT_CONFIG,
+) -> PipelineExtraction:
+    """Run chunk → extract → resolve over a run's corpus, stopping before aggregation.
+
+    The gated, expensive prefix of :func:`run_pipeline`: chunks the raw artifact
+    corpus under ``run_dir`` (never the gold ``kg/``), extracts typed mentions +
+    candidate triples through ``client``, and resolves the mentions into canonical
+    entities (``client`` gating the ambiguous-band adjudication). Returns the
+    :class:`PipelineExtraction` the aggregate stage consumes, so a caller can build
+    the KG at multiple edge-confidence thresholds from one extraction.
+    """
+    chunks = chunk_run(run_dir)
+    extractions = list(extract_chunks(chunks, client, model=model))
+    mentions = [mention for extraction in extractions for mention in extraction.mentions]
+    canonical = resolve_entities(
+        mentions,
+        chunks,
+        config=resolution,
+        client=client,
+        model=model,
+    )
+    return PipelineExtraction(chunks=list(chunks), extractions=extractions, resolution=canonical)
+
+
 def run_pipeline(
     run_dir: str,
     client: LLMClient,
@@ -285,16 +349,8 @@ def run_pipeline(
     :class:`ReconstructedKG`. ``client`` is the caller's backend choice: a ``fake``
     client reconstructs a small KG deterministically with no key; an
     ``anthropic_api`` client with ``model`` (default :data:`HAIKU_MODEL`) runs the
-    real gated extraction.
+    real gated extraction. Splits into :func:`extract_once` (the gated prefix) plus
+    :meth:`PipelineExtraction.build` (the pure aggregate stage).
     """
-    chunks = chunk_run(run_dir)
-    extractions = extract_chunks(chunks, client, model=model)
-    mentions = [mention for extraction in extractions for mention in extraction.mentions]
-    resolution = resolve_entities(
-        mentions,
-        chunks,
-        config=config.resolution,
-        client=client,
-        model=model,
-    )
-    return build_kg(chunks, extractions, resolution, config=config)
+    extraction = extract_once(run_dir, client, model=model, resolution=config.resolution)
+    return extraction.build(config=config)
