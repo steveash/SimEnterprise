@@ -232,3 +232,82 @@ dropped the edges those chains walk (look at edge fidelity + under-merges); a la
 what makes those answerable at all, and RAG can't chain the facts. The
 reconstruction's fidelity numbers (node/edge F1, over/under-merge counts) ride
 along at the top as the context that *explains* the understanding gap.
+
+---
+
+## Results — before / after the gap fixes
+
+The first full-64 attribution run (epic `esim-ecr`) pinpointed *where* the
+reference app loses: it is bottlenecked by **understanding** (reconstruction),
+not reasoning, and reconstruction failed *totally* on two families — **Goals**
+and **provenance** — both scoring fidelity F1 **0.000**. Those two gaps became
+[`esim-ecr.1`](../enterprise_sim/reconstruct/) (Goal recovery) and `esim-ecr.2`
+(provenance grounding edges). The tables below record the **BEFORE** (the run
+that motivated the fixes) next to an **AFTER** placeholder that a keyed crew run
+fills once the fixes are in.
+
+The numbers are **not keyless**: the oracle, reconstructed, and rag reasoners all
+call the Claude API, so producing them is a keyed crew run (`ANTHROPIC_API_KEY` +
+`uv sync --extra bench`). The harness and this doc are the keyless deliverable;
+the AFTER column is filled by that crew run.
+
+### Reproducing it — one command
+
+`scripts/reconstruct_eval.sh` runs the whole chain end to end — the six commands
+from [Running it](#running-it) (`build → fidelity → oracle/reconstructed/rag →
+report`) with every artifact landing under one `--out` dir:
+
+```bash
+# Keyed crew run — fills the AFTER tables (needs a key + the bench extra):
+uv sync --extra bench
+scripts/reconstruct_eval.sh --run runs/<run-id> --backend anthropic_api -o eval/
+#   -> eval/attribution.md  (+ fidelity.json, recon/, pred.{oracle,reconstructed,rag}.jsonl)
+# Omit --run to spin a fresh golden run; --limit N caps the reasoners for a cheap probe.
+
+# Keyless wiring smoke — proves the plumbing with NO key (fake backend; a keyless
+# RAG prediction stands in for all three reasoners, so the numbers are wiring
+# stand-ins, not an eval). This is what CI exercises:
+scripts/reconstruct_eval.sh --keyless-smoke -o /tmp/eval
+```
+
+### Attribution — overall F1 (higher is better)
+
+| System | BEFORE F1 | AFTER F1 |
+|--------|-----------|----------|
+| **oracle** (graph agent on gold KG — the ceiling) | 0.984 | _TBD (keyed run)_ |
+| **reconstructed** (same agent on reconstructed KG) | 0.240 | _TBD_ |
+| **rag** (corpus-retrieval baseline) | 0.223 | _TBD_ |
+
+| Gap (oracle advantage split) | BEFORE | AFTER |
+|------------------------------|--------|-------|
+| **understanding** (oracle − reconstructed) | +0.744 | _TBD_ |
+| **reasoning** (reconstructed − rag) | +0.017 | _TBD_ |
+| **total** (oracle − rag) | +0.761 | _TBD_ |
+
+BEFORE reading: the graph ceiling is near-perfect (0.984) but the *reconstructed*
+graph barely clears RAG — almost the entire graph advantage (+0.761) is the
+**understanding** gap (+0.744). Reasoning over a graph is nearly free once you
+have one; *recovering* the graph from prose is where the loss lives. AFTER should
+show the understanding gap shrinking as reconstruction fidelity climbs, with
+oracle held ~constant (the gold KG and reasoner are unchanged).
+
+### Reconstruction fidelity — the context that explains the understanding gap
+
+| Metric | BEFORE | AFTER | Fixed by |
+|--------|--------|-------|----------|
+| node F1 | 0.506 | _TBD_ | — |
+| edge F1 | 0.219 | _TBD_ | `esim-ecr.3` threshold sweep (edge-threshold was 0.00 → low precision) |
+| **Goal** fidelity F1 | **0.000** | _TBD_ | **`esim-ecr.1`** (Goal recovery) |
+| **provenance** fidelity F1 | **0.000** | _TBD_ | **`esim-ecr.2`** (provenance grounding edges) |
+| edge-confidence threshold | 0.00 | _sweep-tuned_ | `esim-ecr.3` |
+
+Per-reasoning-type BEFORE, the graph decisively beat RAG on structured/multi-hop
+questions — `aggregation` +0.66, `direct_relation` +0.29, `transitive` +0.18 —
+while `provenance` was the one family RAG *won* (graph fidelity 0.000, so the
+reconstructed graph had nothing to ground with). `esim-ecr.2` makes that family
+answerable over the reconstruction; the AFTER run confirms whether it flips.
+
+> **Filling AFTER:** run the keyed command above against a fresh run, read
+> `eval/attribution.md` (overall + gap tables) and `eval/fidelity.json` (node/edge
+> and per-type F1, including `provenance.overall.f1` and the `Goal` rows), and
+> paste the numbers into the `_TBD_` cells.
