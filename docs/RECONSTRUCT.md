@@ -232,3 +232,49 @@ dropped the edges those chains walk (look at edge fidelity + under-merges); a la
 what makes those answerable at all, and RAG can't chain the facts. The
 reconstruction's fidelity numbers (node/edge F1, over/under-merge counts) ride
 along at the top as the context that *explains* the understanding gap.
+
+## Results — golden run, Haiku (measured)
+
+Empirical numbers on the committed golden run (`golden-slice-co`, 56 nodes / 132
+gold edges), extraction + agents on `claude-haiku-4-5`, all 64 benchmark
+questions. **Before** = the first Reconstruct→Reason eval (epic `esim-nc6`);
+**after** = following the Goal-recovery and provenance fixes (epic `esim-ecr`,
+`ecr.1`/`ecr.2`). Oracle and RAG are unchanged (gold KG + corpus are fixed), so
+the deltas isolate reconstruction quality.
+
+### Reconstruction fidelity (vs gold)
+
+| metric | before | after |
+|---|---|---|
+| node F1 | 0.506 | **0.564** |
+| node precision | 0.778 | **1.000** |
+| edge F1 | 0.219 | **0.256** |
+| **Goal** node F1 | **0.000** | **1.000** |
+| provenance F1 | 0.000 | **0.400** |
+| over-merges | 1 | **0** |
+
+The Goal fix is complete at the node level (all 3 goals recovered, perfect P/R);
+provenance grounding is now a non-zero signal.
+
+### Answer quality (F1) and attribution
+
+| | before | after |
+|---|---|---|
+| oracle (gold KG) | 0.984 | 0.984 |
+| **reconstructed** | 0.240 | **0.289** |
+| rag | 0.223 | 0.223 |
+| — transitive (reconstructed) | 0.216 | **0.412** |
+| understanding gap (oracle − reconstructed) | +0.744 | **+0.695** |
+| reasoning gap (reconstructed − rag) | +0.017 | **+0.066** |
+
+Better structure shrank the understanding gap and roughly **doubled transitive**
+multi-hop reasoning; the graph's advantage over RAG (reasoning gap) grew ~4×.
+
+### Known remaining gap
+
+`goal_tree` and `provenance` **answer**-F1 remain 0.000 even though Goal *nodes*
+are now perfectly recovered and provenance fidelity is 0.4. Recovering the nodes
+did **not** make those question types answerable — the `subgoal_of` /
+`advances_goal` **edges** and the mention→artifact **grounding** those questions
+walk are still not sufficiently reconstructed or queryable. That edge/grounding
+reconstruction is the next target; RAG still wins `provenance` (0.713).
