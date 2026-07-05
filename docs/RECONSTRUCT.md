@@ -314,11 +314,20 @@ oracle held ~constant (the gold KG and reasoner are unchanged).
 **no-op**: edge F1 is identical (0.268) across thresholds 0.0–0.9, because edge
 *precision is already high* (0.84) — spurious edges are not the problem. The
 bottleneck is edge **recall** (0.159 — only ~25 of 132 gold edges recovered), so
-filtering by confidence can only hurt. The `esim-ecr.4` model sweep confirms the
-lever: **Sonnet** recovers more of the graph (35 vs 24 edges, recall 0.189 vs
-0.152) — higher recall at modest precision cost — lifting edge F1 0.256 → 0.299.
-Reconstruction is **recall-bound, not precision-bound**: the productive levers
-are *extracting more relationships* and *a stronger model*, not threshold tuning.
+filtering by confidence can only hurt. The `esim-ecr.4` model sweep shows
+**Sonnet** recovers more of the graph (35 vs 24 edges, recall 0.189 vs 0.152) —
+higher recall at modest precision cost — lifting edge F1 0.256 → 0.299.
+
+**But a better graph did *not* yield better answers:** end-to-end, Sonnet's
+answer-F1 is **identical** to Haiku's (0.289 → 0.289; EM 0.250 → 0.266). Recovering
+*more edges in general* doesn't move the needle because the answer-level failures
+are **structural** — `goal_tree` and `provenance` stay at 0.000 for both models
+because the *specific* edge types those questions traverse (`subgoal_of`,
+`advances_goal`, mention→artifact grounding) are still missing, not because there
+are too few edges overall. So reconstruction is **recall-bound**, but the next
+answer-quality win is **targeted extraction of the right relationships**, not a
+bigger model or a threshold — throwing model strength at broad recall hits
+diminishing returns.
 
 Per-reasoning-type BEFORE, the graph decisively beat RAG on structured/multi-hop
 questions — `aggregation` +0.66, `direct_relation` +0.29, `transitive` +0.18 —
