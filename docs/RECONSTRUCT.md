@@ -305,10 +305,20 @@ oracle held ~constant (the gold KG and reasoner are unchanged).
 | Metric | BEFORE | AFTER | Fixed by |
 |--------|--------|-------|----------|
 | node F1 | 0.506 | **0.564** (precision 0.778 → **1.000**) | — |
-| edge F1 | 0.219 | **0.256** | `esim-ecr.3` threshold sweep (edge-threshold was 0.00 → low precision) |
+| edge F1 | 0.219 | **0.256** (Haiku) · **0.299** (Sonnet) | `esim-ecr.4` model sweep |
 | **Goal** fidelity F1 | **0.000** | **1.000** (all 3 recovered) | **`esim-ecr.1`** (Goal recovery) |
 | **provenance** fidelity F1 | **0.000** | **0.400** | **`esim-ecr.2`** (provenance grounding edges) |
-| edge-confidence threshold | 0.00 | _sweep-tuned_ | `esim-ecr.3` |
+| edge-confidence threshold | 0.00 | 0.00 (sweep: **no-op**) | `esim-ecr.3` |
+
+**Sweep findings (keyed, golden run).** The `esim-ecr.3` threshold sweep is a
+**no-op**: edge F1 is identical (0.268) across thresholds 0.0–0.9, because edge
+*precision is already high* (0.84) — spurious edges are not the problem. The
+bottleneck is edge **recall** (0.159 — only ~25 of 132 gold edges recovered), so
+filtering by confidence can only hurt. The `esim-ecr.4` model sweep confirms the
+lever: **Sonnet** recovers more of the graph (35 vs 24 edges, recall 0.189 vs
+0.152) — higher recall at modest precision cost — lifting edge F1 0.256 → 0.299.
+Reconstruction is **recall-bound, not precision-bound**: the productive levers
+are *extracting more relationships* and *a stronger model*, not threshold tuning.
 
 Per-reasoning-type BEFORE, the graph decisively beat RAG on structured/multi-hop
 questions — `aggregation` +0.66, `direct_relation` +0.29, `transitive` +0.18 —
