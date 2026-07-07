@@ -426,6 +426,46 @@ def test_project_with_groundings_is_deterministic() -> None:
     assert [n.id for n in world_a.nodes()] == [n.id for n in world_b.nodes()]
 
 
+def test_project_with_groundings_names_artifacts_in_gold_id_coordinate() -> None:
+    # The benchmark grades provenance against the gold Artifact node ids, so a
+    # {path -> gold id} map must name the mention-edge endpoints (and the synthesized
+    # Artifact nodes) in that coordinate system rather than by raw path.
+    from enterprise_sim.benchmark.runners.projection import MENTIONS_EDGE_TYPE, GraphModel
+    from enterprise_sim.reconstruct import project_with_groundings
+
+    kg = build_kg(_CHUNKS, _extractions({}), _resolution())
+    gold_ids = {"org/a.md": "artifact:doc-a", "org/b.md": "artifact:doc-b"}
+    world, groundings = project_with_groundings(kg, gold_ids)
+
+    # Grounding artifacts are synthesized under their gold ids, carrying the path.
+    artifacts = {n.id: n.props.get("path") for n in world.nodes() if n.type == "Artifact"}
+    assert artifacts["artifact:doc-a"] == "org/a.md"
+    assert artifacts["artifact:doc-b"] == "org/b.md"
+
+    # The derived mentions edges (and thus provenance answers) resolve to gold ids.
+    model = GraphModel.from_world(world, groundings)
+    mention_edges = {(e.src, e.dst) for e in model.edges if e.type == MENTIONS_EDGE_TYPE}
+    assert ("artifact:doc-a", "person:ada") in mention_edges
+    assert ("artifact:doc-b", "team:platform") in mention_edges
+    # No raw path leaks in as an artifact endpoint once every path is mapped.
+    assert not any(src in {"org/a.md", "org/b.md"} for src, _ in mention_edges)
+
+
+def test_project_with_groundings_falls_back_to_path_for_unmapped_artifacts() -> None:
+    # A partial map resolves the artifacts it covers to gold ids and leaves the rest
+    # path-keyed — so a run whose gold nodes miss an artifact still stays answerable.
+    from enterprise_sim.benchmark.runners.projection import MENTIONS_EDGE_TYPE, GraphModel
+    from enterprise_sim.reconstruct import project_with_groundings
+
+    kg = build_kg(_CHUNKS, _extractions({}), _resolution())
+    world, groundings = project_with_groundings(kg, {"org/a.md": "artifact:doc-a"})
+
+    model = GraphModel.from_world(world, groundings)
+    mention_edges = {(e.src, e.dst) for e in model.edges if e.type == MENTIONS_EDGE_TYPE}
+    assert ("artifact:doc-a", "person:ada") in mention_edges  # mapped -> gold id
+    assert ("org/b.md", "team:platform") in mention_edges  # unmapped -> path fallback
+
+
 # --------------------------------------------------------------------------- #
 # Keyless end to end (fake backend).
 # --------------------------------------------------------------------------- #

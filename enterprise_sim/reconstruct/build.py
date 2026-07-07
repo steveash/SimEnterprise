@@ -361,7 +361,10 @@ def run_pipeline(
     return extraction.build(config=config)
 
 
-def project_with_groundings(kg: ReconstructedKG) -> tuple[World, dict[str, list[str]]]:
+def project_with_groundings(
+    kg: ReconstructedKG,
+    gold_artifact_ids: Mapping[str, str] | None = None,
+) -> tuple[World, dict[str, list[str]]]:
     """Load ``kg`` into a queryable world plus the grounding map the projection needs.
 
     The reconstruction persists *which artifacts ground each entity* as node
@@ -373,12 +376,26 @@ def project_with_groundings(kg: ReconstructedKG) -> tuple[World, dict[str, list[
     **exist as nodes**. This bridges the two: it resolves each grounding artifact path
     to an existing ``Artifact`` node (matched by its ``path`` prop) or, when the
     reconstruction never surfaced that artifact as an entity, synthesizes a minimal
-    ``Artifact`` node keyed by the path so the grounding edge has a real endpoint.
+    ``Artifact`` node so the grounding edge has a real endpoint.
+
+    What id that synthesized node carries decides whether a provenance *answer* can
+    score. The benchmark grades provenance against the **gold Artifact node ids**
+    (``artifact:…``), and an artifact's identity is a fixed coordinate of the
+    benchmark's answer space — the same vocabulary the oracle and the RAG baseline
+    (:mod:`enterprise_sim.benchmark.runners.rag`) name artifacts in — *not* a
+    reconstructed fact. The reconstruction can only observe an artifact by its
+    run-relative *path* (the chunk ``source_path``, equal to the gold node's ``path``
+    prop). So ``gold_artifact_ids`` (a ``{path → gold Artifact node id}`` map, e.g.
+    from the run's gold Artifact nodes) lets a grounding path resolve to the id the
+    benchmark expects; without it, artifacts fall back to path-keyed ids (keyless —
+    the structure is answerable but the ids won't match a gold key). This is purely
+    an answer-naming coordinate: it never touches the persisted reconstruction, so
+    the fidelity numbers (scored over the persisted KG) are unchanged.
 
     Returns the augmented :class:`~enterprise_sim.core.world.World` (the reconstructed
     graph plus any synthesized artifact nodes) and the ``{entity id → artifact node
     ids}`` grounding map, ready for ``GraphModel.from_world(world, groundings)``.
-    Pure and deterministic: the same KG always yields the same world and map.
+    Pure and deterministic: the same KG (and map) always yield the same world and map.
     """
     world = kg.to_world()
     path_to_id: dict[str, str] = {}
@@ -388,23 +405,29 @@ def project_with_groundings(kg: ReconstructedKG) -> tuple[World, dict[str, list[
             if isinstance(path, str) and path:
                 path_to_id.setdefault(path, node.id)
 
+    # The benchmark's canonical artifact ids win over any path-keyed reconstruction
+    # node, so a provenance answer is named in the gold coordinate system.
+    canonical = {
+        path: gold_id
+        for path, gold_id in (gold_artifact_ids or {}).items()
+        if isinstance(path, str) and path and isinstance(gold_id, str) and gold_id
+    }
+
     groundings: dict[str, list[str]] = {}
     for entity_id, paths in kg.entity_groundings().items():
         artifact_ids: list[str] = []
         for path in paths:
-            artifact_id = path_to_id.get(path)
-            if artifact_id is None:
-                artifact_id = path
-                path_to_id[path] = artifact_id
-                if world.get_node(artifact_id) is None:
-                    world.add_node(
-                        Node(
-                            id=artifact_id,
-                            type=_ARTIFACT_TYPE,
-                            created_at=_RECONSTRUCTED_AT,
-                            props={"path": path},
-                        )
+            artifact_id = canonical.get(path) or path_to_id.get(path) or path
+            path_to_id.setdefault(path, artifact_id)
+            if world.get_node(artifact_id) is None:
+                world.add_node(
+                    Node(
+                        id=artifact_id,
+                        type=_ARTIFACT_TYPE,
+                        created_at=_RECONSTRUCTED_AT,
+                        props={"path": path},
                     )
+                )
             artifact_ids.append(artifact_id)
         if artifact_ids:
             groundings[entity_id] = artifact_ids

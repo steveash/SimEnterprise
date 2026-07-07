@@ -997,22 +997,7 @@ def _cmd_reconstruct_model_sweep(args: argparse.Namespace) -> int:
     client = build_client(LLMConfig(backend=args.backend, model=args.models[0]))
     build_config = BuildConfig(edge_confidence_threshold=args.edge_threshold)
 
-    answer_scorer: AnswerScorer | None = None
-    if args.bench is not None:
-        from enterprise_sim.benchmark.runners.graph_agent import GraphRunner, run_benchmark
-        from enterprise_sim.benchmark.runners.projection import GraphModel
-
-        benchmark = Benchmark.read_jsonl(args.bench)
-
-        def _score_answers(kg: ReconstructedKG, model: str) -> Report:
-            runner = GraphRunner(GraphModel.from_world(kg.to_world()))
-            try:
-                predictions = run_benchmark(benchmark, runner=runner, model=model, limit=args.limit)
-            finally:
-                runner.close()
-            return score(benchmark, predictions)
-
-        answer_scorer = _score_answers
+    benchmark = Benchmark.read_jsonl(args.bench) if args.bench is not None else None
 
     with contextlib.ExitStack() as stack:
         if args.run is not None:
@@ -1025,6 +1010,35 @@ def _cmd_reconstruct_model_sweep(args: argparse.Namespace) -> int:
             run = golden_run(tmp)
             run_dir = str(run.run_dir)
             gold = run.world
+
+        answer_scorer: AnswerScorer | None = None
+        if benchmark is not None:
+            from enterprise_sim.benchmark.runners.graph_agent import GraphRunner, run_benchmark
+            from enterprise_sim.benchmark.runners.projection import GraphModel
+            from enterprise_sim.reconstruct import project_with_groundings
+
+            # The gold Artifact nodes name provenance answers in the benchmark's id
+            # coordinate, so every model's reconstruction is projected with its
+            # groundings (as `reconstruct reason --run` does) and provenance scores.
+            gold_artifact_ids = {
+                node.props["path"]: node.id
+                for node in gold.nodes_by_type("Artifact")
+                if isinstance(node.props.get("path"), str)
+            }
+            scored_benchmark = benchmark
+
+            def _score_answers(kg: ReconstructedKG, model: str) -> Report:
+                world, groundings = project_with_groundings(kg, gold_artifact_ids)
+                runner = GraphRunner(GraphModel.from_world(world, groundings))
+                try:
+                    predictions = run_benchmark(
+                        scored_benchmark, runner=runner, model=model, limit=args.limit
+                    )
+                finally:
+                    runner.close()
+                return score(scored_benchmark, predictions)
+
+            answer_scorer = _score_answers
 
         try:
             report = sweep_models(
@@ -1170,12 +1184,28 @@ def _cmd_reconstruct_reason(args: argparse.Namespace) -> int:
 
     benchmark = Benchmark.read_jsonl(args.bench)
     kg = ReconstructedKG.read(args.reconstructed)
+    # Resolve each grounding artifact to the id the benchmark grades provenance in.
+    # An artifact's identity is a fixed coordinate of the benchmark's answer space
+    # (the same one the oracle and RAG name artifacts in), which the reconstruction
+    # only observes by path — so ``--run`` supplies the gold Artifact ``{path → id}``
+    # map and provenance answers can match the gold key. Omitted ⇒ path-keyed ids
+    # (structurally answerable, but won't match a gold key).
+    gold_artifact_ids: dict[str, str] | None = None
+    if args.run is not None:
+        from enterprise_sim.benchmark.generate import load_world_from_run
+
+        gold = load_world_from_run(args.run)
+        gold_artifact_ids = {
+            node.props["path"]: node.id
+            for node in gold.nodes_by_type("Artifact")
+            if isinstance(node.props.get("path"), str)
+        }
     # Load the reconstruction into the engines once; the runner owns that build and
     # is reused for every question below (and closed here, not by run_benchmark).
     # The grounding map projects the reconstruction's provenance into ``mentions``
     # edges (as the gold projection does), so the provenance reasoning family is
     # answerable over the reconstructed KG rather than a structural zero.
-    world, groundings = project_with_groundings(kg)
+    world, groundings = project_with_groundings(kg, gold_artifact_ids)
     runner = GraphRunner(GraphModel.from_world(world, groundings))
     try:
         predictions = run_benchmark(benchmark, runner=runner, model=args.model, limit=args.limit)
@@ -1229,6 +1259,17 @@ def _add_reconstruct_reason_parser(
         type=Path,
         metavar="PATH",
         help="path to the gold benchmark JSONL (one QAPair per line)",
+    )
+    reason_parser.add_argument(
+        "--run",
+        type=Path,
+        default=None,
+        metavar="DIR",
+        help=(
+            "golden run dir whose gold Artifact nodes name provenance answers in the "
+            "benchmark's id coordinate system (path → gold artifact id); omit for "
+            "path-keyed artifact ids (provenance answerable but unscorable against a gold key)"
+        ),
     )
     reason_parser.add_argument(
         "-o",

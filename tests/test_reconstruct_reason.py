@@ -144,6 +144,32 @@ def test_provenance_query_answerable_over_reconstruction(tmp_path: Path) -> None
         runner.close()
 
 
+def test_provenance_query_returns_gold_artifact_ids(tmp_path: Path) -> None:
+    """esim-din.1: the provenance reference query returns the *gold* artifact node
+    ids the benchmark grades against, not raw paths, when the run's ``{path → gold
+    id}`` map is supplied (the ``reconstruct reason --run`` path).
+
+    Without the map the query resolves to paths — structurally answerable but a
+    guaranteed miss against a gold key (``expected_ids`` are ``artifact:…`` node ids),
+    which is why provenance answer-F1 was a flat zero. Naming the endpoints in the
+    benchmark's id coordinate is what lets the answer score.
+    """
+    kg = _reconstructed_kg()
+    kg.add_provenance(
+        Provenance(target_id="person:alice", source_paths=("docs/plan.md", "docs/spec.md"))
+    )
+    gold_ids = {"docs/plan.md": "artifact:plan", "docs/spec.md": "artifact:spec"}
+    world, groundings = project_with_groundings(kg, gold_ids)
+    runner = GraphRunner(GraphModel.from_world(world, groundings))
+    try:
+        ref = REFERENCES_BY_KEY["provenance"]
+        expected = {"artifact:plan", "artifact:spec"}
+        assert set(runner.kuzu.node_ids(ref.cypher("person:alice"))) == expected
+        assert set(runner.oxigraph.node_ids(ref.sparql("person:alice"))) == expected
+    finally:
+        runner.close()
+
+
 # --------------------------------------------------------------------------- #
 # Build-once / answer-many: one runner, reused for every question.
 # --------------------------------------------------------------------------- #
@@ -216,14 +242,25 @@ def test_reason_subcommand_registered() -> None:
             "recon",
             "--bench",
             "b.jsonl",
+            "--run",
+            "runs/r",
             "-o",
             "p.jsonl",
         ]
     )
     assert args.reconstructed == Path("recon")
     assert args.bench == Path("b.jsonl")
+    assert args.run == Path("runs/r")
     assert args.output == Path("p.jsonl")
     assert args.func is not None
+
+
+def test_reason_run_flag_defaults_to_none() -> None:
+    # --run is optional: omitted, provenance answers fall back to path-keyed ids.
+    args = build_parser().parse_args(
+        ["reconstruct", "reason", "--reconstructed", "recon", "--bench", "b.jsonl"]
+    )
+    assert args.run is None
 
 
 def test_reason_cli_requires_api_key(tmp_path: Path, capsys: Any, monkeypatch: Any) -> None:

@@ -73,6 +73,19 @@ provenance is projected into derived `mentions` edges at load time (as the gold
 KG's is), so the provenance reasoning family — "which artifacts ground X" — is
 answerable over the reconstruction rather than a structural zero.
 
+The provenance *answer* is a set of **artifact node ids**, and an artifact's
+identity is a fixed coordinate of the benchmark's answer space — the same
+`artifact:…` ids the oracle and the RAG baseline name artifacts in — not a
+reconstructed fact. The reconstruction only ever observes an artifact by its
+run-relative *path* (the chunk `source_path`, equal to the gold `Artifact` node's
+`path` prop), so `reconstruct reason --run runs/<run-id>` supplies the run's gold
+`{path → artifact id}` map and each grounding path resolves to the id the
+benchmark grades against. Omit `--run` and the derived edges are still built but
+keyed by path — structurally answerable, yet a guaranteed miss against a gold key
+(this was the gap that pinned provenance answer-F1 at **0.000** even after the
+grounding edges existed). The map only names the *projected* endpoints; the
+persisted KG (and therefore the fidelity numbers) is untouched.
+
 The same principle powers the **threshold sweep** (`extract_once` →
 `PipelineExtraction`): chunk/extract/resolve run **once**, and only the final
 `aggregate` stage re-runs at each edge-confidence threshold
@@ -155,9 +168,10 @@ enterprise-sim reconstruct fidelity --reconstructed recon/ --run runs/<run-id> \
 #    ORACLE = graph agent on the GOLD KG (the ceiling):
 enterprise-sim bench run --runner graph --run runs/<run-id> --bench bench.jsonl \
     -o pred.oracle.jsonl
-#    RECONSTRUCTED = the SAME agent on the reconstructed KG (build-once):
+#    RECONSTRUCTED = the SAME agent on the reconstructed KG (build-once).
+#    --run names provenance answers in the benchmark's gold artifact-id coordinate.
 enterprise-sim reconstruct reason --reconstructed recon/ --bench bench.jsonl \
-    -o pred.reconstructed.jsonl
+    --run runs/<run-id> -o pred.reconstructed.jsonl
 #    RAG = the corpus-retrieval baseline:
 enterprise-sim bench run --runner rag --run runs/<run-id> --bench bench.jsonl \
     -o pred.rag.jsonl
