@@ -402,53 +402,118 @@ relationships:
   *structurally* rather than as prose — which a chunk-at-a-time LLM misses. This
   is the edge-recall ceiling round 1 identified.
 
-The **BEFORE** column is the round-1 result these fixes aim to beat (golden run,
-Haiku, all 64 questions — it is the `0.289` "AFTER" of the section above).
-**AFTER** is a placeholder a keyed crew run fills — same
-[one-command harness](#reproducing-it--one-command) (`ANTHROPIC_API_KEY` +
-`uv sync --extra bench`), now with all three round-2 fixes merged. As in round 1
-the numbers are **not keyless** (the reasoners call the Claude API); the doc and
-the keyless fidelity evidence below are the keyless deliverable.
+The round-2 reasoners were a keyed crew run (Haiku, golden run, all 64
+questions) — but the AFTER numbers below did **not** need a fresh keyed run to
+correct. They come from **re-scoring the cached round-2 predictions**
+(`pred.reconstructed3.jsonl`) under the id-aligned scorer (`esim-d1c`), which is
+deterministic and keyless: same predictions, corrected grading. The re-score is
+the reproducible one command at the end of this section.
+
+Read the next two columns together — they are the **same round-2 predictions
+scored two ways**, and the gap between them *is* the measurement artifact
+`esim-e9z` found:
+
+- **Round-2 raw** grades predicted id strings for exact set overlap. Under it,
+  round 2 looks like a *regression* (overall **0.252** vs round-1's 0.289) and
+  **provenance** and **goal_tree** stay pinned at **0.000** — even though the
+  extraction demonstrably improved (edge F1 0.256 → 0.400; provenance groundings
+  now populated). Raw scoring cannot see the improvement because the
+  reconstruction names the right entities under a *different id namespace*
+  (artifact file paths vs. canonical `artifact:…` ids; renamed nodes), so a
+  correct answer scores 0 on the string mismatch.
+- **Round-2 aligned** maps each predicted id into the gold namespace *before*
+  grading (reusing the fidelity aligner: exact-id, then type+name, plus
+  artifact-path → canonical-id), then scores set overlap. This credits the answer
+  for *what entities it identifies*, not the id form it uses.
 
 ### Per-reasoning-type answer-F1 (higher is better)
 
-| Reasoning type | n | Round-1 BEFORE | Round-2 AFTER | Round-2 fix |
-|----------------|---|----------------|---------------|-------------|
-| **provenance** | 17 | **0.000** | _TBD_ | `esim-din.1` (gold artifact-id groundings) |
-| **goal_tree** | 2 | **0.000** | _TBD_ | `esim-din.2` (`subgoal_of` + `advances_goal`) |
-| **direct_relation** | 22 | 0.318 | _TBD_ | `esim-din.3` (structural org relations) |
-| **transitive** | 17 | 0.412 | _TBD_ | `esim-din.3` (`reports_to` chains) |
-| aggregation | 6 | _(round-1 baseline)_ | _TBD_ | not targeted (round-1's strongest family) |
-| **overall** | 64 | **0.289** | _TBD_ | — |
+| Reasoning type | n | Round-1 (raw) | Round-2 raw | **Round-2 aligned** | Round-2 fix |
+|----------------|---|---------------|-------------|---------------------|-------------|
+| **provenance** | 17 | 0.000 | 0.000 | **0.418** | `esim-din.1` (gold artifact-id groundings) |
+| **goal_tree** | 2 | 0.000 | 0.000 | **0.750** | `esim-din.2` (`subgoal_of` + `advances_goal`) |
+| **direct_relation** | 22 | 0.318 | 0.273 | **0.839** | `esim-din.3` (structural org relations) |
+| **transitive** | 17 | 0.412 | 0.314 | **0.843** | `esim-din.3` (`reports_to` chains) |
+| aggregation | 6 | _(baseline)_ | 0.800 | **0.967** | not targeted (round-1's strongest family) |
+| **overall** | 64 | 0.289 | 0.252 | **0.738** | — |
 
-The two families still at 0.000 are the whole point: round 2 does not throw a
-bigger model or a lower threshold at broad recall (round 1 proved those plateau —
-Sonnet's extra edges left answer-F1 flat at 0.289). It makes the *specific*
-structures those questions traverse recoverable. A win looks like **provenance**
-and **goal_tree** lifting off 0.000 and **direct_relation** / **transitive**
-climbing toward the oracle ceiling (~1.0), pulling **overall** past 0.289.
+Under honest (aligned) scoring every targeted family lifts off the floor:
+**provenance** `0.000 → 0.418` (the spurious 0 is gone — the family was *always*
+answerable, the scorer just couldn't see it), **goal_tree** `0.000 → 0.750`, and
+**direct_relation** / **transitive** climb toward the oracle ceiling (`0.273 →
+0.839`, `0.314 → 0.843`). Overall answer-F1 nearly triples, **0.252 → 0.738** —
+against an oracle ceiling of 0.984. The round-1 result (0.289) these fixes aimed
+to beat was itself a raw number; the honest round-2 result clears it by a wide
+margin.
+
+> **Methodology — raw vs. aligned, and why aligned is the honest measure.** The
+> benchmark's answer scorer is set-based: it intersects the predicted node-id set
+> with the gold expected-id set. That is exactly right for a system answering *in
+> the gold namespace* — the oracle (graph agent on the gold KG) and RAG (resolves
+> to gold ids by construction) are graded **raw**, and always will be. But the
+> *reconstructed* system builds its own KG from prose and assigns its **own** ids
+> — an `Artifact` becomes a file path, a `Person` a re-derived slug. Same
+> entities, different strings, zero set overlap → F1 0.000 regardless of how good
+> the reconstruction is. That is a property of the **coordinate system**, not the
+> reconstruction. Aligned scoring removes it by resolving predicted ids to the
+> gold coordinate before the set comparison (the same type+name alignment
+> `reconstruct fidelity` already uses to match nodes, plus artifact
+> path→canonical-id). It changes only the *labels*, never which entities count as
+> correct, so it cannot inflate a wrong answer: a reconstruction that identifies
+> the wrong entity still scores 0 (aligning its id lands on a gold id the gold set
+> doesn't contain). **The raw column is kept above as a cautionary example** — it
+> is what a naïve string-equality scorer reports for a cross-namespace
+> reconstruction, and it is misleading in both directions: it hides the real
+> answer quality *and* manufactures a phantom round-1→round-2 regression.
 
 ### Reconstruction fidelity — round 2
 
-| Metric | Round-1 BEFORE (keyed) | Round-2 AFTER (keyed) | Bearing on round 2 |
-|--------|------------------------|-----------------------|--------------------|
-| node F1 | 0.564 | _TBD_ | — |
-| edge F1 | 0.256 | _TBD_ | `esim-din.3` structural extractor |
-| edge recall (overall) | 0.19 | _TBD_ | `esim-din.3` targets the core relation types |
+| Metric | Round-1 (keyed) | Round-2 (keyed) | Bearing on round 2 |
+|--------|-----------------|-----------------|--------------------|
+| node F1 | 0.564 | 0.564 | — (round 2 targets edges/groundings, not nodes) |
+| edge F1 | 0.256 | **0.400** | `esim-din.3` structural extractor |
+| edge recall (overall) | 0.19 | **0.258** | `esim-din.3` targets the core relation types |
 
-**Keyless evidence the extraction now fires.** The AFTER *answer*-F1 needs a key,
-but the *fidelity* deltas are demonstrable keyless (fake backend, golden run,
-`esim-din.3`): the structural extractor lifts per-edge-type recall from **0.000**
-to `member_of` **0.889**, `part_of` **1.000**, `leads` **0.750**, `reports_to`
-**0.625**, and `advances_goal` **0.333**, taking overall edge F1 **0.000 → 0.346**
-on that keyless slice. Residual misses are cross-chunk (a team-lead→dept-lead
-`reports_to`, a dept-lead `leads`) that a per-chunk reader structurally cannot
-see; those are left to the LLM envelope. The keyed AFTER column is what confirms
-these recovered edges and groundings translate into recovered *answers*.
+These fidelity numbers are the round-2 reconstruction's own (`fidelity3.json`,
+the KG the aligned answers were scored over). Edge F1 climbs **0.256 → 0.400** and
+edge recall **0.19 → 0.258** on the strength of the structural extractor, while
+node F1 holds at 0.564 (round 2 recovers *relationships*, not more nodes). Per
+edge type the structural extractor lands the core relations the reasoning
+questions walk: `member_of` **1.000**, `part_of` **1.000**, `subgoal_of`
+**1.000**, `leads` **0.750**, `reports_to` **0.750**, `advances_goal` **0.333** —
+up from round-1's near-total edge miss. Residual gaps are the high-cardinality,
+cross-chunk relations a per-chunk reader structurally cannot see
+(`collaborates_with` 43 gold edges, `has_calendar_event` 30, `expresses` 6, all
+at recall 0.000); those are left to the LLM envelope and are why edge recall,
+though much improved, is still 0.258.
 
-> **Filling AFTER (round 2):** run the keyed
-> [one command](#reproducing-it--one-command) against a fresh (or the golden) run
-> with all three round-2 fixes merged, read `eval/attribution.md` (overall +
-> per-type F1) and `eval/fidelity.json` (node/edge and per-edge-type recall, plus
-> `provenance.overall.f1` and the `Goal` / `subgoal_of` / `advances_goal` rows),
-> and paste the numbers into the `_TBD_` cells above.
+**Understanding vs. reasoning — the attribution flips under honest scoring.** The
+oracle's advantage over RAG (`+0.761` total) decomposes into an *understanding*
+gap (oracle − reconstructed, the cost of imperfect reconstruction) and a
+*reasoning* gap (reconstructed − RAG, what graph structure buys over retrieval).
+Raw scoring reports understanding `+0.732` / reasoning `+0.029` — i.e. "the graph
+barely beats plain retrieval, and reconstruction error is nearly the whole story."
+Aligned scoring **inverts** that reading: understanding `+0.247` / reasoning
+`+0.515`. The graph reasoner's structural advantage over RAG is in fact the
+*dominant* driver, and the residual understanding gap is modest. The raw scorer
+did not just deflate a number — it mis-attributed *where the value comes from*.
+
+> **Re-scoring round 2 — the aligned numbers.** Deterministic and keyless — it
+> re-grades the *cached* round-2 predictions, no new keyed reasoner run. From the
+> crew eval dir (`pred.reconstructed3.jsonl`, `bench.jsonl`, the round-2
+> reconstruction `kg3/`):
+>
+> ```bash
+> # Per-type + overall answer-F1 under aligned scoring:
+> uv run enterprise-sim bench score --bench bench.jsonl \
+>   --pred pred.reconstructed3.jsonl --align --reconstructed-kg kg3
+> # Full three-way attribution (understanding vs reasoning), aligned:
+> uv run enterprise-sim reconstruct report --bench bench.jsonl \
+>   --oracle pred.oracle.full.jsonl --reconstructed pred.reconstructed3.jsonl \
+>   --rag pred.rag.jsonl --fidelity fidelity3.json \
+>   --align --reconstructed-kg kg3 -o attribution.aligned.md
+> ```
+>
+> Drop `--align --reconstructed-kg kg3` from either command to reproduce the raw
+> (measurement-artifact) column. `--run DIR` supplies an explicit gold run;
+> omitted, alignment resolves against the deterministic golden fixture.
