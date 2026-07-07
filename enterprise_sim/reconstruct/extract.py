@@ -52,6 +52,7 @@ from enterprise_sim.reconstruct.ontology import (
     describe_ontology,
 )
 from enterprise_sim.reconstruct.schema import CandidateTriple, Chunk, MentionSpan
+from enterprise_sim.reconstruct.structural import structural_envelope
 
 __all__ = [
     "EXTRACTION_SCHEMA",
@@ -60,6 +61,7 @@ __all__ = [
     "build_extraction_prompt",
     "extract_chunk",
     "extract_chunks",
+    "merge_envelopes",
     "parse_extraction",
 ]
 
@@ -176,6 +178,29 @@ def build_extraction_prompt(chunk: Chunk) -> Prompt:
     return assemble_prompt(system=_SYSTEM_PROMPT, brief=brief)
 
 
+def merge_envelopes(*envelopes: Mapping[str, Any]) -> dict[str, list[Any]]:
+    """Concatenate the ``mentions`` / ``triples`` of several raw extraction envelopes.
+
+    Used to fold the deterministic structural extraction
+    (:func:`~enterprise_sim.reconstruct.structural.structural_envelope`) into the
+    LLM backend's envelope before a single :func:`parse_extraction` pass validates,
+    locates, and *dedups* the union — so an edge both the model and the structural
+    reader emit collapses to one. Non-list ``mentions`` / ``triples`` in any
+    envelope are treated as empty (``parse_extraction`` tolerates the same), so a
+    malformed backend envelope can never drop the structural contribution.
+    """
+    mentions: list[Any] = []
+    triples: list[Any] = []
+    for envelope in envelopes:
+        raw_mentions = envelope.get("mentions")
+        if isinstance(raw_mentions, list):
+            mentions.extend(raw_mentions)
+        raw_triples = envelope.get("triples")
+        if isinstance(raw_triples, list):
+            triples.extend(raw_triples)
+    return {"mentions": mentions, "triples": triples}
+
+
 def parse_extraction(chunk: Chunk, envelope: Mapping[str, Any]) -> Extraction:
     """Parse a raw ``generate_structured`` envelope into a validated :class:`Extraction`.
 
@@ -289,10 +314,21 @@ def extract_chunk(
     with no key (tests/CI); an ``anthropic_api`` client with :data:`HAIKU_MODEL`
     extracts from real text. ``model`` overrides the client's configured model
     (e.g. pinning Haiku for a client whose default is a larger model).
+
+    The model's envelope is merged with the deterministic structural extraction
+    (:func:`~enterprise_sim.reconstruct.structural.structural_envelope`), which reads
+    the core org relations (``member_of`` / ``leads`` / ``part_of`` / ``reports_to``
+    / ``advances_goal``) straight off the ``organization/`` reference markdown's
+    layout — the relations a model reading one chunk at a time routinely misses
+    because the text does not *state* them. The union is validated and deduped by a
+    single :func:`parse_extraction`, so a structural edge the model also found
+    collapses to one; on a chunk that is not org roster markdown the structural
+    contribution is empty and the result is exactly the model's.
     """
     prompt = build_extraction_prompt(chunk)
     result = client.generate_structured(prompt, EXTRACTION_SCHEMA, model=model)
-    return parse_extraction(chunk, result.data)
+    merged = merge_envelopes(result.data, structural_envelope(chunk))
+    return parse_extraction(chunk, merged)
 
 
 def extract_chunks(

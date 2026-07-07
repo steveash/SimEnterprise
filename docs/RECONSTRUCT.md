@@ -56,6 +56,23 @@ node types like `Person`, `Team`, `Department`, `Project`, `Goal`, `Initiative`,
 and relations like `reports_to`, `member_of`, `has_department`, `advances_goal`,
 `subgoal_of` — so extraction and scoring share one schema.
 
+**Structural org relations (`esim-din.3`).** A chunk-at-a-time LLM is
+recall-bound on the *core org relations* (`member_of`, `leads`, `part_of`,
+`reports_to`, `advances_goal`) because the `organization/` reference markdown
+encodes them **structurally** — a roster row under a `### Team` heading, a ⭐ on the
+lead's row, a `📦` project's member list — rather than stating them in prose the
+model can read. `enterprise_sim.reconstruct.structural` recovers them
+**deterministically, with no LLM**: `structural_envelope(chunk)` reads the three
+org-markdown shapes straight off their layout and returns an extraction envelope in
+the same shape the backend produces, which `extract_chunk` merges with the model's
+own extraction (one `parse_extraction` pass dedups the overlap). Because it is
+keyless, every relation type has a fixture proving the edge is recovered with the
+correct typed endpoints, and even the `fake` backend lifts the golden run's edge
+recall off the floor (`member_of` 0.89, `part_of` 1.00, `leads` 0.75, `reports_to`
+0.63 vs. 0.00 before). The cross-chunk residue a per-chunk reader can't see —
+`reports_to` from a team lead up to the department lead, `leads` on the department
+itself — stays with the LLM.
+
 Only **extract** and **resolve** call an LLM. With the deterministic `fake`
 backend the whole pipeline still emits a small, loadable KG with **no key**, so
 `build` / `fidelity` / `report` are all exercised in keyless CI.

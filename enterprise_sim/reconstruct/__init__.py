@@ -50,6 +50,7 @@ from enterprise_sim.reconstruct.extract import (
     build_extraction_prompt,
     extract_chunk,
     extract_chunks,
+    merge_envelopes,
     parse_extraction,
 )
 from enterprise_sim.reconstruct.fidelity import (
@@ -100,6 +101,7 @@ from enterprise_sim.reconstruct.schema import (
     Provenance,
     ReconstructedKG,
 )
+from enterprise_sim.reconstruct.structural import structural_envelope
 from enterprise_sim.reconstruct.sweep import (
     SweepPoint,
     SweepReport,
@@ -162,6 +164,7 @@ __all__ = [
     "default_run_specs",
     "extract_once",
     "iter_corpus_files",
+    "merge_envelopes",
     "parse_extraction",
     "project_with_groundings",
     "reconstruct_and_score",
@@ -170,6 +173,7 @@ __all__ = [
     "run_pipeline",
     "run_scale",
     "score_fidelity",
+    "structural_envelope",
     "sweep_models",
     "sweep_thresholds",
 ]
