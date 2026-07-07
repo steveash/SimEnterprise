@@ -232,20 +232,65 @@ def _cmd_bench(args: argparse.Namespace) -> int:
     return 2
 
 
+def _load_alignment(reconstructed_kg: Path, run: Path | None) -> dict[str, str]:
+    """Build the predicted-id → gold-id alignment map for aligned scoring (esim-e9z).
+
+    Reads the reconstruction written by ``ReconstructedKG.write`` and the gold graph
+    (from ``run``'s ``kg/``, or a fresh keyless golden run when omitted) and returns
+    :func:`~enterprise_sim.reconstruct.align_reconstructed_ids`'s map — reconstructed
+    node ids (and gold artifact paths) resolved to the gold namespace. Pure and
+    keyless: no LLM, deterministic for the same graphs.
+    """
+    import contextlib
+    import tempfile
+
+    from enterprise_sim.benchmark.generate import load_world_from_run
+    from enterprise_sim.reconstruct import ReconstructedKG, align_reconstructed_ids
+
+    kg = ReconstructedKG.read(reconstructed_kg)
+    with contextlib.ExitStack() as stack:
+        if run is not None:
+            gold = load_world_from_run(run)
+        else:
+            from enterprise_sim.benchmark.fixtures import golden_run
+
+            tmp = stack.enter_context(tempfile.TemporaryDirectory(prefix="esim-align-"))
+            gold = golden_run(tmp).world
+        return align_reconstructed_ids(kg, gold)
+
+
 def _cmd_bench_score(args: argparse.Namespace) -> int:
     """Score a predictions JSONL against a benchmark JSONL (esim-uzc.3).
 
     Pure and deterministic: reads the gold benchmark and the agent's predictions,
     grades the predicted node-id sets against the expected ones, and prints the
     macro-averaged report (overall and per reasoning type). No LLM involved.
+
+    With ``--align`` the predicted ids are first mapped into the gold namespace
+    (esim-e9z) using an alignment map built from ``--reconstructed-kg`` (and the
+    gold ``--run``), so an answer that names the right entities under a different id
+    namespace — e.g. artifact paths vs. canonical ``artifact:…`` ids — is credited
+    instead of scoring 0 on a string mismatch. Raw scoring stays the default (the
+    right basis for oracle/self-id runs already in the gold namespace).
     """
     from enterprise_sim.benchmark.schema import Benchmark
     from enterprise_sim.benchmark.score import Predictions, format_report, score
 
+    alignment: dict[str, str] | None = None
+    if args.align:
+        if args.reconstructed_kg is None:
+            print(
+                "enterprise-sim bench score: --align requires --reconstructed-kg "
+                "(the reconstruction dir whose ids are mapped into the gold namespace)",
+                file=sys.stderr,
+            )
+            return 2
+        alignment = _load_alignment(args.reconstructed_kg, args.run)
+
     benchmark = Benchmark.read_jsonl(args.bench)
     predictions = Predictions.read_jsonl(args.pred)
-    report = score(benchmark, predictions)
-    print(format_report(report))
+    report = score(benchmark, predictions, alignment=alignment)
+    print(format_report(report, aligned=alignment is not None))
     return 0
 
 
@@ -434,6 +479,29 @@ def _add_bench_score_parser(
         type=Path,
         metavar="PATH",
         help="path to the predictions JSONL (one {qa_id, predicted_ids} per line)",
+    )
+    score_parser.add_argument(
+        "--align",
+        action="store_true",
+        help=(
+            "map predicted ids into the gold namespace before scoring (esim-e9z), so "
+            "namespace-mismatched-but-correct answers are credited; requires "
+            "--reconstructed-kg (recommended for reconstructed runs, not oracle/self-id)"
+        ),
+    )
+    score_parser.add_argument(
+        "--reconstructed-kg",
+        type=Path,
+        default=None,
+        metavar="DIR",
+        help="[--align] reconstruction dir (ReconstructedKG.write output) whose ids are aligned",
+    )
+    score_parser.add_argument(
+        "--run",
+        type=Path,
+        default=None,
+        metavar="DIR",
+        help="[--align] gold run dir (reads DIR/kg/*.jsonl); default: a fresh golden run",
     )
     score_parser.set_defaults(func=_cmd_bench_score)
 
@@ -1308,12 +1376,30 @@ def _cmd_reconstruct_report(args: argparse.Namespace) -> int:
     JSON from ``reconstruct fidelity --json``) it also carries the reconstructed
     KG's fidelity numbers as context. Pure and deterministic (no LLM); writes to
     ``-o`` (stdout when omitted).
+
+    With ``--align`` the reconstructed system's predicted ids are mapped into the
+    gold namespace before scoring (esim-e9z), using an alignment map built from
+    ``--reconstructed-kg`` (and the gold ``--run``), so an answer that names the
+    right entities under a different id namespace is credited rather than scoring 0
+    on a string mismatch; the report notes the mode. Oracle and RAG answer in gold
+    ids and are always graded raw.
     """
     import json
 
     from enterprise_sim.benchmark.schema import Benchmark
     from enterprise_sim.benchmark.score import Predictions
     from enterprise_sim.reconstruct import FidelityContext, build_attribution, render_markdown
+
+    alignment: dict[str, str] | None = None
+    if args.align:
+        if args.reconstructed_kg is None:
+            print(
+                "enterprise-sim reconstruct report: --align requires --reconstructed-kg "
+                "(the reconstruction dir whose ids are mapped into the gold namespace)",
+                file=sys.stderr,
+            )
+            return 2
+        alignment = _load_alignment(args.reconstructed_kg, args.run)
 
     benchmark = Benchmark.read_jsonl(args.bench)
     oracle = Predictions.read_jsonl(args.oracle)
@@ -1330,6 +1416,7 @@ def _cmd_reconstruct_report(args: argparse.Namespace) -> int:
         reconstructed=reconstructed,
         rag=rag,
         fidelity=fidelity,
+        alignment=alignment,
     )
     markdown = render_markdown(attribution)
 
@@ -1338,8 +1425,9 @@ def _cmd_reconstruct_report(args: argparse.Namespace) -> int:
     else:
         args.output.write_text(markdown, encoding="utf-8")
         gap = attribution.gap()
+        mode = " id-aligned" if attribution.aligned else ""
         print(
-            f"enterprise-sim reconstruct report: {attribution.benchmark_size} questions "
+            f"enterprise-sim reconstruct report:{mode} {attribution.benchmark_size} questions "
             f"(understanding={gap.understanding:+.3f}, reasoning={gap.reasoning:+.3f}, "
             f"total={gap.total:+.3f}) -> {args.output}",
             file=sys.stderr,
@@ -1398,6 +1486,29 @@ def _add_reconstruct_report_parser(
         default=None,
         metavar="PATH",
         help="reconstruction fidelity JSON ('reconstruct fidelity --json') for context",
+    )
+    report_parser.add_argument(
+        "--align",
+        action="store_true",
+        help=(
+            "map the reconstructed system's predicted ids into the gold namespace "
+            "before scoring (esim-e9z), crediting namespace-mismatched answers; "
+            "requires --reconstructed-kg. The report notes the mode."
+        ),
+    )
+    report_parser.add_argument(
+        "--reconstructed-kg",
+        type=Path,
+        default=None,
+        metavar="DIR",
+        help="[--align] reconstruction dir (ReconstructedKG.write output) whose ids are aligned",
+    )
+    report_parser.add_argument(
+        "--run",
+        type=Path,
+        default=None,
+        metavar="DIR",
+        help="[--align] gold run dir (reads DIR/kg/*.jsonl); default: a fresh golden run",
     )
     report_parser.add_argument(
         "-o",

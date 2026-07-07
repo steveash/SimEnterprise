@@ -11,7 +11,9 @@ Covers :mod:`enterprise_sim.benchmark.score`:
 
 from __future__ import annotations
 
+import json
 import math
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -323,3 +325,100 @@ def test_bench_score_cli_requires_both_paths(capsys: Any) -> None:
     with pytest.raises(SystemExit) as exc:
         main(["bench", "score", "--bench", "only.jsonl"])
     assert exc.value.code == 2
+
+
+# -- CLI --align (esim-d1c.1) ------------------------------------------------
+
+# A keyless end-to-end fixture: a gold Artifact node carrying its canonical id and
+# on-disk path, with the answer key naming it by canonical id while the prediction
+# names it by PATH — the reported namespace mismatch (esim-e9z).
+_ALIGN_TS = datetime(2026, 1, 2, 3, 4, 5)
+
+
+def _write_align_fixture(tmp_path: Path) -> dict[str, Path]:
+    """Write a gold run dir, a reconstruction dir, a benchmark, and path-named preds."""
+    from enterprise_sim.core.world import Node
+    from enterprise_sim.reconstruct import ReconstructedKG
+
+    artifact = Node(
+        id=_GOLD_ID,
+        type="Artifact",
+        created_at=_ALIGN_TS,
+        props={"path": _PATH, "name": "groom"},
+        aliases=["groom"],
+    )
+
+    # Gold run dir: kg/nodes.jsonl (+ an empty edges file) is all load_world_from_run needs.
+    run_dir = tmp_path / "gold"
+    (run_dir / "kg").mkdir(parents=True)
+    (run_dir / "kg" / "nodes.jsonl").write_text(
+        json.dumps(artifact.to_dict()) + "\n", encoding="utf-8"
+    )
+    (run_dir / "kg" / "edges.jsonl").write_text("", encoding="utf-8")
+
+    # Reconstruction dir: the alignment loader reads it; one node is enough.
+    recon_dir = tmp_path / "recon"
+    kg = ReconstructedKG()
+    kg.add_node(artifact)
+    kg.write(recon_dir)
+
+    bench = Benchmark.of([_pair("q", (_GOLD_ID,), reasoning="provenance")])
+    bench_path = tmp_path / "bench.jsonl"
+    bench.write_jsonl(bench_path)
+
+    pred_path = tmp_path / "pred.jsonl"
+    Predictions.from_mapping({"q": [_PATH]}).write_jsonl(pred_path)
+
+    return {"run": run_dir, "recon": recon_dir, "bench": bench_path, "pred": pred_path}
+
+
+def test_bench_score_align_flag_registered() -> None:
+    from enterprise_sim.cli import build_parser
+
+    args = build_parser().parse_args(
+        ["bench", "score", "--bench", "b", "--pred", "p", "--align", "--reconstructed-kg", "r"]
+    )
+    assert args.align is True
+    assert args.reconstructed_kg == Path("r")
+
+
+def test_bench_score_align_requires_reconstructed_kg(tmp_path: Path, capsys: Any) -> None:
+    fx = _write_align_fixture(tmp_path)
+    code = main(
+        ["bench", "score", "--bench", str(fx["bench"]), "--pred", str(fx["pred"]), "--align"]
+    )
+    assert code == 2
+    assert "--align requires --reconstructed-kg" in capsys.readouterr().err
+
+
+def test_bench_score_without_align_under_credits_path_answer(tmp_path: Path, capsys: Any) -> None:
+    fx = _write_align_fixture(tmp_path)
+    code = main(["bench", "score", "--bench", str(fx["bench"]), "--pred", str(fx["pred"])])
+    assert code == 0
+    out = capsys.readouterr().out
+    assert "F1=0.000" in out
+    assert "id-aligned" not in out
+
+
+def test_bench_score_align_credits_path_answer(tmp_path: Path, capsys: Any) -> None:
+    fx = _write_align_fixture(tmp_path)
+    code = main(
+        [
+            "bench",
+            "score",
+            "--bench",
+            str(fx["bench"]),
+            "--pred",
+            str(fx["pred"]),
+            "--align",
+            "--reconstructed-kg",
+            str(fx["recon"]),
+            "--run",
+            str(fx["run"]),
+        ]
+    )
+    assert code == 0
+    out = capsys.readouterr().out
+    # Same predictions that scored 0 raw now resolve to the gold id -> perfect.
+    assert "F1=1.000" in out
+    assert "id-aligned" in out

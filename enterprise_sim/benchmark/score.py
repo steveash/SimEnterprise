@@ -292,9 +292,15 @@ def _format_aggregate(label: str, agg: Aggregate) -> str:
     )
 
 
-def format_report(report: Report) -> str:
-    """Render a :class:`Report` as human-readable lines for the CLI."""
-    lines = ["KG-QA benchmark score", _format_aggregate("overall", report.overall)]
+def format_report(report: Report, *, aligned: bool = False) -> str:
+    """Render a :class:`Report` as human-readable lines for the CLI.
+
+    ``aligned`` records how the report was scored: when ``True`` the predicted ids
+    were mapped into the gold namespace before grading (esim-e9z), which the header
+    notes so a reader can tell an aligned re-score from a raw one.
+    """
+    mode = "  (id-aligned: predicted ids mapped into the gold namespace)" if aligned else ""
+    lines = [f"KG-QA benchmark score{mode}", _format_aggregate("overall", report.overall)]
     if report.by_reasoning_type:
         lines.append("by reasoning_type:")
         lines.extend(

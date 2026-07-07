@@ -121,6 +121,77 @@ def test_missing_reasoning_type_scores_zero_not_error() -> None:
 
 
 # --------------------------------------------------------------------------- #
+# id-alignment of the reconstructed system (esim-d1c.1 / e9z).
+# --------------------------------------------------------------------------- #
+
+# The reconstructed agent names an entity by a different id than gold; align it.
+_RECON_ID = "recon:node-7"
+_GOLD_ID = "person:ada"
+
+
+def test_alignment_credits_only_the_reconstructed_system() -> None:
+    # All three answer the same entity, but reconstructed uses a different id.
+    bench = Benchmark.of([_pair("q1", (_GOLD_ID,))])
+    oracle = _preds({"q1": [_GOLD_ID]})
+    reconstructed = _preds({"q1": [_RECON_ID]})
+    rag = _preds({"q1": [_GOLD_ID]})
+
+    raw = build_attribution(bench, oracle=oracle, reconstructed=reconstructed, rag=rag)
+    assert raw.reconstructed.overall.macro_f1 == 0.0
+    assert raw.aligned is False
+
+    aligned = build_attribution(
+        bench,
+        oracle=oracle,
+        reconstructed=reconstructed,
+        rag=rag,
+        alignment={_RECON_ID: _GOLD_ID},
+    )
+    assert aligned.reconstructed.overall.macro_f1 == 1.0  # credited on the gold basis
+    assert aligned.oracle.overall.macro_f1 == 1.0  # unchanged (already gold)
+    assert aligned.rag.overall.macro_f1 == 1.0  # unchanged (already gold)
+    assert aligned.aligned is True
+
+
+def test_alignment_does_not_touch_oracle_or_rag_ids() -> None:
+    # A mapping that would rewrite a gold id is applied to reconstructed only, so
+    # oracle/rag keep scoring on their raw (gold) ids.
+    bench = Benchmark.of([_pair("q1", (_GOLD_ID,))])
+    oracle = _preds({"q1": [_GOLD_ID]})
+    rag = _preds({"q1": [_GOLD_ID]})
+    aligned = build_attribution(
+        bench,
+        oracle=oracle,
+        reconstructed=_preds({"q1": [_RECON_ID]}),
+        rag=rag,
+        alignment={_GOLD_ID: "some:other", _RECON_ID: _GOLD_ID},
+    )
+    assert aligned.oracle.overall.macro_f1 == 1.0
+    assert aligned.rag.overall.macro_f1 == 1.0
+
+
+def test_render_notes_alignment_mode_only_when_aligned() -> None:
+    bench = Benchmark.of([_pair("q1", (_GOLD_ID,))])
+    oracle = _preds({"q1": [_GOLD_ID]})
+    reconstructed = _preds({"q1": [_RECON_ID]})
+    rag = _preds({"q1": [_GOLD_ID]})
+    aligned = render_markdown(
+        build_attribution(
+            bench,
+            oracle=oracle,
+            reconstructed=reconstructed,
+            rag=rag,
+            alignment={_RECON_ID: _GOLD_ID},
+        )
+    )
+    raw = render_markdown(
+        build_attribution(bench, oracle=oracle, reconstructed=reconstructed, rag=rag)
+    )
+    assert "id-alignment" in aligned
+    assert "id-alignment" not in raw
+
+
+# --------------------------------------------------------------------------- #
 # Fidelity context projection + round-trip.
 # --------------------------------------------------------------------------- #
 
@@ -380,3 +451,127 @@ def test_report_cli_to_stdout(tmp_path: Path, capsys: Any) -> None:
     )
     assert rc == 0
     assert "# Reconstruct attribution report" in capsys.readouterr().out
+
+
+# --------------------------------------------------------------------------- #
+# CLI --align (esim-d1c.1): the reconstructed system's path-named answers.
+# --------------------------------------------------------------------------- #
+
+_ALIGN_PATH = "artifacts/init/groom.md"
+_ALIGN_GOLD = "artifact:init:groom"
+
+
+def _write_align_inputs(tmp_path: Path) -> dict[str, Path]:
+    """Benchmark + predictions where reconstructed names the artifact by PATH, plus
+    the gold run dir and reconstruction dir the alignment map is built from."""
+    artifact = Node(
+        id=_ALIGN_GOLD,
+        type="Artifact",
+        created_at=_TS,
+        props={"path": _ALIGN_PATH, "name": "groom"},
+        aliases=["groom"],
+    )
+
+    bench = Benchmark.of([_pair("q1", (_ALIGN_GOLD,), reasoning="provenance")])
+    bench_path = tmp_path / "bench.jsonl"
+    bench.write_jsonl(bench_path)
+
+    paths = {"bench": bench_path}
+    for name, mapping in (
+        ("oracle", {"q1": [_ALIGN_GOLD]}),  # gold namespace
+        ("reconstructed", {"q1": [_ALIGN_PATH]}),  # path namespace -> 0 raw
+        ("rag", {"q1": [_ALIGN_GOLD]}),
+    ):
+        path = tmp_path / f"{name}.jsonl"
+        _preds(mapping).write_jsonl(path)
+        paths[name] = path
+
+    run_dir = tmp_path / "gold"
+    (run_dir / "kg").mkdir(parents=True)
+    (run_dir / "kg" / "nodes.jsonl").write_text(
+        json.dumps(artifact.to_dict()) + "\n", encoding="utf-8"
+    )
+    (run_dir / "kg" / "edges.jsonl").write_text("", encoding="utf-8")
+    paths["run"] = run_dir
+
+    recon_dir = tmp_path / "recon"
+    kg = ReconstructedKG()
+    kg.add_node(artifact)
+    kg.write(recon_dir)
+    paths["recon"] = recon_dir
+    return paths
+
+
+def test_report_cli_align_flag_registered() -> None:
+    args = build_parser().parse_args(
+        [
+            "reconstruct",
+            "report",
+            "--bench",
+            "b",
+            "--oracle",
+            "o",
+            "--reconstructed",
+            "r",
+            "--rag",
+            "g",
+            "--align",
+            "--reconstructed-kg",
+            "kg",
+        ]
+    )
+    assert args.align is True
+    assert args.reconstructed_kg == Path("kg")
+
+
+def test_report_cli_align_requires_reconstructed_kg(tmp_path: Path, capsys: Any) -> None:
+    inputs = _write_align_inputs(tmp_path)
+    rc = main(
+        [
+            "reconstruct",
+            "report",
+            "--bench",
+            str(inputs["bench"]),
+            "--oracle",
+            str(inputs["oracle"]),
+            "--reconstructed",
+            str(inputs["reconstructed"]),
+            "--rag",
+            str(inputs["rag"]),
+            "--align",
+        ]
+    )
+    assert rc == 2
+    assert "--align requires --reconstructed-kg" in capsys.readouterr().err
+
+
+def test_report_cli_align_credits_path_named_reconstructed(tmp_path: Path, capsys: Any) -> None:
+    inputs = _write_align_inputs(tmp_path)
+    out = tmp_path / "report.md"
+    rc = main(
+        [
+            "reconstruct",
+            "report",
+            "--bench",
+            str(inputs["bench"]),
+            "--oracle",
+            str(inputs["oracle"]),
+            "--reconstructed",
+            str(inputs["reconstructed"]),
+            "--rag",
+            str(inputs["rag"]),
+            "--align",
+            "--reconstructed-kg",
+            str(inputs["recon"]),
+            "--run",
+            str(inputs["run"]),
+            "-o",
+            str(out),
+        ]
+    )
+    assert rc == 0
+    text = out.read_text(encoding="utf-8")
+    # The reconstructed row is now credited (path -> canonical), erasing the
+    # understanding gap; the report notes the alignment mode.
+    assert "id-alignment" in text
+    assert "understanding=+0.000" in capsys.readouterr().err

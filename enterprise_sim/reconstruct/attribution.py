@@ -158,6 +158,9 @@ class Attribution:
         rag: The RAG baseline's :class:`Report`.
         fidelity: The reconstruction's fidelity numbers, or ``None`` when not
             supplied (the context section is then omitted).
+        aligned: Whether the ``reconstructed`` predictions were scored with
+            id-alignment (their ids mapped into the gold namespace, esim-e9z)
+            rather than raw string overlap. The report notes the mode.
     """
 
     benchmark_size: int
@@ -166,6 +169,7 @@ class Attribution:
     reconstructed: Report
     rag: Report
     fidelity: FidelityContext | None = None
+    aligned: bool = False
 
     @property
     def systems(self) -> tuple[tuple[str, Report], ...]:
@@ -201,6 +205,7 @@ def build_attribution(
     reconstructed: Predictions,
     rag: Predictions,
     fidelity: FidelityReport | FidelityContext | None = None,
+    alignment: Mapping[str, str] | None = None,
 ) -> Attribution:
     """Grade the three prediction sets against ``benchmark`` into an :class:`Attribution`.
 
@@ -208,6 +213,14 @@ def build_attribution(
     benchmark with the keyless grader (esim-uzc.3). ``fidelity`` may be a live
     :class:`FidelityReport`, an already-projected :class:`FidelityContext`, or
     ``None`` (context omitted); it is normalized to a :class:`FidelityContext`.
+
+    When ``alignment`` (predicted id → gold id) is supplied it is applied to the
+    **reconstructed** predictions only (esim-e9z): that is the one system whose
+    agent answered over the reconstructed KG and so speaks a different id namespace
+    (e.g. artifact *paths* vs. canonical ``artifact:…`` ids), scoring 0 on a pure
+    string mismatch without it. The oracle and RAG both resolve to gold KG node ids
+    by construction, so they are always graded raw. The resulting attribution
+    records ``aligned=True`` so the report can note the mode.
     """
     context: FidelityContext | None
     if isinstance(fidelity, FidelityReport):
@@ -220,9 +233,10 @@ def build_attribution(
         benchmark_size=len(benchmark),
         reasoning_types=reasoning_types,
         oracle=score(benchmark, oracle),
-        reconstructed=score(benchmark, reconstructed),
+        reconstructed=score(benchmark, reconstructed, alignment=alignment),
         rag=score(benchmark, rag),
         fidelity=context,
+        aligned=alignment is not None,
     )
 
 
@@ -373,6 +387,21 @@ def render_markdown(
         "",
     ]
 
+    if attribution.aligned:
+        lines.extend(
+            [
+                (
+                    "_Scored with **id-alignment** (esim-e9z): the reconstructed system's "
+                    "predicted ids are mapped into the gold namespace before grading — "
+                    "an answer that names the right entities under a different id "
+                    "namespace (e.g. artifact paths vs. canonical `artifact:…` ids) is "
+                    "credited on the gold basis. Oracle and RAG answer in gold ids and "
+                    "are graded raw._"
+                ),
+                "",
+            ]
+        )
+
     if attribution.fidelity is not None:
         lines.extend(_fidelity_lines(attribution.fidelity))
         lines.append("")
@@ -421,6 +450,7 @@ def build_report(
     reconstructed: Predictions,
     rag: Predictions,
     fidelity: FidelityReport | FidelityContext | None = None,
+    alignment: Mapping[str, str] | None = None,
     title: str = "Reconstruct attribution report",
 ) -> str:
     """Build the attribution and render it to markdown in one call."""
@@ -430,5 +460,6 @@ def build_report(
         reconstructed=reconstructed,
         rag=rag,
         fidelity=fidelity,
+        alignment=alignment,
     )
     return render_markdown(attribution, title=title)
