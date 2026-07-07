@@ -322,7 +322,8 @@ nearly doubled (0.216 → 0.412) as recovered structure let the agent walk more
 chains. `goal_tree` and `provenance` **answer**-F1 remain 0.000 — the Goal/
 provenance **nodes** are recovered (see fidelity below) but the `subgoal_of` /
 `advances_goal` edges and mention→artifact grounding those questions traverse
-are not yet sufficiently reconstructed; that edge/grounding recovery is next._
+are not yet sufficiently reconstructed; that edge/grounding recovery is
+[round 2](#results--round-2-targeted-edge--grounding-extraction-epic-esim-din)._
 
 BEFORE reading: the graph ceiling is near-perfect (0.984) but the *reconstructed*
 graph barely clears RAG — almost the entire graph advantage (+0.761) is the
@@ -370,3 +371,84 @@ answerable over the reconstruction; the AFTER run confirms whether it flips.
 > `eval/attribution.md` (overall + gap tables) and `eval/fidelity.json` (node/edge
 > and per-type F1, including `provenance.overall.f1` and the `Goal` rows), and
 > paste the numbers into the `_TBD_` cells.
+
+---
+
+## Results — round 2: targeted edge & grounding extraction (epic `esim-din`)
+
+Round 1 (epic `esim-ecr`, above) established the *shape* of the loss:
+reconstruction is **recall-bound and structural**. A bigger model and a
+confidence threshold both failed to move end-to-end answers — `goal_tree` and
+`provenance` stayed pinned at **0.000** because the *specific* edge and grounding
+types those questions traverse were missing, not because the graph had too few
+edges overall. Round 2 stops chasing broad recall and extracts those specific
+relationships:
+
+- [`esim-din.1`](../enterprise_sim/reconstruct/) names provenance answers in the
+  benchmark's **gold artifact-id coordinate** — mention→artifact groundings now
+  resolve to the gold `Artifact` node ids the benchmark grades against, instead
+  of raw paths (the reason provenance scored exactly 0.000). This makes the
+  **provenance** family answerable over the reconstruction.
+- [`esim-din.2`](../enterprise_sim/reconstruct/) elicits the goal-tree edges:
+  extraction now emits `subgoal_of` for a non-bold nested goal bullet and
+  `advances_goal` for the Department/Initiative named only in a section
+  breadcrumb — so **goal_tree** questions gain the `subgoal_of` / `advances_goal`
+  chains they walk (inference already fired over those base edges).
+- [`esim-din.3`](../enterprise_sim/reconstruct/) adds a deterministic
+  **structural org-relation extractor** that reads `member_of` / `leads` /
+  `part_of` / `reports_to` / `advances_goal` off the organization reference
+  layout (roster tables, ⭐ lead marker, 📦 project rosters). These are the core
+  relations `direct_relation` and `transitive` questions walk, encoded
+  *structurally* rather than as prose — which a chunk-at-a-time LLM misses. This
+  is the edge-recall ceiling round 1 identified.
+
+The **BEFORE** column is the round-1 result these fixes aim to beat (golden run,
+Haiku, all 64 questions — it is the `0.289` "AFTER" of the section above).
+**AFTER** is a placeholder a keyed crew run fills — same
+[one-command harness](#reproducing-it--one-command) (`ANTHROPIC_API_KEY` +
+`uv sync --extra bench`), now with all three round-2 fixes merged. As in round 1
+the numbers are **not keyless** (the reasoners call the Claude API); the doc and
+the keyless fidelity evidence below are the keyless deliverable.
+
+### Per-reasoning-type answer-F1 (higher is better)
+
+| Reasoning type | n | Round-1 BEFORE | Round-2 AFTER | Round-2 fix |
+|----------------|---|----------------|---------------|-------------|
+| **provenance** | 17 | **0.000** | _TBD_ | `esim-din.1` (gold artifact-id groundings) |
+| **goal_tree** | 2 | **0.000** | _TBD_ | `esim-din.2` (`subgoal_of` + `advances_goal`) |
+| **direct_relation** | 22 | 0.318 | _TBD_ | `esim-din.3` (structural org relations) |
+| **transitive** | 17 | 0.412 | _TBD_ | `esim-din.3` (`reports_to` chains) |
+| aggregation | 6 | _(round-1 baseline)_ | _TBD_ | not targeted (round-1's strongest family) |
+| **overall** | 64 | **0.289** | _TBD_ | — |
+
+The two families still at 0.000 are the whole point: round 2 does not throw a
+bigger model or a lower threshold at broad recall (round 1 proved those plateau —
+Sonnet's extra edges left answer-F1 flat at 0.289). It makes the *specific*
+structures those questions traverse recoverable. A win looks like **provenance**
+and **goal_tree** lifting off 0.000 and **direct_relation** / **transitive**
+climbing toward the oracle ceiling (~1.0), pulling **overall** past 0.289.
+
+### Reconstruction fidelity — round 2
+
+| Metric | Round-1 BEFORE (keyed) | Round-2 AFTER (keyed) | Bearing on round 2 |
+|--------|------------------------|-----------------------|--------------------|
+| node F1 | 0.564 | _TBD_ | — |
+| edge F1 | 0.256 | _TBD_ | `esim-din.3` structural extractor |
+| edge recall (overall) | 0.19 | _TBD_ | `esim-din.3` targets the core relation types |
+
+**Keyless evidence the extraction now fires.** The AFTER *answer*-F1 needs a key,
+but the *fidelity* deltas are demonstrable keyless (fake backend, golden run,
+`esim-din.3`): the structural extractor lifts per-edge-type recall from **0.000**
+to `member_of` **0.889**, `part_of` **1.000**, `leads` **0.750**, `reports_to`
+**0.625**, and `advances_goal` **0.333**, taking overall edge F1 **0.000 → 0.346**
+on that keyless slice. Residual misses are cross-chunk (a team-lead→dept-lead
+`reports_to`, a dept-lead `leads`) that a per-chunk reader structurally cannot
+see; those are left to the LLM envelope. The keyed AFTER column is what confirms
+these recovered edges and groundings translate into recovered *answers*.
+
+> **Filling AFTER (round 2):** run the keyed
+> [one command](#reproducing-it--one-command) against a fresh (or the golden) run
+> with all three round-2 fixes merged, read `eval/attribution.md` (overall +
+> per-type F1) and `eval/fidelity.json` (node/edge and per-edge-type recall, plus
+> `provenance.overall.f1` and the `Goal` / `subgoal_of` / `advances_goal` rows),
+> and paste the numbers into the `_TBD_` cells above.
