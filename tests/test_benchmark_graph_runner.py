@@ -40,6 +40,15 @@ from enterprise_sim.benchmark.runners.projection import (
 from enterprise_sim.benchmark.runners.reference import REFERENCES_BY_KEY
 from enterprise_sim.cli import build_parser, main
 from enterprise_sim.core.world import World
+from enterprise_sim.reconstruct import (
+    CandidateTriple,
+    Chunk,
+    Extraction,
+    MentionSpan,
+    build_kg,
+    project_with_groundings,
+    resolve_entities,
+)
 
 # --------------------------------------------------------------------------- #
 # One gold model, built once for the whole module (the golden run is the slow bit).
@@ -236,6 +245,83 @@ def test_reference_query_goal_tree(
     ref = REFERENCES_BY_KEY["goal_advancers"]
     assert set(kuzu.node_ids(ref.cypher(goal.id))) == expected
     assert set(oxigraph.node_ids(ref.sparql(goal.id))) == expected
+
+
+def test_goal_tree_inference_fires_over_reconstructed_edges() -> None:
+    """The reference goal_tree query answers over a *reconstructed* KG (esim-din.2).
+
+    Builds a small KG through the reconstruct pipeline (resolve → build) whose only
+    goal edges are a reconstructed ``subgoal_of`` and two ``advances_goal`` edges,
+    projects it, and runs the ``goal_advancers`` SPARQL. The der: ontology's
+    ``advances_goal_effective`` must both take the direct advancer *and* propagate a
+    sub-goal's advancer up to the parent — so asking "what advances the parent,
+    directly or via subgoals" returns both, purely from reconstructed base edges.
+    """
+    parent = "Grow the company sustainably."
+    child = "Stand up the supporting platform and tooling."
+    chunk = Chunk(
+        id="cG",
+        text=(
+            f"## Goals\n\n- **{parent}**\n    - {child}\n\n"
+            f"## Advances goals\n\n- {parent}\n- {child}"
+        ),
+        source_path="organization/company.md",
+        section="Company > Goals",
+    )
+
+    def _m(surface: str, type_: str) -> MentionSpan:
+        start = chunk.text.find(surface)
+        return MentionSpan(
+            chunk_id="cG",
+            surface_form=surface,
+            start=start,
+            end=start + len(surface),
+            entity_type=type_,
+        )
+
+    mentions = [
+        _m(parent, "Goal"),
+        _m(child, "Goal"),
+        _m("Growth", "Department"),
+        _m("Platform Program", "Initiative"),
+    ]
+    # "Growth" / "Platform Program" don't appear in the text; name them as owners.
+    mentions[2] = MentionSpan(
+        chunk_id="cG", surface_form="Growth", start=-1, end=-1, entity_type="Department"
+    )
+    mentions[3] = MentionSpan(
+        chunk_id="cG", surface_form="Platform Program", start=-1, end=-1, entity_type="Initiative"
+    )
+    resolution = resolve_entities(mentions, [chunk])
+
+    def _t(src: str, rel: str, dst: str) -> CandidateTriple:
+        return CandidateTriple(src_mention=src, rel=rel, dst_mention=dst, provenance="cG")
+
+    extractions = [
+        Extraction(
+            chunk_id="cG",
+            triples=(
+                _t(child, "subgoal_of", parent),
+                _t("Growth", "advances_goal", parent),  # direct advancer of the parent
+                _t("Platform Program", "advances_goal", child),  # advances the sub-goal
+            ),
+        )
+    ]
+    kg = build_kg([chunk], extractions, resolution)
+    world, groundings = project_with_groundings(kg)
+    model = GraphModel.from_world(world, groundings)
+    oxigraph = OxigraphEngine.build(model)
+
+    def _eid(type_: str, label: str) -> str:
+        return next(e.id for e in resolution.entities if e.type == type_ and e.label == label)
+
+    parent_id = _eid("Goal", parent)
+    growth = _eid("Department", "Growth")
+    program = _eid("Initiative", "Platform Program")
+
+    ref = REFERENCES_BY_KEY["goal_advancers"]
+    # Asking the parent returns the direct advancer AND the sub-goal's advancer.
+    assert set(oxigraph.node_ids(ref.sparql(parent_id))) == {growth, program}
 
 
 def test_reference_query_provenance(

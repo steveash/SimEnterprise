@@ -61,8 +61,9 @@ NODE_GLOSSES: dict[str, str] = {
     "Goal": (
         "A company or department objective, stated as a full sentence — e.g. "
         '"Reduce customer churn by 20%." Surface form = the COMPLETE statement '
-        "sentence exactly as written (a bold bullet under a Goals heading, or a "
-        "line under a department's Advances-goals list), NOT a short name."
+        "sentence exactly as written (a bullet under a Goals heading — bold or "
+        "plain, including an indented sub-goal — or a line under a department's "
+        "Advances-goals list), NOT a short name."
     ),
     "Initiative": ("A named strategic initiative or program that advances a goal (a proper name)."),
     "Project": "A named project delivering part of an initiative (a proper name).",

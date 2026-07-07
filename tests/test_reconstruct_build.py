@@ -166,6 +166,100 @@ def test_aggregate_endpoints_match_across_chunks() -> None:
 
 
 # --------------------------------------------------------------------------- #
+# Goal-hierarchy edges (esim-din.2): subgoal_of + advances_goal survive the build.
+# --------------------------------------------------------------------------- #
+
+# The corpus shape that motivated esim-din.2: goals live in the company doc, but
+# a department "Advances goals" section is chunked so its BODY holds only the goal
+# line — the advancing department is named just in the Section breadcrumb. These
+# chunks + extractions model exactly what the fixed extraction prompt should emit:
+# the sub-goal (non-bold) as a Goal, and the section-owner department as an
+# (unlocated) mention so its advances_goal edge has a resolvable source.
+_GOAL_ENG = Chunk(
+    id="cEng",
+    text="# Engineering\n\n_Build, ship, and operate the product._",
+    source_path="organization/departments/engineering.md",
+    section="Engineering",
+)
+_GOAL_ADV = Chunk(
+    id="cAdv",
+    text="## Advances goals\n\n- Launch the next-generation product line.",
+    source_path="organization/departments/engineering.md",
+    section="Engineering > Advances goals",
+)
+_GOAL_COMPANY = Chunk(
+    id="cGoals",
+    text=(
+        "## Goals\n\n"
+        "- **Expand into two new regional markets.**\n"
+        "    - Stand up the supporting platform and tooling.\n"
+        "- **Launch the next-generation product line.**"
+    ),
+    source_path="organization/company.md",
+    section="Company > Goals",
+)
+_GOAL_CHUNKS = [_GOAL_ENG, _GOAL_ADV, _GOAL_COMPANY]
+
+_EXPAND = "Expand into two new regional markets."
+_STANDUP = "Stand up the supporting platform and tooling."
+_LAUNCH = "Launch the next-generation product line."
+
+
+def _goal_resolution() -> Resolution:
+    """Resolve the department + three goals across the three chunks.
+
+    The department is mentioned twice — located in its H1 chunk and *unlocated* in
+    the Advances-goals chunk (named only via the Section breadcrumb) — so tier-1
+    resolution merges them into one canonical ``Department`` node, giving the
+    advances_goal edge a source that aligns to gold.
+    """
+    mentions = [
+        _mention(_GOAL_ENG, "Engineering", "Department"),
+        # Section-owner mention: not a substring of the chunk body (unlocated).
+        MentionSpan(
+            chunk_id="cAdv", surface_form="Engineering", start=-1, end=-1, entity_type="Department"
+        ),
+        _mention(_GOAL_ADV, _LAUNCH, "Goal"),
+        _mention(_GOAL_COMPANY, _EXPAND, "Goal"),
+        _mention(_GOAL_COMPANY, _STANDUP, "Goal"),
+        _mention(_GOAL_COMPANY, _LAUNCH, "Goal"),
+    ]
+    return resolve_entities(mentions, _GOAL_CHUNKS)
+
+
+def _entity_id(resolution: Resolution, type_: str, label: str) -> str:
+    return next(e.id for e in resolution.entities if e.type == type_ and e.label == label)
+
+
+def test_goal_hierarchy_edges_survive_the_build() -> None:
+    """subgoal_of (Goal→Goal) and advances_goal (Dept→Goal) reconstruct to gold ids."""
+    resolution = _goal_resolution()
+    extractions = [
+        Extraction(
+            chunk_id="cAdv",
+            triples=(_triple("Engineering", "advances_goal", _LAUNCH, "cAdv"),),
+        ),
+        Extraction(
+            chunk_id="cGoals",
+            triples=(_triple(_STANDUP, "subgoal_of", _EXPAND, "cGoals"),),
+        ),
+    ]
+    kg = build_kg(_GOAL_CHUNKS, extractions, resolution)
+
+    dept = _entity_id(resolution, "Department", "Engineering")
+    launch = _entity_id(resolution, "Goal", _LAUNCH)
+    expand = _entity_id(resolution, "Goal", _EXPAND)
+    standup = _entity_id(resolution, "Goal", _STANDUP)
+
+    triples = {(e.src, e.type, e.dst) for e in kg.edges}
+    assert (dept, "advances_goal", launch) in triples
+    assert (standup, "subgoal_of", expand) in triples
+    # The department's two mentions (located + section-only) merged to one node, so
+    # the Goal it advances is the same node the company doc defines.
+    assert launch == _entity_id(resolution, "Goal", _LAUNCH)
+
+
+# --------------------------------------------------------------------------- #
 # Build + persist.
 # --------------------------------------------------------------------------- #
 
