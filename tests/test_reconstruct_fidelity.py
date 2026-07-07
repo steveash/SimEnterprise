@@ -541,3 +541,89 @@ def test_fidelity_cli_scores_provenance_from_mentions(tmp_path: Path, capsys: An
     data = json.loads(capsys.readouterr().out)
     assert data["provenance"]["overall"]["f1"] == 1.0
     assert data["provenance"]["overall"]["gold"] == 1
+
+
+# --------------------------------------------------------------------------- #
+# Answer-scorer id alignment (esim-e9z): reconstructed answer id -> gold id.
+# --------------------------------------------------------------------------- #
+
+
+def _gold_with_artifact() -> World:
+    """The gold world plus an Artifact node keyed by canonical id, path in props."""
+    world = _gold_world()
+    world.add_node(
+        Node(
+            id="artifact:doc:groom",
+            type="Artifact",
+            created_at=_TS,
+            props={"path": "artifacts/init/groom.md"},
+            aliases=["Backlog"],
+        )
+    )
+    return world
+
+
+def test_align_reconstructed_ids_resolves_artifact_path_to_canonical_id() -> None:
+    from enterprise_sim.reconstruct.fidelity import align_reconstructed_ids
+
+    gold = _gold_with_artifact()
+    alignment = align_reconstructed_ids(_kg_from_world(gold), gold)
+    # The gold artifact's PATH maps to its canonical id — the namespace bridge the
+    # reconstruction's path-named provenance answers need.
+    assert alignment["artifacts/init/groom.md"] == "artifact:doc:groom"
+
+
+def test_align_reconstructed_ids_maps_renamed_node_to_gold_twin() -> None:
+    from enterprise_sim.reconstruct.fidelity import align_reconstructed_ids
+
+    gold = _gold_world()
+    # A reconstruction that found Ada under a different id but the same name.
+    kg = ReconstructedKG()
+    kg.add_node(_node("ent:0001", "Person", ["Ada Lovelace", "Ada"], "Ada Lovelace"))
+    alignment = align_reconstructed_ids(kg, gold)
+    assert alignment["ent:0001"] == "person:ada"
+
+
+def test_align_reconstructed_ids_unions_node_and_path_sources() -> None:
+    from enterprise_sim.reconstruct.fidelity import align_reconstructed_ids
+
+    gold = _gold_with_artifact()
+    kg = ReconstructedKG()
+    kg.add_node(_node("ent:0001", "Person", ["Ada Lovelace"], "Ada Lovelace"))
+    alignment = align_reconstructed_ids(kg, gold)
+    assert alignment["ent:0001"] == "person:ada"  # node alignment
+    assert alignment["artifacts/init/groom.md"] == "artifact:doc:groom"  # path resolution
+
+
+def test_align_reconstructed_ids_is_deterministic() -> None:
+    from enterprise_sim.reconstruct.fidelity import align_reconstructed_ids
+
+    gold = _gold_with_artifact()
+    kg = _kg_from_world(gold)
+    assert align_reconstructed_ids(kg, gold) == align_reconstructed_ids(kg, gold)
+
+
+def test_align_reconstructed_ids_credits_answer_end_to_end() -> None:
+    # The aligner feeds the answer scorer: a path-named artifact answer that scores
+    # 0 raw is credited once aligned — the esim-e9z acceptance path, keyless.
+    from enterprise_sim.benchmark import Benchmark, QAPair
+    from enterprise_sim.benchmark.score import Predictions, score
+    from enterprise_sim.reconstruct.fidelity import align_reconstructed_ids
+
+    gold = _gold_with_artifact()
+    bench = Benchmark.of(
+        [
+            QAPair(
+                id="q",
+                question="which artifacts ground the backlog?",
+                qtype="which",
+                reasoning_type="provenance",
+                expected_ids=("artifact:doc:groom",),
+            )
+        ]
+    )
+    preds = Predictions.from_mapping({"q": ["artifacts/init/groom.md"]})
+    alignment = align_reconstructed_ids(_kg_from_world(gold), gold)
+
+    assert score(bench, preds).overall.macro_f1 == 0.0
+    assert score(bench, preds, alignment=alignment).overall.macro_f1 == 1.0

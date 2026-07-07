@@ -13,6 +13,20 @@ overall and one per ``reasoning_type`` — the headline breakdown the report
 (esim-uzc.6) renders. Predictions arrive as one JSON object per line (JSONL),
 mirroring the benchmark file; a benchmark pair with no matching prediction is
 graded against the empty set (the agent declined to answer).
+
+**Id alignment (esim-e9z).** Exact set overlap under-credits a system that names
+the *right* entities under a different id **namespace** — most sharply the
+reconstructed KG, which answers provenance questions with artifact file *paths*
+while gold expects canonical ``artifact:…`` ids: same artifacts, zero string
+overlap, F1 0.000. :func:`score` therefore accepts an optional ``alignment`` map
+(predicted id → gold id) and normalizes every predicted id through it before the
+set comparison, so a correct-but-namespace-mismatched answer is credited on the
+gold basis. The aligner that builds that map by reusing the fidelity node
+matching + artifact path↔canonical-id resolution lives beside the fidelity scorer
+(:func:`enterprise_sim.reconstruct.fidelity.align_reconstructed_ids`); scoring
+stays graph-agnostic — it only applies a mapping. Omitting ``alignment`` keeps the
+raw exact-string behavior, the right default for oracle/self-id runs whose
+predictions are already in the gold namespace.
 """
 
 from __future__ import annotations
@@ -196,6 +210,19 @@ class Report:
     by_reasoning_type: dict[str, Aggregate]
 
 
+def _align_ids(ids: frozenset[str], alignment: Mapping[str, str] | None) -> frozenset[str]:
+    """Rewrite predicted ids into the gold namespace through ``alignment``.
+
+    Each id is replaced by ``alignment[id]`` when present and kept as-is otherwise
+    (an id already in the gold namespace needs no remap). Returns ``ids`` unchanged
+    when ``alignment`` is empty or ``None``. Two predicted ids that map to the same
+    gold id collapse — set membership is all that matters downstream.
+    """
+    if not alignment:
+        return ids
+    return frozenset(alignment.get(i, i) for i in ids)
+
+
 def score_item(pair: QAPair, predicted: frozenset[str]) -> ItemScore:
     """Grade one :class:`QAPair` against a predicted id set."""
     expected = frozenset(pair.expected_ids)
@@ -212,15 +239,30 @@ def score_item(pair: QAPair, predicted: frozenset[str]) -> ItemScore:
     )
 
 
-def score(benchmark: Benchmark, predictions: Predictions) -> Report:
+def score(
+    benchmark: Benchmark,
+    predictions: Predictions,
+    *,
+    alignment: Mapping[str, str] | None = None,
+) -> Report:
     """Grade ``predictions`` against ``benchmark`` and return a :class:`Report`.
 
     Iterates the benchmark in order — the benchmark, not the predictions, defines
     the question set — grading each pair against its prediction (the empty set
     when unanswered) and macro-averaging the per-item scores overall and per
     ``reasoning_type``. Predictions for ids not in the benchmark are ignored.
+
+    When ``alignment`` (predicted id → gold id) is supplied, each predicted id set
+    is normalized through it (:func:`_align_ids`) before scoring, so an answer that
+    identifies the right entities under a different id namespace — e.g. artifact
+    *paths* vs. canonical ``artifact:…`` ids — is credited on the gold basis
+    instead of scoring 0 on a pure string mismatch (esim-e9z). Omitting it grades
+    raw predicted ids against gold, the default for predictions already in the gold
+    namespace. Expected ids are gold by construction and never remapped.
     """
-    items = tuple(score_item(pair, predictions.ids_for(pair.id)) for pair in benchmark)
+    items = tuple(
+        score_item(pair, _align_ids(predictions.ids_for(pair.id), alignment)) for pair in benchmark
+    )
 
     grouped: dict[str, list[ItemScore]] = defaultdict(list)
     for item in items:

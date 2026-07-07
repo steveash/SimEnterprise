@@ -60,6 +60,7 @@ from enterprise_sim.reconstruct.fidelity import (
     FidelityReport,
     NodeFidelity,
     ProvenanceFidelity,
+    align_reconstructed_ids,
     score_fidelity,
 )
 from enterprise_sim.reconstruct.model_sweep import (
@@ -150,6 +151,7 @@ __all__ = [
     "SweepReport",
     "adjudicate_pair",
     "aggregate_relations",
+    "align_reconstructed_ids",
     "build_adjudication_prompt",
     "build_aggregate",
     "build_attribution",

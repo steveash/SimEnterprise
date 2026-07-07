@@ -44,6 +44,7 @@ __all__ = [
     "NodeFidelity",
     "PRF",
     "ProvenanceFidelity",
+    "align_reconstructed_ids",
     "score_fidelity",
 ]
 
@@ -600,6 +601,51 @@ def score_fidelity(
         gold_edge_count=gold.edge_count,
         provenance=provenance,
     )
+
+
+# --------------------------------------------------------------------------- #
+# Answer-scorer id alignment (esim-e9z): map reconstructed answer ids -> gold ids.
+# --------------------------------------------------------------------------- #
+
+
+def align_reconstructed_ids(
+    reconstructed: ReconstructedKG,
+    gold: World,
+) -> dict[str, str]:
+    """Map a reconstruction's answer ids into the gold id namespace for scoring.
+
+    The benchmark answer scorer compares id *strings* for exact set overlap, so a
+    reconstructed answer that names the right entities under a different id
+    namespace scores 0 on a pure string mismatch (esim-e9z). This builds the
+    predicted-id → gold-id map the scorer applies (:func:`enterprise_sim.benchmark
+    .score.score` ``alignment=``) so such answers are credited on the gold basis.
+    Two sources are unioned:
+
+    * **Node alignment** — reuses the fidelity aligner (:func:`_align_nodes`,
+      exact-id-then-type+canonical/alias-name matching), so a reconstructed node
+      with a *different* id but the same type and name resolves to its gold twin.
+    * **Artifact path → canonical id** — the reconstruction only ever observes an
+      artifact by its run-relative *path* (and names it that way in answers), while
+      the gold Artifact node carries a canonical ``artifact:…`` id with its path in
+      ``props["path"]``. Every gold artifact path is mapped to its gold id so a
+      path-named artifact answer aligns — the id namespace paths never string-match
+      and provenance questions live entirely in.
+
+    Any id absent from the returned map is left untouched by the scorer (a raw gold
+    id already needs no remap). Node alignment wins over path resolution on the rare
+    key clash (id and path strings occupy disjoint namespaces in practice). Pure and
+    deterministic: the same graphs always yield the same map.
+    """
+    node_alignment, _ = _align_nodes(reconstructed.to_world().nodes(), gold.nodes())
+    alignment: dict[str, str] = {}
+    for node in gold.nodes():
+        if node.type != "Artifact":
+            continue
+        path = node.props.get("path")
+        if isinstance(path, str) and path:
+            alignment[path] = node.id
+    alignment.update(node_alignment)
+    return alignment
 
 
 # --------------------------------------------------------------------------- #

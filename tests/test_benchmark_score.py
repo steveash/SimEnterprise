@@ -218,6 +218,78 @@ def test_empty_benchmark_scores_empty_report() -> None:
     assert report.by_reasoning_type == {}
 
 
+# -- id alignment (esim-e9z) -------------------------------------------------
+
+# A namespace-mismatched-but-correct answer: the agent names the right artifacts
+# by file PATH; the gold answer key names them by canonical ``artifact:…`` id.
+_PATH = "artifacts/init/artifact-groom.md"
+_PATH2 = "artifacts/init/artifact-groom.jira.json"
+_GOLD_ID = "artifact:initiative:eng:kickoff@start:groom"
+_GOLD_ID2 = "artifact:initiative:eng:kickoff@start:groom:jira"
+
+
+def test_align_ids_is_identity_without_map() -> None:
+    from enterprise_sim.benchmark.score import _align_ids
+
+    ids = frozenset({"a", "b"})
+    assert _align_ids(ids, None) is ids
+    assert _align_ids(ids, {}) is ids
+
+
+def test_align_ids_maps_known_and_keeps_unknown() -> None:
+    from enterprise_sim.benchmark.score import _align_ids
+
+    aligned = _align_ids(frozenset({_PATH, "person:ada"}), {_PATH: _GOLD_ID})
+    assert aligned == {_GOLD_ID, "person:ada"}
+
+
+def test_align_ids_collapses_ids_that_map_to_same_gold() -> None:
+    from enterprise_sim.benchmark.score import _align_ids
+
+    # Two predicted forms of one artifact collapse to a single gold id.
+    aligned = _align_ids(
+        frozenset({_PATH, "art:local:groom"}), {_PATH: _GOLD_ID, "art:local:groom": _GOLD_ID}
+    )
+    assert aligned == {_GOLD_ID}
+
+
+def test_score_without_alignment_under_credits_namespace_mismatch() -> None:
+    # The reported bug: path-named answer vs canonical gold id -> 0 string overlap.
+    bench = Benchmark.of([_pair("q", (_GOLD_ID, _GOLD_ID2), reasoning="provenance")])
+    preds = Predictions.from_mapping({"q": [_PATH, _PATH2]})
+    report = score(bench, preds)
+    assert report.overall.macro_f1 == 0.0
+
+
+def test_score_with_alignment_credits_namespace_mismatch() -> None:
+    # Same predictions, now scored under a path->canonical alignment -> perfect.
+    bench = Benchmark.of([_pair("q", (_GOLD_ID, _GOLD_ID2), reasoning="provenance")])
+    preds = Predictions.from_mapping({"q": [_PATH, _PATH2]})
+    alignment = {_PATH: _GOLD_ID, _PATH2: _GOLD_ID2}
+    report = score(bench, preds, alignment=alignment)
+    assert report.overall.macro_f1 == 1.0
+    assert report.overall.exact_match_rate == 1.0
+    # The item records the aligned (gold-namespace) ids it was scored on.
+    assert report.items[0].predicted == (_GOLD_ID, _GOLD_ID2)
+
+
+def test_score_alignment_leaves_gold_namespace_predictions_unchanged() -> None:
+    # An already-gold prediction is unaffected by supplying an alignment map.
+    bench = Benchmark.of([_pair("q", (_GOLD_ID,), reasoning="provenance")])
+    preds = Predictions.from_mapping({"q": [_GOLD_ID]})
+    report = score(bench, preds, alignment={_PATH: _GOLD_ID})
+    assert report.overall.macro_f1 == 1.0
+
+
+def test_score_alignment_partial_recovery() -> None:
+    # Only one of two artifacts is mapped -> recall 1/2 (the other stays a path miss).
+    bench = Benchmark.of([_pair("q", (_GOLD_ID, _GOLD_ID2), reasoning="provenance")])
+    preds = Predictions.from_mapping({"q": [_PATH, _PATH2]})
+    report = score(bench, preds, alignment={_PATH: _GOLD_ID})
+    assert math.isclose(report.items[0].recall, 0.5)
+    assert math.isclose(report.items[0].precision, 0.5)
+
+
 # -- CLI ---------------------------------------------------------------------
 
 
