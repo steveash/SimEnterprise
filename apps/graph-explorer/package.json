@@ -8,7 +8,7 @@
     "name": "Enterprise-Sim",
     "email": "enterprise-sim@example.com"
   },
-  "homepage": "https://github.com/gastownhall/enterprise_sim",
+  "homepage": "https://github.com/steveash/SimEnterprise",
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",

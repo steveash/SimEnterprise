@@ -6,7 +6,7 @@
 #   scripts/gate.sh            # dev/agent mode: AUTO-FORMAT + lint-fix, then typecheck + test
 #   scripts/gate.sh --check    # CI mode: verify only, fail on any unformatted/lint/type/test issue
 #
-# Run this before `gt done` / opening a PR. In default mode it auto-fixes
+# Run this before committing / opening a PR. In default mode it auto-fixes
 # formatting so you cannot accidentally land unformatted code (the #1 cause of
 # red CI on main). CI runs the same gate in --check mode.
 set -euo pipefail

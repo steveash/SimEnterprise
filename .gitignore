@@ -1,5 +1,5 @@
 .runtime/
-.claude/
+.claude/settings.local.json
 .opencode/
 .logs/
 state.json
@@ -18,9 +18,8 @@ dist/
 # Generated run output (corpus + gold KG); regenerate with `enterprise-sim run`.
 runs/
 
-CLAUDE.md
 CLAUDE.local.md
 GEMINI.md
 
-# Gas Town local beads redirect (environment-specific)
+# Legacy orchestration leftovers (environment-specific)
 .beads/

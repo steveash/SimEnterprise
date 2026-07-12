@@ -11,6 +11,8 @@ artifacts encode, as a labeled answer key for KG/RAG/search eval.
 - [`PLAN.md`](./PLAN.md) — vision, decisions, and milestones.
 - [`ARCHITECTURE.md`](./ARCHITECTURE.md) — detailed component & plugin design.
 - [`docs/GOLDEN_RUN.md`](./docs/GOLDEN_RUN.md) — the v1 end-to-end **golden run** and how its gold KG acts as an answer key.
+- [`docs/DEVELOPMENT.md`](./docs/DEVELOPMENT.md) — setup and the dev loop (contributors & agents: also [`CLAUDE.md`](./CLAUDE.md)).
+- [`specs/ROADMAP.md`](./specs/ROADMAP.md) — what's next, at epic level.
 
 ## Quickstart
 

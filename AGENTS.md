@@ -1,8 +1,11 @@
 # Contributor & Agent Guide — SimEnterprise
 
+The full, canonical guide is [`CLAUDE.md`](./CLAUDE.md) — it applies to every agent and
+human contributor, not just Claude. This file is the short version.
+
 ## The quality gate — run this before you finish
 
-**Before committing / running `gt done` / opening a PR, run:**
+**Before committing or opening a PR, run:**
 
 ```bash
 ./scripts/gate.sh
@@ -28,9 +31,11 @@ Do **not** hand-format or run only a subset of checks. Run the script.
 ## Toolchain
 
 uv + ruff (lint + format) + mypy (strict) + pytest, Python 3.12 (decision D33).
-Dependencies: `uv sync --extra dev`.
+Dependencies: `uv sync --extra dev`. Shortcuts: `make help`.
 
-## Task tracking
+## Planning & task tracking
 
-This repo uses **bd (beads)**; run `bd prime`. See the gastown workspace
-`CLAUDE.md` for the full agent workflow. Prefix: `esim`.
+Epic-level direction lives in [`specs/ROADMAP.md`](./specs/ROADMAP.md); per-feature
+specs live in `specs/` (see [`specs/README.md`](./specs/README.md) for the workflow).
+Historical `esim-*` ids in code comments and commit messages refer to the retired
+external issue tracker — treat them as archaeology, not live references.
