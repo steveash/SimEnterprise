@@ -20,8 +20,10 @@ enterprise-sim = "enterprise_sim.cli:main"
 #   * kuzu / pyoxigraph — the embedded Cypher/SPARQL engines (also in `dev`, since
 #     the keyless engine tests exercise them).
 #   * claude-agent-sdk — the graph-agent runner's `import claude_agent_sdk`.
-#   * anthropic — the official SDK the `anthropic_api`/`bedrock` backends
-#     (core/llm) import lazily; the RAG runner and reconstruct build need it.
+#   * anthropic[bedrock] — the official SDK the `anthropic_api`/`bedrock`
+#     backends (core/llm) import lazily; the RAG runner and reconstruct build
+#     need it. The `[bedrock]` extra pulls boto3/botocore, which the
+#     `AnthropicBedrock` constructor requires (undeclared before esim Bedrock).
 # Both SDKs are imported lazily, so `--extra dev` alone stays keyless-green; you
 # need `--extra bench` to run the real paths. The CI import-smoke installs this
 # extra so a missing runtime dep here fails the build (scripts/import_smoke.py).
@@ -29,7 +31,7 @@ bench = [
     "kuzu>=0.11",
     "pyoxigraph>=0.5",
     "claude-agent-sdk>=0.1",
-    "anthropic>=0.40",
+    "anthropic[bedrock]>=0.40",
 ]
 dev = [
     "mypy>=1.9",
