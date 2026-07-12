@@ -37,8 +37,13 @@ class CompanySize(StrEnum):
 
 
 class LLMBackend(StrEnum):
-    """Selectable LLM backend (ARCHITECTURE.md §7)."""
+    """Selectable LLM backend (ARCHITECTURE.md §7).
 
+    Mirrors the names accepted by ``core.llm.build_backend`` and the CLI
+    ``--backend`` flags; ``fake`` is the deterministic, network-free default (D31).
+    """
+
+    FAKE = "fake"
     ANTHROPIC_API = "anthropic_api"
     BEDROCK = "bedrock"
     CLAUDE_CLI = "claude_cli"

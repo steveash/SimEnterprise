@@ -48,6 +48,22 @@ def test_defaults_applied_for_minimal_config() -> None:
     assert config.model.realism == pytest.approx(0.7)
 
 
+def test_fake_backend_selectable_from_config() -> None:
+    data = _minimal_mapping()
+    data["model"] = {"backend": "fake"}
+    config = load_config_from_mapping(data)
+    assert config.model.backend is LLMBackend.FAKE
+
+
+def test_backend_enum_matches_backend_factory() -> None:
+    # Config files, the CLI --backend choices, and build_backend must accept the
+    # same names; a backend added to one place has to land in the others.
+    from enterprise_sim.core.llm import build_backend
+
+    for backend in LLMBackend:
+        assert build_backend(backend.value).name == backend.value
+
+
 def test_config_is_frozen() -> None:
     config = load_config_from_mapping(_minimal_mapping())
     with pytest.raises(ValidationError):
