@@ -31,6 +31,7 @@ from enterprise_sim.core.llm import (
     build_client,
     cost_of,
     estimate_cost,
+    normalize_model_id,
     request_key,
     verify_references,
 )
@@ -237,6 +238,57 @@ def test_unknown_model_uses_fallback_pricing() -> None:
     usage = TokenUsage(input_tokens=1_000_000)
     # Fallback is non-zero, so accounting never silently zeroes an unknown model.
     assert cost_of(usage, "no-such-model") > 0
+
+
+@pytest.mark.parametrize(
+    ("bedrock_id", "expected"),
+    [
+        # Regional inference profiles (us./eu./apac.).
+        ("us.anthropic.claude-sonnet-4-6-20250929-v1:0", "claude-sonnet-4-6"),
+        ("eu.anthropic.claude-sonnet-4-6-20250929-v1:0", "claude-sonnet-4-6"),
+        ("apac.anthropic.claude-sonnet-4-6-20250929-v1:0", "claude-sonnet-4-6"),
+        # Bare (region-less) Bedrock id.
+        ("anthropic.claude-opus-4-8-20250101-v1:0", "claude-opus-4-8"),
+        # ARN ending in an inference-profile id.
+        (
+            "arn:aws:bedrock:us-east-1:123456789012:inference-profile/"
+            "us.anthropic.claude-sonnet-4-6-20250929-v1:0",
+            "claude-sonnet-4-6",
+        ),
+        # A different dated variant / version bump still peels to the 1P name.
+        ("us.anthropic.claude-3-5-sonnet-20241022-v2:0", "claude-3-5-sonnet"),
+        ("us.anthropic.claude-haiku-4-5-20251001-v1:0", "claude-haiku-4-5"),
+    ],
+)
+def test_normalize_model_id_maps_bedrock_ids(bedrock_id: str, expected: str) -> None:
+    assert normalize_model_id(bedrock_id) == expected
+
+
+@pytest.mark.parametrize(
+    "model",
+    [
+        # 1P ids pass through untouched...
+        "claude-sonnet-4-6",
+        "claude-opus-4-8",
+        # ...as do strings that don't match the Bedrock inference-profile shape.
+        "no-such-model",
+        "anthropic.claude-sonnet-4-6",  # no dated version suffix
+        "gpt-4o",
+    ],
+)
+def test_normalize_model_id_passes_through_non_bedrock(model: str) -> None:
+    assert normalize_model_id(model) == model
+
+
+def test_bedrock_id_prices_identically_to_1p_twin() -> None:
+    # A Bedrock inference-profile id must cost exactly what its 1P twin costs
+    # through the public cost path (D13 ceiling + dry-run estimates).
+    usage = TokenUsage(input_tokens=1_000_000, output_tokens=500_000)
+    bedrock = cost_of(usage, "us.anthropic.claude-sonnet-4-6-20250929-v1:0")
+    onep = cost_of(usage, "claude-sonnet-4-6")
+    assert bedrock == pytest.approx(onep)
+    # And it is *not* silently priced at the unknown-model fallback path.
+    assert cost_of(usage, "claude-opus-4-8") != pytest.approx(onep)
 
 
 def test_client_accumulates_cost() -> None:

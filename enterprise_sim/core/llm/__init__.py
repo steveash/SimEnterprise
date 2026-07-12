@@ -43,6 +43,7 @@ from enterprise_sim.core.llm.pricing import (
     ModelPricing,
     cost_of,
     estimate_cost,
+    normalize_model_id,
     pricing_for,
 )
 from enterprise_sim.core.llm.prompt import (
@@ -93,6 +94,7 @@ __all__ = [
     "cost_of",
     "estimate_cost",
     "estimate_tokens",
+    "normalize_model_id",
     "pricing_for",
     "request_key",
     "verify_references",

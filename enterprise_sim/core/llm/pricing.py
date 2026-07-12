@@ -9,12 +9,35 @@ stale table never silently changes a past run's accounting.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 from enterprise_sim.core.llm.types import TokenUsage
 
 # Default model used when a call does not name one.
 DEFAULT_MODEL = "claude-sonnet-4-6"
+
+# Bedrock exposes Anthropic models under inference-profile ids that wrap the 1P
+# model name in a region prefix ("us."/"eu."/"apac.") and a "-YYYYMMDD-vN:N"
+# release/version suffix, e.g. ``us.anthropic.claude-sonnet-4-6-20250929-v1:0``;
+# ARNs end in that same id. Cost accounting keys on the 1P name, so we peel the
+# id back to it. The model group is non-greedy so it stops at the dated suffix
+# rather than swallowing the ``20250929`` digits, and the ``$`` anchor lets the
+# match cover a bare id, a regional profile, or a trailing-id ARN alike.
+_BEDROCK_MODEL_RE = re.compile(r"anthropic\.(claude-[a-z0-9-]+?)-\d{8}-v\d+:\d+$")
+
+
+def normalize_model_id(model: str) -> str:
+    """Map a Bedrock inference-profile/ARN model id to its 1P pricing key.
+
+    ``us.anthropic.claude-sonnet-4-6-20250929-v1:0`` (or the ARN ending in one)
+    prices identically to the 1P ``claude-sonnet-4-6``; this strips the region
+    prefix and dated version suffix so :func:`pricing_for` finds the right row.
+    A 1P id and any string that does not match the Bedrock shape pass through
+    unchanged, so a genuinely unknown model still falls back exactly as before.
+    """
+    match = _BEDROCK_MODEL_RE.search(model)
+    return match.group(1) if match else model
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,8 +75,12 @@ FALLBACK_PRICING = ModelPricing(3.0, 0.3, 15.0)
 
 
 def pricing_for(model: str, *, table: dict[str, ModelPricing] | None = None) -> ModelPricing:
-    """Return the :class:`ModelPricing` for ``model``, falling back if unknown."""
-    return (table or PRICING).get(model, FALLBACK_PRICING)
+    """Return the :class:`ModelPricing` for ``model``, falling back if unknown.
+
+    ``model`` is normalized first (:func:`normalize_model_id`) so a Bedrock
+    inference-profile id prices identically to its 1P equivalent (D13).
+    """
+    return (table or PRICING).get(normalize_model_id(model), FALLBACK_PRICING)
 
 
 def cost_of(
