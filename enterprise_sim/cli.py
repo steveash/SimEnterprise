@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from enterprise_sim.benchmark.schema import Benchmark
     from enterprise_sim.benchmark.score import Predictions
     from enterprise_sim.core.config import RunConfig
+    from enterprise_sim.core.llm import LLMClient
     from enterprise_sim.core.world import World
 
 
@@ -48,6 +49,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
         config = config.model_copy(update={"output_dir": args.output_dir})
 
     config = _apply_scale_overrides(config, args)
+    client = _resolve_run_client(config, args.backend)
 
     print(
         f"enterprise-sim run: validated config for {config.company.name} "
@@ -62,7 +64,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
         from enterprise_sim.assembly import estimate_run
 
         try:
-            estimate = estimate_run(config)
+            estimate = estimate_run(config, client=client)
         except CostCeilingExceeded as exc:
             print(f"enterprise-sim run: {exc}")
             return 1
@@ -77,7 +79,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
         return 0
 
     try:
-        result = execute_run(config)
+        result = execute_run(config, client=client)
     except CostCeilingExceeded as exc:
         print(f"enterprise-sim run: {exc}")
         return 1
@@ -106,6 +108,37 @@ def _apply_scale_overrides(config: RunConfig, args: argparse.Namespace) -> RunCo
         return config
     scale = config.scale.model_copy(update=updates)
     return config.model_copy(update={"scale": scale})
+
+
+def _resolve_run_client(config: RunConfig, backend: str) -> LLMClient | None:
+    """Resolve the render backend for ``run``, warning when it overrides the config.
+
+    ``run`` renders with the ``--backend`` flag, whose default is the deterministic,
+    network-free ``fake`` backend — a real provider is always an explicit opt-in
+    (the determinism invariant; ``_DEFAULT_BACKEND`` in ``assembly/runner``). The
+    config's ``[model].backend`` does *not* drive ``run`` implicitly (open question
+    in specs/0001-bedrock-first-class.md); so when the config *names* a real backend
+    the flag then ignores — either overridden by a different real flag, or (the
+    historical silent surprise this fixes) left rendering with ``fake`` — a one-line
+    warning goes to stderr so the config stays meaningful.
+
+    Returns the LLM client the producers render against, or ``None`` for the default
+    ``fake`` backend so that path stays byte-identical to a run with no client wired.
+    """
+    from enterprise_sim.assembly import llm_config_for
+    from enterprise_sim.core.llm import build_client
+
+    config_backend = config.model.backend.value
+    named_in_config = "backend" in config.model.model_fields_set
+    if named_in_config and config_backend != "fake" and config_backend != backend:
+        print(
+            f"enterprise-sim run: config [model].backend={config_backend!r} is ignored; "
+            f"rendering with --backend {backend!r}",
+            file=sys.stderr,
+        )
+    if backend == "fake":
+        return None
+    return build_client(llm_config_for(config, backend=backend))
 
 
 def _cmd_lint(args: argparse.Namespace) -> int:
@@ -1680,6 +1713,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--dry-run",
         action="store_true",
         help="estimate artifact count + cost and exit without rendering (D13)",
+    )
+    run_parser.add_argument(
+        "--backend",
+        default="fake",
+        choices=["fake", "anthropic_api", "bedrock", "claude_cli"],
+        help="LLM backend to render with (default: fake, the deterministic offline backend)",
     )
     run_parser.add_argument(
         "--max-concurrency",

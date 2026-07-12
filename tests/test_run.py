@@ -290,3 +290,82 @@ def test_cli_run_writes_outputs(tmp_path: Path) -> None:
 
 def test_cli_run_requires_config() -> None:
     assert main(["run"]) == 2
+
+
+def _write_config(path: Path, *, backend: str | None = None) -> None:
+    """Write a minimal, keyless run config, optionally naming a ``[model].backend``."""
+    model = f'[model]\nbackend = "{backend}"\n' if backend is not None else ""
+    path.write_text(
+        "seed = 3\n"
+        '[company]\nname = "Acme"\nvertical = "software"\nsize = "small"\n'
+        "[simulation]\nperiod_start = 2026-01-01\nperiod_end = 2026-01-31\n" + model,
+        encoding="utf-8",
+    )
+
+
+def test_cli_run_default_backend_is_fake_and_silent(tmp_path: Path, capsys: Any) -> None:
+    # Default `run` (no --backend, config names no backend) renders with the
+    # deterministic fake backend and emits no ignored-backend warning.
+    cfg_path = tmp_path / "demo.toml"
+    _write_config(cfg_path)
+    assert main(["run", "-c", str(cfg_path), "-o", str(tmp_path / "out")]) == 0
+    assert "is ignored" not in capsys.readouterr().err
+
+
+def test_cli_run_warns_when_config_backend_ignored_by_fake(tmp_path: Path, capsys: Any) -> None:
+    # The historical silent surprise: a config naming a real backend, run with the
+    # defaulted fake flag, now warns (once) that it renders with fake.
+    cfg_path = tmp_path / "demo.toml"
+    _write_config(cfg_path, backend="bedrock")
+    assert main(["run", "-c", str(cfg_path), "-o", str(tmp_path / "out")]) == 0
+    err = capsys.readouterr().err
+    assert "[model].backend='bedrock' is ignored" in err
+    assert "--backend 'fake'" in err
+
+
+def test_cli_run_warns_when_flag_contradicts_config_backend(tmp_path: Path, capsys: Any) -> None:
+    # A real flag that contradicts a different real config backend warns and uses
+    # the flag; the dry-run keeps this keyless (no SDK client, no creds).
+    cfg_path = tmp_path / "demo.toml"
+    _write_config(cfg_path, backend="bedrock")
+    assert (
+        main(
+            [
+                "run",
+                "-c",
+                str(cfg_path),
+                "-o",
+                str(tmp_path / "out"),
+                "--dry-run",
+                "--backend",
+                "anthropic_api",
+            ]
+        )
+        == 0
+    )
+    err = capsys.readouterr().err
+    assert "[model].backend='bedrock' is ignored" in err
+    assert "--backend 'anthropic_api'" in err
+
+
+def test_cli_run_bedrock_dry_run_is_keyless(tmp_path: Path, capsys: Any) -> None:
+    # A bedrock dry-run must succeed with no AWS creds: client construction is lazy,
+    # so pricing the render never builds an SDK client.
+    cfg_path = tmp_path / "demo.toml"
+    _write_config(cfg_path)
+    assert (
+        main(
+            [
+                "run",
+                "-c",
+                str(cfg_path),
+                "-o",
+                str(tmp_path / "out"),
+                "--backend",
+                "bedrock",
+                "--dry-run",
+            ]
+        )
+        == 0
+    )
+    assert "dry-run" in capsys.readouterr().out
