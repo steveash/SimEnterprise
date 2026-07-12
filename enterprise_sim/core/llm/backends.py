@@ -215,12 +215,12 @@ class _AnthropicSDKBackend:
     def _make_client(self) -> Any:  # pragma: no cover - requires the SDK
         raise NotImplementedError
 
-    def _client_or_create(self) -> Any:  # pragma: no cover - requires the SDK
+    def _client_or_create(self) -> Any:
         if self._client is None:
             self._client = self._make_client()
         return self._client
 
-    def _system_blocks(self, prompt: Prompt) -> list[dict[str, Any]]:  # pragma: no cover
+    def _system_blocks(self, prompt: Prompt) -> list[dict[str, Any]]:
         """System blocks with ``cache_control`` on each cacheable layer (§16.1)."""
         blocks: list[dict[str, Any]] = []
         for layer in prompt.system_layers:
@@ -230,7 +230,7 @@ class _AnthropicSDKBackend:
             blocks.append(block)
         return blocks
 
-    def _messages(self, prompt: Prompt) -> list[dict[str, Any]]:  # pragma: no cover
+    def _messages(self, prompt: Prompt) -> list[dict[str, Any]]:
         return [{"role": "user", "content": prompt.user_text}]
 
     def _call_tool(
@@ -241,7 +241,7 @@ class _AnthropicSDKBackend:
         model: str,
         temperature: float,
         tool_name: str,
-    ) -> tuple[dict[str, Any], TokenUsage]:  # pragma: no cover - requires the SDK
+    ) -> tuple[dict[str, Any], TokenUsage]:
         client = self._client_or_create()
         try:
             response = client.messages.create(
@@ -273,7 +273,7 @@ class _AnthropicSDKBackend:
         schema: Mapping[str, Any],
         model: str,
         temperature: float,
-    ) -> Completion:  # pragma: no cover - requires the SDK
+    ) -> Completion:
         data, usage = self._call_tool(
             prompt,
             schema=schema,
@@ -295,7 +295,7 @@ class _AnthropicSDKBackend:
         candidate_references: Sequence[str],
         model: str,
         temperature: float,
-    ) -> Completion:  # pragma: no cover - requires the SDK
+    ) -> Completion:
         data, usage = self._call_tool(
             prompt,
             schema=_CONTENT_ENVELOPE_SCHEMA,
@@ -473,7 +473,7 @@ def _extract_json_object(raw: str) -> dict[str, Any]:  # pragma: no cover - need
     raise LLMError("could not extract a JSON object from claude CLI output")
 
 
-def _normalize_sdk_error(exc: Exception) -> LLMError:  # pragma: no cover - requires the SDK
+def _normalize_sdk_error(exc: Exception) -> LLMError:
     """Map an SDK exception to our hierarchy, extracting ``Retry-After`` when present.
 
     Rate limits (429) and server errors (5xx) become :class:`TransientLLMError`
@@ -488,7 +488,7 @@ def _normalize_sdk_error(exc: Exception) -> LLMError:  # pragma: no cover - requ
     return LLMError(str(exc))
 
 
-def _retry_after_from(exc: Exception) -> float | None:  # pragma: no cover - requires the SDK
+def _retry_after_from(exc: Exception) -> float | None:
     headers = getattr(getattr(exc, "response", None), "headers", None)
     if not headers:
         return None
