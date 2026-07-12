@@ -23,6 +23,10 @@ to pick up work lives here.
    command someone else can run (a test, the golden run, an eval script) — not when the
    code merely exists.
 
+Model routing: specs are authored by the `spec-architect` agent, slices by `implementer`,
+and reviews by `quick-reviewer`/`adversary` — see "Model policy" in
+[`CLAUDE.md`](../CLAUDE.md) for the mapping and the adversarial-review triggers.
+
 ## Spec statuses
 
 `draft` → `approved` → `in-progress` → `done` (or `parked` with a one-line reason).

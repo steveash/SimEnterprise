@@ -97,6 +97,27 @@ code point here). Subsystem docs: `docs/GOLDEN_RUN.md`, `docs/BENCHMARK.md`,
    same PR. Acceptance = the spec's criteria demonstrably hold (tests or a reproducible
    command, like the golden run).
 
+## Model policy (cost routing)
+
+Committed agent definitions in `.claude/agents/` pin each stage of the workflow to the
+cheapest model that does the job well; use them instead of doing everything in the main
+session's model. Agent prompts are deltas — custom subagents load this file automatically,
+so their definitions state only the role-specific rules, never restate these invariants.
+
+| Stage | Agent | Model |
+|---|---|---|
+| Epic decomposition, spec authoring, hard design calls | `spec-architect` | Fable (high effort) |
+| Implementing an approved spec slice | `implementer` | Opus |
+| Routine diff review (docs, tests, plugin-level code) | `quick-reviewer` | Sonnet |
+| Adversarial review of high-stakes diffs | `adversary` | Fable (high effort) |
+
+Adversarial review is trigger-based, not periodic. Route a diff to `adversary` (and skip
+`quick-reviewer`) when it touches: `enterprise_sim/core/**`, benchmark/fidelity scoring or
+gold-KG export, the golden-run pin, determinism (seeding/time/randomness/concurrency), the
+keyless-gate dependency boundary — or when a slice grew well beyond its spec. Everything
+else gets the Sonnet review; the deterministic gate does the rest. Bulk
+exploration/search belongs in cheap subagents (Explore/haiku), never in a Fable context.
+
 ## Keyed vs keyless
 
 Two dependency extras: `dev` (everything for the keyless gate, including embedded
