@@ -16,6 +16,7 @@ from typing import Any
 
 import pytest
 from enterprise_sim.core.llm import (
+    BedrockBackend,
     Completion,
     CostCeilingExceeded,
     FakeBackend,
@@ -26,6 +27,7 @@ from enterprise_sim.core.llm import (
     TokenUsage,
     TransientLLMError,
     assemble_prompt,
+    build_backend,
     build_client,
     cost_of,
     estimate_cost,
@@ -498,3 +500,57 @@ def test_build_client_defaults_to_fake() -> None:
 def test_unknown_backend_raises() -> None:
     with pytest.raises(ValueError, match="unknown LLM backend"):
         build_client(LLMConfig(backend="nope"))
+
+
+# ---------------------------------------------------------------------------
+# Bedrock region/profile config surface (spec 0001, slice 2)
+# ---------------------------------------------------------------------------
+
+
+def test_llm_config_defaults_leave_fake_backend_unchanged() -> None:
+    # The new bedrock-only fields default to None and never touch other backends:
+    # a default fake client builds and stores no region/profile.
+    config = LLMConfig()
+    assert config.aws_region is None
+    assert config.aws_profile is None
+    client = build_client(config)
+    assert client.config.backend == "fake"
+
+
+def test_bedrock_backend_stores_region_and_profile() -> None:
+    # Kwargs are stored on the backend; SDK client creation stays lazy, so this
+    # constructs without importing anthropic or touching AWS.
+    backend = BedrockBackend(aws_region="eu-west-1", aws_profile="sim")
+    assert backend._aws_region == "eu-west-1"
+    assert backend._aws_profile == "sim"
+
+
+def test_bedrock_backend_defaults_are_none() -> None:
+    backend = BedrockBackend()
+    assert backend._aws_region is None
+    assert backend._aws_profile is None
+
+
+def test_build_backend_threads_bedrock_region_and_profile() -> None:
+    backend = build_backend("bedrock", aws_region="us-west-2", aws_profile="dev")
+    assert isinstance(backend, BedrockBackend)
+    assert backend._aws_region == "us-west-2"
+    assert backend._aws_profile == "dev"
+
+
+def test_bedrock_config_threads_region_and_profile_into_backend() -> None:
+    # from_config projects the LLMConfig's bedrock fields onto the backend it builds.
+    config = LLMConfig(backend="bedrock", aws_region="ap-southeast-2", aws_profile="prod")
+    client = LLMClient.from_config(config)
+    backend = client._backend
+    assert isinstance(backend, BedrockBackend)
+    assert backend._aws_region == "ap-southeast-2"
+    assert backend._aws_profile == "prod"
+
+
+def test_non_bedrock_backend_ignores_region_and_profile() -> None:
+    # The region/profile are scoped to bedrock; a fake config carrying them (however
+    # nonsensical) must not forward unexpected kwargs to a non-bedrock backend.
+    config = LLMConfig(backend="fake", aws_region="us-east-1", aws_profile="x")
+    client = LLMClient.from_config(config)
+    assert isinstance(client._backend, FakeBackend)

@@ -55,6 +55,28 @@ def test_fake_backend_selectable_from_config() -> None:
     assert config.model.backend is LLMBackend.FAKE
 
 
+def test_model_aws_region_profile_default_none() -> None:
+    config = load_config_from_mapping(_minimal_mapping())
+    assert config.model.aws_region is None
+    assert config.model.aws_profile is None
+
+
+def test_model_aws_region_profile_round_trip_to_llm_config() -> None:
+    # A [model] block with Bedrock overrides must carry through llm_config_for onto
+    # the LLMConfig the client is built from (spec 0001, slice 2).
+    from enterprise_sim.assembly.runner import llm_config_for
+
+    data = _minimal_mapping()
+    data["model"] = {"backend": "bedrock", "aws_region": "us-west-2", "aws_profile": "sim"}
+    config = load_config_from_mapping(data)
+    assert config.model.aws_region == "us-west-2"
+    assert config.model.aws_profile == "sim"
+
+    llm_config = llm_config_for(config, backend="bedrock")
+    assert llm_config.aws_region == "us-west-2"
+    assert llm_config.aws_profile == "sim"
+
+
 def test_backend_enum_matches_backend_factory() -> None:
     # Config files, the CLI --backend choices, and build_backend must accept the
     # same names; a backend added to one place has to land in the others.

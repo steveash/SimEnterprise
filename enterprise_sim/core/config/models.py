@@ -111,6 +111,14 @@ class ModelConfig(_Frozen):
         le=1.0,
         description="Realism/cost dial in [0,1]; higher trades cost for fidelity.",
     )
+    aws_region: str | None = Field(
+        default=None,
+        description="Bedrock backend only: AWS region; unset defers to the AWS env.",
+    )
+    aws_profile: str | None = Field(
+        default=None,
+        description="Bedrock backend only: AWS named profile; unset defers to the AWS env.",
+    )
 
 
 class ScaleConfig(_Frozen):

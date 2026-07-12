@@ -97,6 +97,27 @@ class LLMConfig:
     cost_ceiling_usd: float | None = None
     cache_dir: str | None = None
     cache_enabled: bool = True
+    # Bedrock-only backend overrides; ``None`` preserves ambient-AWS-env behavior
+    # and is threaded into the backend only when the ``bedrock`` backend is built.
+    aws_region: str | None = None
+    aws_profile: str | None = None
+
+
+def _config_backend_kwargs(config: LLMConfig) -> dict[str, Any]:
+    """Backend-construction kwargs derived from ``config``, scoped per backend.
+
+    Only ``bedrock`` accepts ``aws_region``/``aws_profile``; other backends must
+    not receive these keys (they would be unexpected kwargs), so they are threaded
+    in solely for that backend and only when actually set (§7).
+    """
+    if config.backend == "bedrock":
+        kwargs: dict[str, Any] = {}
+        if config.aws_region is not None:
+            kwargs["aws_region"] = config.aws_region
+        if config.aws_profile is not None:
+            kwargs["aws_profile"] = config.aws_profile
+        return kwargs
+    return {}
 
 
 class LLMClient:
@@ -132,7 +153,11 @@ class LLMClient:
         **backend_kwargs: Any,
     ) -> LLMClient:
         """Build a client (and its backend) from an :class:`LLMConfig`."""
-        backend = build_backend(config.backend, **backend_kwargs)
+        # Config-derived kwargs apply per backend (only ``bedrock`` takes region/
+        # profile); explicit ``backend_kwargs`` win so callers can still override.
+        backend = build_backend(
+            config.backend, **{**_config_backend_kwargs(config), **backend_kwargs}
+        )
         cache = ResponseCache(config.cache_dir, enabled=config.cache_enabled)
         cost = CostTracker(pricing_table=pricing_table)
         return cls(

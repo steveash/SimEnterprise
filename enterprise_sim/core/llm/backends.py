@@ -327,15 +327,39 @@ class AnthropicAPIBackend(_AnthropicSDKBackend):
 
 
 class BedrockBackend(_AnthropicSDKBackend):
-    """Same official SDK via ``AnthropicBedrock`` (§7) — one dependency, two constructors."""
+    """Same official SDK via ``AnthropicBedrock`` (§7) — one dependency, two constructors.
+
+    ``aws_region``/``aws_profile`` are optional overrides for the constructor; left
+    unset (the default) they preserve today's ambient behavior — region and creds
+    come from the AWS environment. Non-None values are passed straight through to
+    ``AnthropicBedrock(...)``, which accepts exactly these kwargs.
+    """
 
     name = "bedrock"
+
+    def __init__(
+        self,
+        *,
+        aws_region: str | None = None,
+        aws_profile: str | None = None,
+        max_tokens: int = 4096,
+    ) -> None:
+        super().__init__(max_tokens=max_tokens)
+        self._aws_region = aws_region
+        self._aws_profile = aws_profile
 
     def _make_client(self) -> Any:  # pragma: no cover - requires the SDK
         import importlib
 
         anthropic = importlib.import_module("anthropic")
-        return anthropic.AnthropicBedrock()
+        # Pass only the overrides that were set, so an unset field defers to the
+        # SDK's ambient-AWS-env resolution rather than pinning it to ``None``.
+        kwargs: dict[str, Any] = {}
+        if self._aws_region is not None:
+            kwargs["aws_region"] = self._aws_region
+        if self._aws_profile is not None:
+            kwargs["aws_profile"] = self._aws_profile
+        return anthropic.AnthropicBedrock(**kwargs)
 
 
 class ClaudeCLIBackend:

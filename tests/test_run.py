@@ -237,6 +237,23 @@ def test_digest_excludes_output_dir(tmp_path: Path) -> None:
     assert compute_run_id(here) == compute_run_id(there)
 
 
+def test_digest_excludes_bedrock_region_and_profile(tmp_path: Path) -> None:
+    # Bedrock routing (region/profile) selects where creds/endpoint resolve, not
+    # what is generated, so it must not change run identity (spec 0001, slice 2).
+    plain = _config(tmp_path)
+    routed = load_config_from_mapping(
+        {
+            "company": {"name": "Acme Corp", "vertical": "software", "size": "small"},
+            "simulation": {"period_start": "2026-01-01", "period_end": "2026-01-31"},
+            "seed": 7,
+            "output_dir": str(tmp_path),
+            "model": {"aws_region": "us-west-2", "aws_profile": "sim"},
+        }
+    )
+    assert compute_config_digest(plain) == compute_config_digest(routed)
+    assert compute_run_id(plain) == compute_run_id(routed)
+
+
 def test_generated_at_is_the_only_volatile_field(tmp_path: Path) -> None:
     config = _config(tmp_path)
     m1 = build_manifest(config, generated_at="2026-06-22T00:00:00+00:00")

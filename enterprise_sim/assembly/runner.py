@@ -96,6 +96,8 @@ def llm_config_for(config: RunConfig, *, backend: str = _DEFAULT_BACKEND) -> LLM
         cost_ceiling_usd=scale.cost_ceiling_usd,
         cache_dir=scale.cache_dir,
         cache_enabled=scale.cache_enabled,
+        aws_region=config.model.aws_region,
+        aws_profile=config.model.aws_profile,
     )
 
 
@@ -127,10 +129,17 @@ def compute_config_digest(config: RunConfig) -> str:
     * ``scale`` — concurrency, cost ceiling, and cache settings. The corpus is
       identical regardless of these (concurrency is bounded but deterministic,
       D26), so two runs that differ only in scale share an id and manifest.
+    * ``model.aws_region`` / ``model.aws_profile`` — Bedrock routing: which region
+      and AWS profile resolve creds/endpoint, not *what* is generated. The corpus
+      is identical regardless, so like ``scale`` they never change run identity.
     """
     payload = _canonical_config(config)
     payload.pop("output_dir", None)
     payload.pop("scale", None)
+    model_payload = payload.get("model")
+    if isinstance(model_payload, dict):
+        model_payload.pop("aws_region", None)
+        model_payload.pop("aws_profile", None)
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
