@@ -44,25 +44,32 @@ Acceptance shape: a documented `AWS_*`-only quickstart, keyless unit coverage of
 Bedrock request path (mock transport), import smoke covering `AnthropicBedrock`, and a
 cred-gated live smoke.
 
-## E2 — Local testing hardening: backend contract + record/replay (P0)
+## E2 — Local testing hardening: backend contract + record/replay (P0) — `specs/0002-local-testing-hardening.md`
+
+**Status: spec'd (approved)** — see the spec for the slice plan. Note the overlap with
+spec 0001, which already delivered part of this epic: the shared `_AnthropicSDKBackend`
+request path has keyless stubbed-client coverage (`tests/test_llm_sdk_path.py`; the
+original "entire request path is `pragma: no cover`" claim here is stale),
+`scripts/import_smoke.py` pins the SDK's `Messages.create` signature, and config/CLI/
+`build_backend` lockstep is enforced (`test_backend_enum_matches_backend_factory`,
+plus the `ModelConfig.backend = "fake"` default fix).
 
 Make the real-LLM paths testable without a key, so regressions in prompt assembly,
-tool-forced structured output, error normalization, and retry/cost handling are caught by
-the keyless gate instead of a live run.
+tool-forced structured output, error normalization, and answer parsing/resolution are
+caught by the keyless gate instead of a live run. Remaining work, designed in the spec:
 
-- **Backend contract suite**: one parametrized test suite asserting the `Backend` protocol
-  semantics (structured output conforms to schema, envelope parsing, transient-vs-terminal
-  error mapping, usage accounting) that runs against `fake` keylessly and against
-  `anthropic_api`/`bedrock` via a mocked SDK transport — today the entire
-  `_AnthropicSDKBackend` request path is `pragma: no cover`.
-- **Record/replay fixtures ("cassettes")**: capture real SDK responses once (keyed), replay
-  them keyless in CI, so `reconstruct extract/resolve` and the RAG runner get true
-  regression tests rather than skips. Determinism invariant (D31) preserved: replay is
-  offline and byte-stable.
-- **Coverage visibility**: add coverage reporting to the gate (report-only first, then a
-  floor) so untested-but-live code like the SDK path is visible instead of invisible.
-- **Config/CLI consistency**: `ModelConfig.backend` now accepts `fake` (fixed alongside
-  this roadmap); keep config, CLI choices, and `build_backend` in lockstep with a test.
+- **Backend contract suite**: one parametrized suite asserting `Backend`-protocol
+  semantics across *all four* backends (`fake` real; SDK pair stubbed; `claude_cli` via a
+  seam stub), with a completeness pin so a future backend must join it — the honest delta
+  over `test_llm_sdk_path.py`, which stays as the SDK-specific request-shape pin.
+- **Record/replay fixtures ("cassettes")**: capture real responses once (keyed, manual),
+  replay them keyless in CI, so `reconstruct extract/resolve` and the RAG answer path get
+  true regression tests rather than skips. Built on the existing `ResponseCache` (D31) —
+  no new recording dependency; replay is offline and byte-stable, and cassettes use frozen
+  literal fixtures so the golden-run pin never invalidates them.
+- **Coverage visibility**: coverage reporting in `scripts/gate.sh` via pytest-cov
+  (one-line report first, then a floor) so untested-but-live code is visible; the gate's
+  ~20s budget holds.
 
 ## E3 — End-to-end eval hardening (P0)
 
