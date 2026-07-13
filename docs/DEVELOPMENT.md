@@ -50,8 +50,55 @@ Keyed tests skip automatically when the key is absent; keep it that way for new 
 imported dependency must be added to `scripts/import_smoke.py`, which CI runs so an
 undeclared runtime dep fails the build instead of a live run.
 
-Amazon Bedrock is not yet usable end-to-end — see `specs/0001-bedrock-first-class.md`
-for status and the gap list before attempting it.
+### Amazon Bedrock
+
+Every real-LLM path also runs against Amazon Bedrock with only AWS credentials — no
+`ANTHROPIC_API_KEY` (spec `specs/0001-bedrock-first-class.md`). Requirements:
+
+```bash
+uv sync --extra bench           # pulls anthropic[bedrock] (boto3/botocore signing)
+export AWS_REGION=us-east-1     # plus your usual AWS creds: keys, AWS_PROFILE, or SSO
+```
+
+Region and profile can also be set per run in the `[model]` config block
+(`aws_region` / `aws_profile`); when unset, the ambient AWS environment decides.
+
+**Model ids must be inference-profile form.** Bedrock addresses models by dated,
+region-scoped inference-profile id (e.g. `us.anthropic.claude-sonnet-4-6-20250929-v1:0`),
+not the 1P name (`claude-sonnet-4-6`). Passing a 1P id under `--backend bedrock` **fails
+fast** at client build (before any live call, dry-run included) with the exact shape to
+set — the build never silently sends an unaddressable id (finding F2).
+
+**Pricing.** The cost ceiling and dry-run estimate (D13) work with Bedrock ids: they are
+normalized to their 1P pricing key for lookup. An id that resolves to no pricing row (a
+fresh family, or opus behind a custom app-inference-profile ARN) falls back to the default
+rate and emits a one-time `warnings.warn` so the degradation is visible, not silent (F5).
+
+Bedrock-enabled entry points:
+
+```bash
+uv run enterprise-sim run examples/demo.toml --backend bedrock      # corpus generation
+uv run enterprise-sim reconstruct build --backend bedrock -o DIR    # extract/resolve
+uv run enterprise-sim reconstruct reason --use-bedrock              # graph-agent (SDK)
+uv run enterprise-sim bench run --runner graph --use-bedrock ...    # graph-agent runner
+uv run enterprise-sim bench run --runner rag --backend bedrock ...  # RAG runner
+```
+
+The `--use-bedrock` runners route the `claude-agent-sdk` subprocess to Bedrock via
+`CLAUDE_CODE_USE_BEDROCK=1` + `AWS_REGION` (add `--aws-region` to override); the same env
+var makes the `claude_cli` backend use Bedrock, which is documented rather than wrapped in
+dedicated plumbing.
+
+Validate a live account with the cred-gated smoke (skips cleanly with no AWS creds, so
+it is safe to run anywhere; never run by CI):
+
+```bash
+uv run python scripts/bedrock_smoke.py   # BEDROCK_SMOKE_MODEL overrides the default id
+```
+
+Not yet covered: `reconstruct sweep --models` still defaults to 1P model ids (pass Bedrock
+ids explicitly to sweep on Bedrock), and there is no live Bedrock CI job — the smoke is the
+manual gate.
 
 One-command end-to-end eval (build → fidelity → reason → attribution report):
 

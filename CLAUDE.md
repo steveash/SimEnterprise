@@ -124,5 +124,7 @@ Two dependency extras: `dev` (everything for the keyless gate, including embedde
 kuzu/pyoxigraph query engines) and `bench` (the real-LLM runtime: `anthropic` SDK +
 `claude-agent-sdk`). The keyless gate must never require `bench`, a key, or the network.
 Live paths (`--backend anthropic_api`, `bench run`, `reconstruct build/reason`) need
-`--extra bench` plus `ANTHROPIC_API_KEY`. Bedrock support exists at the backend layer but
-is not yet end-to-end — see `specs/0001-bedrock-first-class.md` before touching it.
+`--extra bench` plus `ANTHROPIC_API_KEY`. Amazon Bedrock is wired end-to-end (the
+`bedrock` backend, `run --backend bedrock`, the `--use-bedrock` runners) and needs
+`--extra bench` plus AWS creds instead of a 1P key; model ids must be inference-profile
+form (a 1P id fails fast at build) — see `specs/0001-bedrock-first-class.md`.

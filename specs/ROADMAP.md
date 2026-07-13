@@ -14,7 +14,11 @@ strong enough that new features (office formats, new modalities, scale) land saf
 
 ## E1 — First-class Amazon Bedrock support (P0) — `specs/0001-bedrock-first-class.md`
 
-**Status: in-progress (spec written)**
+**Status: done (live validation pending AWS creds)** — Bedrock is wired end-to-end across
+every LLM-touching surface (backend deps, `run --backend bedrock`, model-id/pricing
+mapping, region/profile config, keyless request-path tests, `--use-bedrock` runners, docs);
+`scripts/bedrock_smoke.py` is the cred-gated live validation command. See the spec's
+acceptance criteria for the live-run items still pending an AWS account.
 
 Run every LLM-touching path — corpus generation, `eval --judge`, `bench run`,
 `reconstruct build/reason`, and the graph-agent runner — against Amazon Bedrock with only

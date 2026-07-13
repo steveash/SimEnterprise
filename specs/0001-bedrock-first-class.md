@@ -1,6 +1,6 @@
 # 0001 — First-class Amazon Bedrock support
 
-Status: approved
+Status: done (live validation pending AWS creds)
 Epic: ROADMAP E1
 Owner: unclaimed
 
@@ -103,20 +103,26 @@ LLM layer, which is core infrastructure — allowed); golden-run pin unaffected.
 
 ## Acceptance criteria
 
-- [ ] `uv sync --extra bench && uv run python scripts/import_smoke.py` constructs the
-      Bedrock backend (fails today).
-- [ ] With only AWS creds (no `ANTHROPIC_API_KEY`) and a Bedrock-form `[model].name`
+- [x] `uv sync --extra bench && uv run python scripts/import_smoke.py` constructs the
+      Bedrock backend (fails today). *(slice 1: smoke now `build_client`s the `bedrock`
+      backend and imports `AnthropicBedrock` + the boto3 signing stack.)*
+- [~] With only AWS creds (no `ANTHROPIC_API_KEY`) and a Bedrock-form `[model].name`
       (`us.anthropic.claude-<family>-<YYYYMMDD>-v1:0`): `enterprise-sim run … --backend
       bedrock` produces a corpus; cost accounting shows non-zero, correctly priced usage
       for the Bedrock model id. A 1P model id under `--backend bedrock` instead **fails
       fast** at client build (dry-run included) with the inference-profile shape to set
       (finding F2) — it does not reach a live call.
-- [ ] `bench run --runner rag --backend bedrock` and `reconstruct build --backend bedrock`
+      *Implemented (slices 3–4); the fail-fast half is keyless-tested, the live-corpus half
+      is pending-live-validation — `scripts/bedrock_smoke.py` is the validation command.*
+- [~] `bench run --runner rag --backend bedrock` and `reconstruct build --backend bedrock`
       work; graph-agent runner documented Bedrock mode works or has a spec'd follow-up.
-- [ ] Keyless gate covers the shared SDK request path (no blanket `pragma: no cover` on
-      `_call_tool` / error normalization / usage mapping).
-- [ ] README + docs/DEVELOPMENT.md contain a copy-pasteable Bedrock quickstart.
-- [ ] `./scripts/gate.sh` green on every commit; no new network in default paths.
+      *Wired (slice 6: RAG/`reconstruct` via `--backend`, graph-agent via `--use-bedrock`);
+      live behavior pending-live-validation — validate with `scripts/bedrock_smoke.py`.*
+- [x] Keyless gate covers the shared SDK request path (no blanket `pragma: no cover` on
+      `_call_tool` / error normalization / usage mapping). *(slice 5: stubbed-client tests.)*
+- [x] README + docs/DEVELOPMENT.md contain a copy-pasteable Bedrock quickstart.
+      *(slice 7: README Quickstart sub-block + docs/DEVELOPMENT.md Bedrock section.)*
+- [x] `./scripts/gate.sh` green on every commit; no new network in default paths.
 
 ## Review findings & resolutions
 
@@ -171,11 +177,16 @@ Resolved in fix round B:
   constant used at all six `--backend` argparse sites; `test_backend_enum_matches_backend_factory`
   asserts it equals the `LLMBackend` values, so the "must match" comment is enforced.
 
-## Open questions
+## Open questions (resolved)
 
-- One `bench` extra vs a separate `bedrock` extra (boto3 is heavy)? Lean: fold into
-  `bench` — it's already "the real-LLM runtime" and one extra is simpler than a matrix.
-- Should `[model].backend` ever drive `run` implicitly? Lean: no — explicit `--backend`
-  only, keep keyless-by-default; revisit if config-driven automation needs it.
-- `claude_cli` backend on Bedrock (`CLAUDE_CODE_USE_BEDROCK` for the CLI) — free win or
-  scope creep? Lean: document the env var, don't build plumbing.
+- One `bench` extra vs a separate `bedrock` extra (boto3 is heavy)? **Decided: single
+  `bench` extra.** `anthropic[bedrock]` folds into the existing real-LLM runtime extra
+  (slice 1); no separate `bedrock` extra, no dependency matrix.
+- Should `[model].backend` ever drive `run` implicitly? **Decided: no.** `run` renders with
+  `fake` unless an explicit `--backend` flag opts in (slice 4); `[model].backend` only
+  informs the mismatch warning, it never selects the render backend, so keyless-by-default
+  and determinism (D31) hold.
+- `claude_cli` backend on Bedrock (`CLAUDE_CODE_USE_BEDROCK` for the CLI)? **Decided:
+  documented only, no plumbing.** The env var is described in `docs/DEVELOPMENT.md`
+  (Amazon Bedrock section) as the way to point the `claude_cli` backend at Bedrock; no
+  dedicated flag was built.
