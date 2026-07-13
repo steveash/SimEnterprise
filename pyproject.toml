@@ -99,3 +99,8 @@ source = ["enterprise_sim"]
 [tool.coverage.report]
 precision = 1
 show_missing = false
+# Floor = observed keyless baseline (94% total, spec 0002 slice 6) minus one point of
+# slack for refactor noise. `coverage report` exits non-zero below this, failing the
+# gate. Keyed tests are `pragma: no cover` and additive, so keyed envs can only raise
+# coverage — the floor never flakes keyless-vs-keyed. Raise it as coverage climbs.
+fail_under = 93

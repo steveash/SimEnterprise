@@ -25,5 +25,9 @@ echo "== mypy (strict) =="; uv run mypy
 # Python 3.12's sys.monitoring core for near-zero overhead. Identical in both modes —
 # CI visibility is the point. The `coverage report` call enforces fail_under (slice 6).
 echo "== pytest (+coverage) =="; COVERAGE_CORE=sysmon uv run pytest --cov --cov-report=
-echo "coverage: $(uv run coverage report --format=total)% total (run 'make coverage' for per-file detail)"
+# Assignment (not `echo "$(...)"`) so `coverage report`'s non-zero exit on a fail_under
+# breach propagates under `set -e` and fails the gate; a bare echo-substitution would
+# swallow it (spec 0002 slice 6, [tool.coverage.report] fail_under).
+coverage_total=$(uv run coverage report --format=total)
+echo "coverage: ${coverage_total}% total (run 'make coverage' for per-file detail)"
 echo "gate: OK"
