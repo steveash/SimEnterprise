@@ -18,11 +18,13 @@ The self-tests here prove the infrastructure keyless and offline, using the dete
   recording, and record mode without a key skips with a clear message;
 * the record-time redaction scan flags a credential-shaped secret.
 
-The frozen extract/resolve scenario replays land here in slice 3; the RAG scenario lands
-in slice 4. Every scenario uses **frozen-literal** inputs (never the golden-run fixture),
-so a golden-pin change can neither read nor invalidate a cassette. Until an owner records
-them (keyed), the scenario tests skip via :func:`~tests.llm_stubs.require_cassette`; once
-``tests/cassettes/{extract,resolve}/`` are committed they replay strictly and offline.
+The frozen extract/resolve scenario replays landed in slice 3; the RAG mini-corpus
+scenario (``RagRunner.answer`` over a literal corpus, retrieve → answer → resolve) lands
+here in slice 4. Every scenario uses **frozen-literal** inputs (never the golden-run
+fixture), so a golden-pin change can neither read nor invalidate a cassette. Until an
+owner records them (keyed), the scenario tests skip via
+:func:`~tests.llm_stubs.require_cassette`; once ``tests/cassettes/{extract,resolve,rag}/``
+are committed they replay strictly and offline.
 """
 
 from __future__ import annotations
@@ -31,6 +33,9 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from enterprise_sim.benchmark.runners.rag import AliasResolver, BM25Index, RagRunner
+from enterprise_sim.benchmark.runners.rag import Chunk as RagChunk
+from enterprise_sim.benchmark.schema import QAPair
 from enterprise_sim.core.llm.client import LLMConfig, build_client
 from enterprise_sim.core.llm.prompt import Prompt, PromptLayer
 from enterprise_sim.core.llm.types import LLMError
@@ -351,3 +356,100 @@ def test_adjudicate_pair_distinct_replay() -> None:
 
     if recording_enabled():
         scan_cassette_for_secrets(_RESOLVE_DIR)
+
+
+# ---------------------------------------------------------------------------
+# Frozen mini-corpus RAG replay (spec 0002 §1, slice 4): RagRunner.answer
+# ---------------------------------------------------------------------------
+#
+# The RAG scenario builds a :class:`~enterprise_sim.benchmark.runners.rag.RagRunner`
+# directly from a handful of literal :class:`RagChunk`\\ s (``BM25Index.build``) and a
+# literal alias map (``AliasResolver.of``) — *not* the golden-run fixture
+# (``test_benchmark_rag.py``'s ``golden_run_dir``). This is the load-bearing decoupling
+# (spec 0002 §1): a golden-pin regeneration can neither read nor invalidate the RAG
+# cassette, so a keyless contributor is never blocked behind a keyed re-record. Only the
+# middle stage (the answer step) touches the model; retrieval and id-resolution are pure.
+# The corpus is deliberately tiny but *retrieval-meaningful* — four artifact chunks across
+# distinct teams/topics so BM25 must discriminate the Payments charter from the logistics,
+# cafeteria, and goals chunks — so replay exercises the whole retrieve → answer → resolve
+# path end-to-end, strict keyless (a miss fails via :class:`CassetteMissBackend`) and keyed
+# under ``ESIM_CASSETTES=record``.
+
+_RAG_DIR = CASSETTE_ROOT / "rag"
+
+_RAG_CHUNKS = (
+    RagChunk(
+        artifact_id="artifact:payments-charter",
+        path="org/payments-charter.md",
+        index=0,
+        text=(
+            "The Payments team is led by Priya Nair. "
+            "Priya Nair reports to Dana Okoro, the head of Engineering."
+        ),
+    ),
+    RagChunk(
+        artifact_id="artifact:logistics-charter",
+        path="org/logistics-charter.md",
+        index=0,
+        text="The Warehouse team is led by Marcus Bell in the Logistics department.",
+    ),
+    RagChunk(
+        artifact_id="artifact:cafeteria-menu",
+        path="ops/cafeteria-menu.md",
+        index=0,
+        text="The cafeteria near the main office serves sushi and salad on weekdays.",
+    ),
+    RagChunk(
+        artifact_id="artifact:eng-goals",
+        path="goals/engineering.md",
+        index=0,
+        text="Engineering's top goal this quarter is to cut payment latency in half.",
+    ),
+)
+
+# The literal answer key: surface form → KG node id, standing in for a run's
+# aliases.jsonl / mentions.jsonl (``AliasResolver.from_run``) so the RAG answer scores on
+# the same node-id basis as the graph runner.
+_RAG_ALIASES = {
+    "Priya Nair": ["person:priya-nair"],
+    "Dana Okoro": ["person:dana-okoro"],
+    "Marcus Bell": ["person:marcus-bell"],
+}
+
+_RAG_QUESTION = QAPair(
+    id="cassette-rag-1",
+    question="Who leads the Payments team?",
+    qtype="who",
+    reasoning_type="direct_relation",
+    expected_ids=("person:priya-nair",),
+)
+
+
+def test_rag_runner_answer_replay() -> None:
+    """``RagRunner.answer`` over a frozen mini-corpus replays retrieve → answer → resolve."""
+    require_cassette(_RAG_DIR)
+    client = cassette_client(_RAG_DIR)
+
+    runner = RagRunner(
+        index=BM25Index.build(_RAG_CHUNKS),
+        resolver=AliasResolver.of(_RAG_ALIASES),
+        top_k=3,
+    )
+    prediction = runner.answer(_RAG_QUESTION, client, model=HAIKU_MODEL)
+
+    assert prediction.qa_id == _RAG_QUESTION.id
+    # Resolution yields a stable, sorted tuple of *known* KG ids and nothing invented —
+    # the model can only be attributed to surface forms in the frozen alias map.
+    assert isinstance(prediction.predicted_ids, tuple)
+    assert list(prediction.predicted_ids) == sorted(prediction.predicted_ids)
+    assert set(prediction.predicted_ids) <= {
+        "person:priya-nair",
+        "person:dana-okoro",
+        "person:marcus-bell",
+    }
+    # The obviously-correct answer: retrieval surfaced the Payments charter, the model
+    # named its lead, and resolution mapped that name back to the person node.
+    assert "person:priya-nair" in prediction.predicted_ids
+
+    if recording_enabled():
+        scan_cassette_for_secrets(_RAG_DIR)
