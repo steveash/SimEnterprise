@@ -36,6 +36,7 @@ bench = [
 dev = [
     "mypy>=1.9",
     "pytest>=8.0",
+    "pytest-cov>=5",  # coverage.py plugin; the gate reports a one-line total (slice 5/6).
     "ruff>=0.4",
     # The engine layer is exercised keyless by the test suite, so it ships here.
     "kuzu>=0.11",
@@ -88,3 +89,13 @@ disallow_untyped_decorators = false
 minversion = "8.0"
 testpaths = ["tests"]
 addopts = "-ra"
+
+[tool.coverage.run]
+# Statement coverage only: branch coverage is unsupported by the fast sysmon core
+# (COVERAGE_CORE=sysmon in scripts/gate.sh) and is a later tightening (spec 0002 §3).
+# The gate opts in with --cov flags; a bare `uv run pytest` stays coverage-free.
+source = ["enterprise_sim"]
+
+[tool.coverage.report]
+precision = 1
+show_missing = false

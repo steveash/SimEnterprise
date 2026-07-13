@@ -20,5 +20,10 @@ else
   echo "== ruff lint (--fix) ==";  uv run ruff check --fix .
 fi
 echo "== mypy (strict) =="; uv run mypy
-echo "== pytest ==";        uv run pytest
+# Coverage is report-only here (spec 0002 §3): --cov-report= suppresses the per-file
+# terminal table (no CI log spam); one summary line follows. COVERAGE_CORE=sysmon uses
+# Python 3.12's sys.monitoring core for near-zero overhead. Identical in both modes —
+# CI visibility is the point. The `coverage report` call enforces fail_under (slice 6).
+echo "== pytest (+coverage) =="; COVERAGE_CORE=sysmon uv run pytest --cov --cov-report=
+echo "coverage: $(uv run coverage report --format=total)% total (run 'make coverage' for per-file detail)"
 echo "gate: OK"

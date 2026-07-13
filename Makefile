@@ -1,6 +1,6 @@
 # Thin wrappers over the canonical commands — scripts/gate.sh stays the single
 # source of truth for the quality gate; this file only saves keystrokes.
-.PHONY: help setup gate check test lint fmt golden smoke
+.PHONY: help setup gate check test lint fmt golden smoke coverage
 
 help: ## list targets
 	@grep -E '^[a-zA-Z_-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-8s %s\n", $$1, $$2}'
@@ -16,6 +16,9 @@ check: ## CI mode: verify-only gate (no auto-fix)
 
 test: ## full pytest suite (keyless, ~20s)
 	uv run pytest
+
+coverage: ## per-file coverage report (run after the gate, which populates .coverage)
+	uv run coverage report --show-missing --skip-covered
 
 lint: ## ruff lint only (verify)
 	uv run ruff check .
