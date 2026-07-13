@@ -55,7 +55,19 @@ def _cmd_run(args: argparse.Namespace) -> int:
         config = config.model_copy(update={"output_dir": args.output_dir})
 
     config = _apply_scale_overrides(config, args)
-    client = _resolve_run_client(config, args.backend)
+    config = _apply_model_override(config, args)
+
+    from enterprise_sim.assembly import RunCollisionError
+    from enterprise_sim.core.llm import CostCeilingExceeded
+
+    # ``_resolve_run_client`` builds the client eagerly, so the F2 fail-fast
+    # (``bedrock`` backend + a 1P model id) surfaces here as a ``ValueError``;
+    # present it like the other run errors instead of a traceback.
+    try:
+        client = _resolve_run_client(config, args.backend)
+    except ValueError as exc:
+        print(f"enterprise-sim run: {exc}")
+        return 1
 
     print(
         f"enterprise-sim run: validated config for {config.company.name} "
@@ -63,8 +75,6 @@ def _cmd_run(args: argparse.Namespace) -> int:
         f"seed={config.seed}, window={config.simulation.period_start.isoformat()}"
         f"..{config.simulation.period_end.isoformat()}, projects={len(config.projects)}"
     )
-
-    from enterprise_sim.core.llm import CostCeilingExceeded
 
     if args.dry_run:
         from enterprise_sim.assembly import estimate_run
@@ -86,7 +96,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
 
     try:
         result = execute_run(config, client=client)
-    except CostCeilingExceeded as exc:
+    except (CostCeilingExceeded, RunCollisionError) as exc:
         print(f"enterprise-sim run: {exc}")
         return 1
     rendered_estimate = result.corpus.estimate
@@ -114,6 +124,22 @@ def _apply_scale_overrides(config: RunConfig, args: argparse.Namespace) -> RunCo
         return config
     scale = config.scale.model_copy(update=updates)
     return config.model_copy(update={"scale": scale})
+
+
+def _apply_model_override(config: RunConfig, args: argparse.Namespace) -> RunConfig:
+    """Apply the ``--model`` CLI override onto ``config``'s ``[model].name``.
+
+    Setting the id on the config (rather than only on the built client) is the
+    override point every downstream path shares: it flows into the render client
+    (``llm_config_for``), the dry-run estimate (which prices ``client.config.model``),
+    and the F2 Bedrock fail-fast — so ``--backend bedrock --model <profile-id>``
+    reaches client construction with that id. No override leaves ``[model].name``
+    (and thus the run identity) untouched.
+    """
+    if args.model is None:
+        return config
+    model = config.model.model_copy(update={"name": args.model})
+    return config.model_copy(update={"model": model})
 
 
 def _resolve_run_client(config: RunConfig, backend: str) -> LLMClient | None:
@@ -253,7 +279,18 @@ def _cmd_eval(args: argparse.Namespace) -> int:
     if args.judge:
         from enterprise_sim.core.llm import LLMConfig, build_client
 
-        client = build_client(LLMConfig(backend=args.backend))
+        judge_config = (
+            LLMConfig(backend=args.backend)
+            if args.model is None
+            else LLMConfig(backend=args.backend, model=args.model)
+        )
+        # The F2 fail-fast (``bedrock`` + a 1P model id) surfaces at build time;
+        # present it cleanly rather than as a traceback.
+        try:
+            client = build_client(judge_config)
+        except ValueError as exc:
+            print(f"enterprise-sim eval: {exc}")
+            return 2
         verdict = judge_sample(journal, client, root_seed=seed)
         report = type(report)(metrics=report.metrics, judge=verdict)
 
@@ -385,15 +422,22 @@ def _run_rag_runner(
     args: argparse.Namespace,
     benchmark: Benchmark,
     run_dir: str | None,
-) -> Predictions:
-    """The RAG baseline path of ``bench run`` (esim-uzc.5)."""
+) -> Predictions | None:
+    """The RAG baseline path of ``bench run`` (esim-uzc.5); ``None`` on a build error."""
     import contextlib
     import tempfile
 
     from enterprise_sim.benchmark.runners.rag import run_rag
     from enterprise_sim.core.llm import LLMConfig, build_client
 
-    client = build_client(LLMConfig(backend=args.backend))
+    # ``--model`` is shared with the graph runner; the RAG answer step honors it too.
+    # The F2 fail-fast (``bedrock`` + a 1P model id) surfaces at build time — present
+    # it cleanly on stderr rather than as a traceback.
+    try:
+        client = build_client(LLMConfig(backend=args.backend, model=args.model))
+    except ValueError as exc:
+        print(f"enterprise-sim bench run: {exc}", file=sys.stderr)
+        return None
     with contextlib.ExitStack() as stack:
         resolved: str | Path | None = run_dir
         if resolved is None:
@@ -483,13 +527,15 @@ def _add_bench_run_parser(
         metavar="N",
         help="[rag] number of corpus chunks to retrieve per question (default: 5)",
     )
-    # Graph-runner options.
+    # Shared answer-model option (both runners): the graph agent's model and the
+    # RAG answer model (e.g. a Bedrock inference-profile id under --backend bedrock).
     run_parser.add_argument(
         "--model",
         default="claude-sonnet-4-6",
         metavar="MODEL",
-        help="[graph] the Claude model the agent uses (default: claude-sonnet-4-6)",
+        help="the model the answer step uses — graph agent or RAG (default: claude-sonnet-4-6)",
     )
+    # Graph-runner options.
     run_parser.add_argument(
         "--limit",
         type=int,
@@ -801,7 +847,13 @@ def _cmd_reconstruct_build(args: argparse.Namespace) -> int:
     from enterprise_sim.reconstruct import BuildConfig, run_pipeline
 
     config = BuildConfig(edge_confidence_threshold=args.edge_threshold)
-    client = build_client(LLMConfig(backend=args.backend, model=args.model))
+    # The F2 fail-fast (``bedrock`` + a 1P model id) surfaces at build time; present
+    # it cleanly on stderr rather than as a traceback (mirrors ``reconstruct reason``).
+    try:
+        client = build_client(LLMConfig(backend=args.backend, model=args.model))
+    except ValueError as exc:
+        print(f"enterprise-sim reconstruct build: {exc}", file=sys.stderr)
+        return 2
     with contextlib.ExitStack() as stack:
         if args.run is not None:
             run_dir = str(args.run)
@@ -1766,6 +1818,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="LLM backend to render with (default: fake, the deterministic offline backend)",
     )
     run_parser.add_argument(
+        "--model",
+        default=None,
+        metavar="MODEL",
+        help="override [model].name (e.g. a Bedrock inference-profile id under --backend bedrock)",
+    )
+    run_parser.add_argument(
         "--max-concurrency",
         dest="max_concurrency",
         type=int,
@@ -1799,6 +1857,12 @@ def build_parser() -> argparse.ArgumentParser:
         default="fake",
         choices=_BACKEND_CHOICES,
         help="LLM backend for --judge (default: fake, deterministic)",
+    )
+    eval_parser.add_argument(
+        "--model",
+        default=None,
+        metavar="MODEL",
+        help="[--judge] override the judge model (e.g. a Bedrock inference-profile id)",
     )
     eval_parser.set_defaults(func=_cmd_eval)
 

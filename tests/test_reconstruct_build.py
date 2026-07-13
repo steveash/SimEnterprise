@@ -544,6 +544,31 @@ def test_build_cli_writes_loadable_kg(tmp_path: Path, capsys: Any) -> None:
     assert f"{kg.node_count} nodes" in err
 
 
+def test_build_cli_bedrock_1p_model_fails_cleanly(tmp_path: Path, capsys: Any) -> None:
+    # F2 clean error (fix round C): `--backend bedrock` with a 1P --model is rejected
+    # at client build and presented as a one-line stderr error (exit 2), not a traceback.
+    run_dir = _write_run(tmp_path / "run")
+    code = main(
+        [
+            "reconstruct",
+            "build",
+            "--run",
+            str(run_dir),
+            "-o",
+            str(tmp_path / "recon"),
+            "--backend",
+            "bedrock",
+            "--model",
+            "claude-sonnet-4-6",
+        ]
+    )
+    assert code == 2
+    captured = capsys.readouterr()
+    assert "enterprise-sim reconstruct build:" in captured.err
+    assert "inference-profile" in captured.err
+    assert "Traceback" not in captured.err
+
+
 @pytest.mark.skipif(
     not os.environ.get("ANTHROPIC_API_KEY"),
     reason="real extraction needs ANTHROPIC_API_KEY; keyless CI covers the fake path",

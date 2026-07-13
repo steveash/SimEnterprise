@@ -77,12 +77,17 @@ rate and emits a one-time `warnings.warn` so the degradation is visible, not sil
 Bedrock-enabled entry points:
 
 ```bash
-uv run enterprise-sim run examples/demo.toml --backend bedrock      # corpus generation
-uv run enterprise-sim reconstruct build --backend bedrock -o DIR    # extract/resolve
-uv run enterprise-sim reconstruct reason --use-bedrock              # graph-agent (SDK)
-uv run enterprise-sim bench run --runner graph --use-bedrock ...    # graph-agent runner
-uv run enterprise-sim bench run --runner rag --backend bedrock ...  # RAG runner
+uv run enterprise-sim run examples/demo.toml --backend bedrock --model ID   # corpus generation
+uv run enterprise-sim eval RUN --judge --backend bedrock --model ID         # LLM-judge
+uv run enterprise-sim reconstruct build --backend bedrock --model ID -o DIR # extract/resolve
+uv run enterprise-sim reconstruct reason --use-bedrock                      # graph-agent (SDK)
+uv run enterprise-sim bench run --runner graph --use-bedrock ...            # graph-agent runner
+uv run enterprise-sim bench run --runner rag --backend bedrock --model ID   # RAG runner
 ```
+
+`--model ID` (a Bedrock inference-profile id) overrides the default/`[model].name`
+on every `--backend bedrock` path above — `run`, `eval --judge`, `bench run --runner
+rag`, and `reconstruct build` — so the F2 fail-fast names a flag that always exists.
 
 The `--use-bedrock` runners route the `claude-agent-sdk` subprocess to Bedrock via
 `CLAUDE_CODE_USE_BEDROCK=1` + `AWS_REGION` (add `--aws-region` to override); the same env

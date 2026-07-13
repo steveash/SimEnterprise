@@ -275,6 +275,12 @@ def execute_run(
     client = _client_for(config, client)
     render_backend = client.config.backend
 
+    # Refuse a backend collision *before* any LLM spend: the run dir is a pure
+    # function of ``(config, seed)`` and is known as soon as the run id is, so the
+    # guard runs here rather than after the render (finding F1; adversary re-verify).
+    run_dir = config.output_dir / compute_run_id(config)
+    _guard_backend_collision(run_dir, render_backend)
+
     world = build_world(config)
     corpus = build_corpus(world, config, client)
 
@@ -301,8 +307,9 @@ def execute_run(
         generated_at=generated_at,
         render_backend=render_backend,
     )
-    run_dir = config.output_dir / manifest.run_id
-    _guard_backend_collision(run_dir, render_backend)
+    # ``run_dir`` was computed (and guarded) before the render; ``manifest.run_id``
+    # is the same pure function of the config, so the two agree by construction.
+    assert run_dir.name == manifest.run_id
 
     for name in (_ORGANIZATION_DIR, _KG_DIR, _VALIDATION_DIR, _ARTIFACTS_DIR):
         (run_dir / name).mkdir(parents=True, exist_ok=True)

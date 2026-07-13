@@ -177,6 +177,35 @@ Resolved in fix round B:
   constant used at all six `--backend` argparse sites; `test_backend_enum_matches_backend_factory`
   asserts it equals the `LLMBackend` values, so the "must match" comment is enforced.
 
+Resolved in fix round C (post-fix adversary re-verify —
+`fix(cli): --model overrides for bedrock paths, pre-render collision guard, clean errors`):
+
+- **C1 — `--model` missing on the flagless bedrock paths.** `run`, `eval --judge`, and
+  `bench run --runner rag` had no `--model` flag, so a Bedrock inference-profile id could
+  only be set via `[model].name` (and not at all for `eval`/`bench`). Fix: `run --model`
+  (overrides `[model].name` on the config, so it also flows into the dry-run estimate),
+  `eval --judge --model`, and a `bench run --model` shared with the graph runner and now
+  honored by the RAG answer step. Each threads into the `LLMConfig`/config the command
+  builds, so `--backend bedrock --model <profile-id>` reaches client construction.
+- **C2 — collision guard ran after the render (LLM spend).** `execute_run` called
+  `_guard_backend_collision` only after `build_corpus`, so a backend collision was detected
+  *after* paying for the render. Fix: the guard now runs as soon as the run id/run dir are
+  known, before any world build or render; a spy-client test asserts `generate` is never
+  called when the guard trips.
+- **C3 — F2 `ValueError` / `RunCollisionError` escaped as tracebacks.** `_cmd_run`,
+  `_run_rag_runner`, `_cmd_reconstruct_build`, and `eval --judge` caught
+  `CostCeilingExceeded`/`RuntimeError` but let the fail-fast `ValueError` and
+  `RunCollisionError` crash out. Fix: each now catches those expected types at the same
+  boundary and presents a one-line `enterprise-sim <cmd>: <msg>` with a non-zero exit
+  (no blanket `ValueError` catch from deep code).
+- **C4 — F2 message named a flag that didn't exist everywhere.** With C1 done, the
+  "set `[model].name` (or the `--model` flag)" text is now truthful on every path that can
+  build a `bedrock` client, so the message stands unchanged.
+- **C5 — README quickstart wasn't copy-pasteable.** The Bedrock quickstart now uses the
+  new `run --model` flag with an env-var placeholder id, and states the id is account/
+  region-specific (runnable verbatim once substituted); `docs/DEVELOPMENT.md`'s entry-point
+  list is updated to show `--model` on `run`/`eval --judge`/`bench rag`/`reconstruct build`.
+
 ## Open questions (resolved)
 
 - One `bench` extra vs a separate `bedrock` extra (boto3 is heavy)? **Decided: single

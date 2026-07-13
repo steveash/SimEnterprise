@@ -355,6 +355,38 @@ def test_cli_bench_run_writes_predictions(
     assert "bench run --runner rag" in err
 
 
+def test_cli_bench_run_rag_bedrock_1p_model_fails_cleanly(
+    tmp_path: Path, capsys: Any, golden_run_dir: Path
+) -> None:
+    # --model is shared with the graph runner and honored by the RAG answer step:
+    # a 1P id under --backend bedrock reaches client build, hits the F2 gate, and is
+    # presented as a one-line stderr error (exit 2), not a traceback (fix round C).
+    bench_path = tmp_path / "bench.jsonl"
+    generate(golden_run_dir).write_jsonl(bench_path)
+
+    code = main(
+        [
+            "bench",
+            "run",
+            "--runner",
+            "rag",
+            "--bench",
+            str(bench_path),
+            "--run",
+            str(golden_run_dir),
+            "--backend",
+            "bedrock",
+            "--model",
+            "claude-sonnet-4-6",
+        ]
+    )
+    assert code == 2
+    captured = capsys.readouterr()
+    assert "enterprise-sim bench run:" in captured.err
+    assert "inference-profile" in captured.err
+    assert "Traceback" not in captured.err
+
+
 # --------------------------------------------------------------------------- #
 # Gated live path: the real anthropic_api backend (needs a key).
 # --------------------------------------------------------------------------- #

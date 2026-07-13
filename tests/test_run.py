@@ -182,6 +182,36 @@ def test_eval_reads_the_runs_event_log(tmp_path: Path) -> None:
     assert main(["eval", str(result.run_dir)]) == 0
 
 
+def test_cli_eval_judge_accepts_model_override(tmp_path: Path) -> None:
+    # eval --judge --model threads the id into the judge LLMConfig; on the keyless
+    # fake backend the override is accepted and the judge still runs deterministically.
+    result = execute_run(_config(tmp_path))
+    assert main(["eval", str(result.run_dir), "--judge", "--model", "claude-sonnet-4-6"]) == 0
+
+
+def test_cli_eval_judge_bedrock_1p_model_fails_cleanly(tmp_path: Path, capsys: Any) -> None:
+    # The --model override reaches the judge client build: a 1P id under --backend
+    # bedrock hits the F2 gate and is presented as a one-line error (exit 2), not a
+    # traceback (fix round C).
+    result = execute_run(_config(tmp_path))
+    code = main(
+        [
+            "eval",
+            str(result.run_dir),
+            "--judge",
+            "--backend",
+            "bedrock",
+            "--model",
+            "claude-sonnet-4-6",
+        ]
+    )
+    assert code == 2
+    captured = capsys.readouterr()
+    assert "enterprise-sim eval:" in captured.out
+    assert "inference-profile" in captured.out
+    assert "Traceback" not in captured.err
+
+
 def test_run_id_is_slug_plus_digest(tmp_path: Path) -> None:
     config = _config(tmp_path, name="Acme Corp")
     result = execute_run(config)
@@ -308,6 +338,38 @@ def test_run_collision_on_backend_mismatch(tmp_path: Path) -> None:
 
     with pytest.raises(RunCollisionError, match="different backend"):
         execute_run(config)
+
+
+def test_guard_runs_before_render(tmp_path: Path) -> None:
+    # F1 (adversary re-verify): the collision guard must trip BEFORE any LLM spend,
+    # not after the render. Seed a run dir whose manifest names a different backend,
+    # then run with a spy client that records whether it was asked to generate — the
+    # guard must raise first and the spy must never be called.
+    from collections.abc import Callable, Sequence
+
+    from enterprise_sim.assembly import RunCollisionError
+    from enterprise_sim.core.llm import LLMClient, LLMConfig, build_backend
+
+    class _SpyClient(LLMClient):
+        def __init__(self) -> None:
+            super().__init__(build_backend("fake"), config=LLMConfig(backend="fake"))
+            self.generate_called = False
+
+        def generate_many(self, tasks: Sequence[Callable[[LLMClient], Any]]) -> list[Any]:
+            self.generate_called = True
+            return super().generate_many(tasks)
+
+    config = _config(tmp_path)
+    first = execute_run(config)
+    manifest_path = first.run_dir / "manifest.json"
+    on_disk = json.loads(manifest_path.read_text())
+    on_disk["render_backend"] = "bedrock"
+    manifest_path.write_text(json.dumps(on_disk, sort_keys=True, indent=2) + "\n")
+
+    spy = _SpyClient()
+    with pytest.raises(RunCollisionError):
+        execute_run(config, client=spy)
+    assert spy.generate_called is False
 
 
 def test_cli_run_writes_outputs(tmp_path: Path) -> None:
@@ -461,13 +523,41 @@ def test_cli_run_bedrock_dry_run_is_keyless(tmp_path: Path, capsys: Any) -> None
     assert "dry-run" in capsys.readouterr().out
 
 
-def test_cli_run_bedrock_1p_model_fails_fast(tmp_path: Path) -> None:
+def test_cli_run_bedrock_1p_model_fails_fast(tmp_path: Path, capsys: Any) -> None:
     # F2: `--backend bedrock` with a 1P [model].name is rejected at client build —
     # before any call, dry-run included — with a message naming the inference-profile
-    # shape, rather than surfacing as an opaque failure on the first live Bedrock call.
+    # shape. The CLI presents it as a one-line error and a non-zero exit, not a
+    # traceback (fix round C: clean CLI errors).
     cfg_path = tmp_path / "demo.toml"
     _write_config(cfg_path, name="claude-sonnet-4-6")
-    with pytest.raises(ValueError, match="inference-profile"):
+    code = main(
+        [
+            "run",
+            "-c",
+            str(cfg_path),
+            "-o",
+            str(tmp_path / "out"),
+            "--backend",
+            "bedrock",
+            "--dry-run",
+        ]
+    )
+    assert code == 1
+    captured = capsys.readouterr()
+    assert "enterprise-sim run:" in captured.out
+    assert "inference-profile" in captured.out
+    assert "Traceback" not in captured.err
+
+
+def test_cli_run_model_override_reaches_dry_run_estimate(tmp_path: Path, capsys: Any) -> None:
+    # --model overrides [model].name and reaches client construction: a config that
+    # names a 1P id would fail the F2 gate under --backend bedrock, but the --model
+    # override supplies a Bedrock inference-profile id that passes, and the dry-run
+    # prices/prints that id — proving the override threaded all the way through.
+    cfg_path = tmp_path / "demo.toml"
+    _write_config(cfg_path, name="claude-sonnet-4-6")
+    profile = "us.anthropic.claude-opus-4-8-20251101-v1:0"
+    assert (
         main(
             [
                 "run",
@@ -477,6 +567,34 @@ def test_cli_run_bedrock_1p_model_fails_fast(tmp_path: Path) -> None:
                 str(tmp_path / "out"),
                 "--backend",
                 "bedrock",
+                "--model",
+                profile,
                 "--dry-run",
             ]
         )
+        == 0
+    )
+    assert f"model {profile}" in capsys.readouterr().out
+
+
+def test_cli_run_model_override_priced_on_fake_backend(tmp_path: Path, capsys: Any) -> None:
+    # The override lands even on the default fake backend: the dry-run estimate is
+    # priced against the overridden model id, not the config's [model].name.
+    cfg_path = tmp_path / "demo.toml"
+    _write_config(cfg_path)
+    assert (
+        main(
+            [
+                "run",
+                "-c",
+                str(cfg_path),
+                "-o",
+                str(tmp_path / "out"),
+                "--model",
+                "claude-sonnet-4-6",
+                "--dry-run",
+            ]
+        )
+        == 0
+    )
+    assert "model claude-sonnet-4-6" in capsys.readouterr().out

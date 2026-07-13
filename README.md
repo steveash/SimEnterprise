@@ -30,22 +30,23 @@ new modalities arrive as additive producer plugins (PLAN.md M8–M10).
 ### Run on Amazon Bedrock
 
 Real-backend corpus generation works with only AWS credentials — no
-`ANTHROPIC_API_KEY`. The model id in `[model].name` must be a Bedrock
-**inference-profile id** (dated, region-scoped), not the 1P name; a 1P id fails
-fast at client build with the shape to use.
+`ANTHROPIC_API_KEY`. Bedrock addresses models by **inference-profile id** (dated,
+region-scoped), not the 1P name; a 1P id fails fast at client build with the shape
+to use. The id below is a placeholder — the exact profile id is **account- and
+region-specific**, so substitute your own; the block runs verbatim once you do.
 
 ```bash
 uv sync --extra bench                    # anthropic[bedrock] signing stack (boto3)
 export AWS_REGION=us-east-1              # plus your usual AWS creds/profile
 
-# config/[model].name must be an inference-profile id, e.g.:
-#   [model]
-#   name = "us.anthropic.claude-sonnet-4-6-20250929-v1:0"
-uv run enterprise-sim run examples/demo.toml --backend bedrock
+# Substitute your account/region's inference-profile id for the placeholder:
+export BEDROCK_MODEL="us.anthropic.claude-sonnet-4-6-20250929-v1:0"
+uv run enterprise-sim run examples/demo.toml --backend bedrock --model "$BEDROCK_MODEL"
 
 # One-call live smoke (skips cleanly if no AWS creds are present):
 uv run python scripts/bedrock_smoke.py
 ```
 
-See `docs/DEVELOPMENT.md` for region/profile config, the pricing note, and the
-`bench`/`reconstruct` Bedrock flags.
+The `--model` flag overrides `[model].name` (you can pin the id in the config
+instead). See `docs/DEVELOPMENT.md` for region/profile config, the pricing note,
+and the `bench`/`reconstruct` Bedrock flags.
