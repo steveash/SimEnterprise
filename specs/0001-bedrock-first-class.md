@@ -65,8 +65,10 @@ Slices, each independently gate-green:
 3. **Model-id mapping + pricing** (`feat(llm)`): a small pure function
    `normalize_model_id(model: str) -> str` that maps Bedrock inference-profile ids to
    their 1P pricing key (regex on `…anthropic\.(claude-[a-z0-9-]+)-\d{8}-v\d+:\d+`), used
-   by `pricing.py` lookups; `BedrockBackend` gets a per-backend default model constant
-   (Bedrock-form of `DEFAULT_MODEL`). Fully keyless-testable.
+   by `pricing.py` lookups. Rather than default `BedrockBackend` to a hard-coded
+   Bedrock-form model constant (a dated inference-profile id can't be verified offline,
+   so a stale/wrong constant is worse than none), the Bedrock path **fails fast** when
+   handed a non-Bedrock model id — see finding F2. Fully keyless-testable.
 4. **`run --backend`** (`feat(cli)`): add `--backend {fake,anthropic_api,bedrock,claude_cli}`
    to `enterprise-sim run`, default **`fake`** (determinism invariant unchanged — a real
    backend is always an explicit opt-in, matching `_DEFAULT_BACKEND`'s comment). When a
@@ -103,9 +105,12 @@ LLM layer, which is core infrastructure — allowed); golden-run pin unaffected.
 
 - [ ] `uv sync --extra bench && uv run python scripts/import_smoke.py` constructs the
       Bedrock backend (fails today).
-- [ ] With only AWS creds (no `ANTHROPIC_API_KEY`): `enterprise-sim run examples/demo.toml
-      --backend bedrock` produces a corpus; cost accounting shows non-zero, correctly
-      priced usage for a Bedrock model id.
+- [ ] With only AWS creds (no `ANTHROPIC_API_KEY`) and a Bedrock-form `[model].name`
+      (`us.anthropic.claude-<family>-<YYYYMMDD>-v1:0`): `enterprise-sim run … --backend
+      bedrock` produces a corpus; cost accounting shows non-zero, correctly priced usage
+      for the Bedrock model id. A 1P model id under `--backend bedrock` instead **fails
+      fast** at client build (dry-run included) with the inference-profile shape to set
+      (finding F2) — it does not reach a live call.
 - [ ] `bench run --runner rag --backend bedrock` and `reconstruct build --backend bedrock`
       work; graph-agent runner documented Bedrock mode works or has a spec'd follow-up.
 - [ ] Keyless gate covers the shared SDK request path (no blanket `pragma: no cover` on
@@ -115,11 +120,12 @@ LLM layer, which is core infrastructure — allowed); golden-run pin unaffected.
 
 ## Review findings & resolutions
 
-An adversarial review of slices 1–5 raised seven findings (F1–F7). This fix round
+An adversarial review of slices 1–5 raised seven findings (F1–F7). Fix round A
 (`fix(run): honest backend defaults, self-describing run dirs, symmetric backend
-warnings`) resolves F1/F3/F4; F2/F5/F6/F7 are the next fix round.
+warnings`) resolved F1/F3/F4; fix round B (`fix(llm): fail fast on non-Bedrock model
+ids, warn on pricing fallback, pin SDK call signature`) resolves F2/F5/F6/F7.
 
-Resolved this round:
+Resolved in fix round A:
 
 - **F1 — run dir not self-describing / backend collision.** The run id is a pure
   function of `(config, seed)` and does not fold in the render backend, so the same
@@ -140,17 +146,30 @@ Resolved this round:
   Consequence: the config digest hashes `model.backend`, so the golden run id moved
   `40644d551158 → 6c66fbef69f8` (content-identical corpus; see docs/GOLDEN_RUN.md).
 
-Pending (next fix round):
+Resolved in fix round B:
 
-- **F2 — 1P model id sent to Bedrock.** The default model is a 1P id; a Bedrock run
-  must send the inference-profile form, not just normalize the pricing key.
-- **F5 — app-inference-profile ARN under-prices vs the D13 ceiling.** Custom
-  application-inference-profile ARNs don't normalize to a pricing key, so cost lookup
-  falls through and under-prices against the cost ceiling.
-- **F6 — stub tests don't pin the real SDK signature.** The keyless request-path tests
-  duck-type the client, so they wouldn't catch a real `anthropic` SDK signature drift.
-- **F7 — CLI backend choices hardcoded 6×.** The `{fake,anthropic_api,bedrock,claude_cli}`
-  choices list is duplicated across CLI subparsers instead of deriving from `LLMBackend`.
+- **F2 — 1P model id sent to Bedrock.** The default model is a 1P id, which Bedrock
+  can't address; it must be given the inference-profile form. Decision: do **not** ship a
+  1P→Bedrock id mapping (dated inference-profile ids can't be verified offline, so a wrong
+  table is worse than none). Instead **fail fast**: `looks_like_bedrock_model_id` (sharing
+  `normalize_model_id`'s regex family) gates `LLMClient.from_config` — the one choke point
+  every `build_client` caller (run/eval/bench/reconstruct) shares — and raises a
+  `ValueError` naming `[model].name`/`--model` and the `us.anthropic.claude-<family>-
+  <YYYYMMDD>-v1:0` shape whenever a `bedrock` client is built with a non-Bedrock model id.
+  It fires before any call (dry-run included) and only for `bedrock`.
+- **F5 — pricing fallback under-enforces the D13 ceiling.** A model that resolves to no
+  pricing row (a fresh 1P id, or a Bedrock family — e.g. opus behind a custom app-
+  inference-profile ARN — not in the table) was billed at the sonnet fallback rate
+  silently, under-pricing the ceiling ~5× for opus. `pricing_for` now emits a one-time-
+  per-model `warnings.warn` when it falls back, so the degradation is visible; still
+  deterministic and non-fatal.
+- **F6 — stub tests don't pin the real SDK signature.** `scripts/import_smoke.py` now
+  `inspect.signature(anthropic.resources.messages.Messages.create)`s the installed SDK and
+  fails (naming the vanished kwarg) if it stops accepting any of the seven kwargs the
+  backends pass, so a real signature drift breaks CI instead of the first live call.
+- **F7 — CLI backend choices hardcoded 6×.** `cli.py` now has one `_BACKEND_CHOICES`
+  constant used at all six `--backend` argparse sites; `test_backend_enum_matches_backend_factory`
+  asserts it equals the `LLMBackend` values, so the "must match" comment is enforced.
 
 ## Open questions
 

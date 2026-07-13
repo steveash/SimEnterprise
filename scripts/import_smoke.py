@@ -63,8 +63,41 @@ def main() -> None:
 
     build_client(LLMConfig(backend="anthropic_api"))
 
-    # The bedrock backend wires up the same way (client creation stays lazy).
-    build_client(LLMConfig(backend="bedrock"))
+    # The bedrock backend wires up the same way (client creation stays lazy). It now
+    # requires a Bedrock inference-profile model id — a 1P id fails fast at build time
+    # (finding F2) — so we pass the inference-profile form the backend actually sends.
+    build_client(LLMConfig(backend="bedrock", model="us.anthropic.claude-sonnet-4-6-20250929-v1:0"))
+
+    # Gap #4: the stubbed request-path tests (tests/test_llm_sdk_path.py) duck-type the
+    # SDK client, so they can't catch a real `anthropic` signature drift. Pin the seven
+    # kwargs both SDK backends pass to `messages.create` (see `_call_tool` in
+    # enterprise_sim/core/llm/backends.py) against the *installed* SDK: if the real
+    # method stops accepting one, fail the build here — naming the vanished kwarg —
+    # instead of at the first live call (finding F6). No network/key: signature only.
+    import inspect
+
+    from anthropic.resources.messages import Messages
+
+    create_params = inspect.signature(Messages.create).parameters
+    accepts_var_kwargs = any(
+        param.kind is inspect.Parameter.VAR_KEYWORD for param in create_params.values()
+    )
+    passed_kwargs = (
+        "model",
+        "max_tokens",
+        "temperature",
+        "system",
+        "messages",
+        "tools",
+        "tool_choice",
+    )
+    missing = [name for name in passed_kwargs if name not in create_params]
+    if missing and not accepts_var_kwargs:
+        raise AssertionError(
+            f"anthropic Messages.create no longer accepts {missing}; the SDK backends "
+            "pass these to messages.create, so a live call would now fail. Reconcile "
+            "enterprise_sim/core/llm/backends.py with the SDK, then this smoke."
+        )
 
     print("real-LLM runtime import smoke: OK")
 

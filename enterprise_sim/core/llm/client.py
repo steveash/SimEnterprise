@@ -28,7 +28,13 @@ from typing import Any
 
 from enterprise_sim.core.llm.backends import Backend, build_backend, estimate_tokens
 from enterprise_sim.core.llm.cache import ResponseCache, request_key
-from enterprise_sim.core.llm.pricing import DEFAULT_MODEL, ModelPricing, cost_of, estimate_cost
+from enterprise_sim.core.llm.pricing import (
+    DEFAULT_MODEL,
+    ModelPricing,
+    cost_of,
+    estimate_cost,
+    looks_like_bedrock_model_id,
+)
 from enterprise_sim.core.llm.prompt import Prompt
 from enterprise_sim.core.llm.types import (
     Completion,
@@ -103,6 +109,26 @@ class LLMConfig:
     aws_profile: str | None = None
 
 
+def _validate_backend_model(config: LLMConfig) -> None:
+    """Fail fast when a Bedrock client is built with a non-Bedrock model id (finding F2).
+
+    Bedrock addresses models by inference-profile id
+    (``us.anthropic.claude-<family>-<YYYYMMDD>-v1:0``), not the 1P name
+    (``claude-sonnet-4-6``); the 1P id would only surface as an opaque failure on the
+    first live call. We deliberately do *not* map 1P→Bedrock (dated profile ids can't
+    be verified offline, so a wrong table is worse than none) — instead we reject it
+    at build/config-resolution time, before any call (dry-run included), with the
+    shape the user must supply. Non-``bedrock`` backends accept the 1P id unchanged.
+    """
+    if config.backend == "bedrock" and not looks_like_bedrock_model_id(config.model):
+        raise ValueError(
+            f"bedrock backend needs a Bedrock inference-profile model id, got "
+            f"{config.model!r}; set [model].name (or the --model flag) to your "
+            f"inference-profile id, e.g. 'us.anthropic.claude-sonnet-4-6-20250929-v1:0' "
+            f"(shape: us.anthropic.claude-<family>-<YYYYMMDD>-v1:0)"
+        )
+
+
 def _config_backend_kwargs(config: LLMConfig) -> dict[str, Any]:
     """Backend-construction kwargs derived from ``config``, scoped per backend.
 
@@ -152,7 +178,13 @@ class LLMClient:
         pricing_table: dict[str, ModelPricing] | None = None,
         **backend_kwargs: Any,
     ) -> LLMClient:
-        """Build a client (and its backend) from an :class:`LLMConfig`."""
+        """Build a client (and its backend) from an :class:`LLMConfig`.
+
+        Raises ``ValueError`` when a ``bedrock`` backend is paired with a non-Bedrock
+        model id (finding F2) — the single choke point every ``build_client`` caller
+        (run/eval/bench/reconstruct) shares, so the failure is uniform and early.
+        """
+        _validate_backend_model(config)
         # Config-derived kwargs apply per backend (only ``bedrock`` takes region/
         # profile); explicit ``backend_kwargs`` win so callers can still override.
         backend = build_backend(

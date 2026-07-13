@@ -11,6 +11,7 @@ in-test stub backend, so the suite is free, fast, and deterministic.
 
 from __future__ import annotations
 
+import warnings
 from collections.abc import Mapping, Sequence
 from typing import Any
 
@@ -31,7 +32,9 @@ from enterprise_sim.core.llm import (
     build_client,
     cost_of,
     estimate_cost,
+    looks_like_bedrock_model_id,
     normalize_model_id,
+    pricing_for,
     request_key,
     verify_references,
 )
@@ -278,6 +281,53 @@ def test_normalize_model_id_maps_bedrock_ids(bedrock_id: str, expected: str) -> 
 )
 def test_normalize_model_id_passes_through_non_bedrock(model: str) -> None:
     assert normalize_model_id(model) == model
+
+
+@pytest.mark.parametrize(
+    "model",
+    [
+        "us.anthropic.claude-sonnet-4-6-20250929-v1:0",
+        "eu.anthropic.claude-opus-4-8-20250101-v1:0",
+        "anthropic.claude-haiku-4-5-20251001-v1:0",
+        "arn:aws:bedrock:us-east-1:123456789012:inference-profile/"
+        "us.anthropic.claude-sonnet-4-6-20250929-v1:0",
+    ],
+)
+def test_looks_like_bedrock_model_id_true_for_profile_ids(model: str) -> None:
+    assert looks_like_bedrock_model_id(model) is True
+
+
+@pytest.mark.parametrize(
+    "model",
+    [
+        # 1P ids and anything lacking the dated inference-profile shape.
+        "claude-sonnet-4-6",
+        "claude-opus-4-8",
+        "anthropic.claude-sonnet-4-6",  # no dated version suffix
+        "gpt-4o",
+        "",
+    ],
+)
+def test_looks_like_bedrock_model_id_false_for_non_profile_ids(model: str) -> None:
+    assert looks_like_bedrock_model_id(model) is False
+
+
+def test_pricing_fallback_warns_once_per_model() -> None:
+    # F5: an unknown model prices at fallback rates (under-enforcing the D13 ceiling
+    # for a pricier model), and that degradation is surfaced once — not per call.
+    from enterprise_sim.core.llm import pricing as pricing_module
+
+    model = "brand-new-unpriced-model"
+    pricing_module._FALLBACK_WARNED.discard(model)
+
+    with pytest.warns(UserWarning, match="fallback rates"):
+        first = pricing_for(model)
+    assert first is pricing_module.FALLBACK_PRICING
+
+    # A second lookup of the same model must not warn again (deduped, no spam).
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        assert pricing_for(model) is pricing_module.FALLBACK_PRICING
 
 
 def test_bedrock_id_prices_identically_to_1p_twin() -> None:
@@ -592,7 +642,13 @@ def test_build_backend_threads_bedrock_region_and_profile() -> None:
 
 def test_bedrock_config_threads_region_and_profile_into_backend() -> None:
     # from_config projects the LLMConfig's bedrock fields onto the backend it builds.
-    config = LLMConfig(backend="bedrock", aws_region="ap-southeast-2", aws_profile="prod")
+    # A bedrock config needs a Bedrock-form model id (finding F2), so pass one.
+    config = LLMConfig(
+        backend="bedrock",
+        model="us.anthropic.claude-sonnet-4-6-20250929-v1:0",
+        aws_region="ap-southeast-2",
+        aws_profile="prod",
+    )
     client = LLMClient.from_config(config)
     backend = client._backend
     assert isinstance(backend, BedrockBackend)
@@ -606,3 +662,37 @@ def test_non_bedrock_backend_ignores_region_and_profile() -> None:
     config = LLMConfig(backend="fake", aws_region="us-east-1", aws_profile="x")
     client = LLMClient.from_config(config)
     assert isinstance(client._backend, FakeBackend)
+
+
+# ---------------------------------------------------------------------------
+# Bedrock model-id fail-fast (spec 0001, finding F2)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("model", ["claude-sonnet-4-6", "claude-opus-4-8", "gpt-4o"])
+def test_bedrock_backend_rejects_non_bedrock_model_id(model: str) -> None:
+    # A bedrock client built with a 1P (or otherwise non-inference-profile) model id
+    # fails fast at build time — before any call — pointing at [model].name/--model
+    # and the inference-profile shape, rather than failing on the first live call.
+    with pytest.raises(ValueError, match="inference-profile id"):
+        build_client(LLMConfig(backend="bedrock", model=model))
+
+
+@pytest.mark.parametrize(
+    "model",
+    [
+        "us.anthropic.claude-sonnet-4-6-20250929-v1:0",
+        "anthropic.claude-opus-4-8-20250101-v1:0",
+    ],
+)
+def test_bedrock_backend_accepts_inference_profile_model_id(model: str) -> None:
+    # A Bedrock-form id builds cleanly (SDK client creation stays lazy — no key/creds).
+    client = build_client(LLMConfig(backend="bedrock", model=model))
+    assert isinstance(client._backend, BedrockBackend)
+
+
+@pytest.mark.parametrize("backend", ["fake", "anthropic_api", "claude_cli"])
+def test_non_bedrock_backends_accept_1p_model_id(backend: str) -> None:
+    # The fail-fast fires only for bedrock; other backends take the 1P id unchanged.
+    client = build_client(LLMConfig(backend=backend, model="claude-sonnet-4-6"))
+    assert client.config.model == "claude-sonnet-4-6"

@@ -25,6 +25,12 @@ if TYPE_CHECKING:
     from enterprise_sim.core.llm import LLMClient
     from enterprise_sim.core.world import World
 
+# The single source of truth for every ``--backend`` flag's choices (finding F7).
+# These are the ``LLMBackend`` enum values (core.config) in enum order; kept a plain
+# literal so the CLI stays lazy about importing config at module load, with
+# ``test_backend_enum_matches_backend_factory`` asserting it never drifts from the enum.
+_BACKEND_CHOICES: tuple[str, ...] = ("fake", "anthropic_api", "bedrock", "claude_cli")
+
 
 def _cmd_run(args: argparse.Namespace) -> int:
     """Load a config and materialize an (M1: empty) reproducible run directory."""
@@ -460,7 +466,7 @@ def _add_bench_run_parser(
     run_parser.add_argument(
         "--backend",
         default="anthropic_api",
-        choices=["fake", "anthropic_api", "bedrock", "claude_cli"],
+        choices=_BACKEND_CHOICES,
         help="[rag] LLM backend for the answer step (default: anthropic_api, needs a key)",
     )
     run_parser.add_argument(
@@ -834,7 +840,7 @@ def _add_reconstruct_build_parser(
     build_parser.add_argument(
         "--backend",
         default="fake",
-        choices=["fake", "anthropic_api", "bedrock", "claude_cli"],
+        choices=_BACKEND_CHOICES,
         help="LLM backend for the gated extract/resolve steps (default: fake, keyless)",
     )
     build_parser.add_argument(
@@ -1242,7 +1248,7 @@ def _add_reconstruct_sweep_parser(
     sweep_parser.add_argument(
         "--backend",
         default="fake",
-        choices=["fake", "anthropic_api", "bedrock", "claude_cli"],
+        choices=_BACKEND_CHOICES,
         help="LLM backend for the gated extract/resolve steps (default: fake, keyless)",
     )
     sweep_parser.add_argument(
@@ -1649,7 +1655,7 @@ def _add_reconstruct_scale_parser(
     scale_parser.add_argument(
         "--backend",
         default="fake",
-        choices=["fake", "anthropic_api", "bedrock", "claude_cli"],
+        choices=_BACKEND_CHOICES,
         help="LLM backend for the gated reconstruction steps (default: fake, keyless)",
     )
     scale_parser.add_argument(
@@ -1718,7 +1724,7 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument(
         "--backend",
         default="fake",
-        choices=["fake", "anthropic_api", "bedrock", "claude_cli"],
+        choices=_BACKEND_CHOICES,
         help="LLM backend to render with (default: fake, the deterministic offline backend)",
     )
     run_parser.add_argument(
@@ -1753,7 +1759,7 @@ def build_parser() -> argparse.ArgumentParser:
     eval_parser.add_argument(
         "--backend",
         default="fake",
-        choices=["fake", "anthropic_api", "bedrock", "claude_cli"],
+        choices=_BACKEND_CHOICES,
         help="LLM backend for --judge (default: fake, deterministic)",
     )
     eval_parser.set_defaults(func=_cmd_eval)

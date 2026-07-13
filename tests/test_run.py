@@ -7,6 +7,7 @@ import zipfile
 from pathlib import Path
 from typing import Any
 
+import pytest
 from enterprise_sim.assembly import (
     Manifest,
     build_manifest,
@@ -329,9 +330,14 @@ def test_cli_run_requires_config() -> None:
     assert main(["run"]) == 2
 
 
-def _write_config(path: Path, *, backend: str | None = None) -> None:
-    """Write a minimal, keyless run config, optionally naming a ``[model].backend``."""
-    model = f'[model]\nbackend = "{backend}"\n' if backend is not None else ""
+def _write_config(path: Path, *, backend: str | None = None, name: str | None = None) -> None:
+    """Write a minimal, keyless run config, optionally naming ``[model]`` fields."""
+    fields = []
+    if backend is not None:
+        fields.append(f'backend = "{backend}"')
+    if name is not None:
+        fields.append(f'name = "{name}"')
+    model = "[model]\n" + "\n".join(fields) + "\n" if fields else ""
     path.write_text(
         "seed = 3\n"
         '[company]\nname = "Acme"\nvertical = "software"\nsize = "small"\n'
@@ -388,9 +394,10 @@ def test_cli_run_warns_when_flag_contradicts_config_backend(tmp_path: Path, caps
 def test_cli_run_warns_when_flag_overrides_fake_config(tmp_path: Path, capsys: Any) -> None:
     # F3 (the dangerous direction, previously silent): a config that explicitly pins
     # fake, overridden by a real --backend flag, now warns. The dry-run keeps it
-    # keyless (no SDK client, no creds).
+    # keyless (no SDK client, no creds). The bedrock flag needs a Bedrock-form model
+    # id (finding F2), so the config names one.
     cfg_path = tmp_path / "demo.toml"
-    _write_config(cfg_path, backend="fake")
+    _write_config(cfg_path, backend="fake", name="us.anthropic.claude-sonnet-4-6-20250929-v1:0")
     assert (
         main(
             [
@@ -432,9 +439,10 @@ def test_cli_run_snapshot_of_minimal_config_reloads_silently(tmp_path: Path, cap
 
 def test_cli_run_bedrock_dry_run_is_keyless(tmp_path: Path, capsys: Any) -> None:
     # A bedrock dry-run must succeed with no AWS creds: client construction is lazy,
-    # so pricing the render never builds an SDK client.
+    # so pricing the render never builds an SDK client. The config names a Bedrock-form
+    # model id (finding F2); a 1P id would instead fail fast at client build.
     cfg_path = tmp_path / "demo.toml"
-    _write_config(cfg_path)
+    _write_config(cfg_path, name="us.anthropic.claude-sonnet-4-6-20250929-v1:0")
     assert (
         main(
             [
@@ -451,3 +459,24 @@ def test_cli_run_bedrock_dry_run_is_keyless(tmp_path: Path, capsys: Any) -> None
         == 0
     )
     assert "dry-run" in capsys.readouterr().out
+
+
+def test_cli_run_bedrock_1p_model_fails_fast(tmp_path: Path) -> None:
+    # F2: `--backend bedrock` with a 1P [model].name is rejected at client build —
+    # before any call, dry-run included — with a message naming the inference-profile
+    # shape, rather than surfacing as an opaque failure on the first live Bedrock call.
+    cfg_path = tmp_path / "demo.toml"
+    _write_config(cfg_path, name="claude-sonnet-4-6")
+    with pytest.raises(ValueError, match="inference-profile"):
+        main(
+            [
+                "run",
+                "-c",
+                str(cfg_path),
+                "-o",
+                str(tmp_path / "out"),
+                "--backend",
+                "bedrock",
+                "--dry-run",
+            ]
+        )

@@ -82,10 +82,15 @@ def test_model_aws_region_profile_round_trip_to_llm_config() -> None:
 def test_backend_enum_matches_backend_factory() -> None:
     # Config files, the CLI --backend choices, and build_backend must accept the
     # same names; a backend added to one place has to land in the others.
+    from enterprise_sim.cli import _BACKEND_CHOICES
     from enterprise_sim.core.llm import build_backend
 
     for backend in LLMBackend:
         assert build_backend(backend.value).name == backend.value
+
+    # The CLI's shared --backend choices constant (finding F7) is the enum's values
+    # in enum order; asserting it here keeps the six argparse sites from drifting.
+    assert _BACKEND_CHOICES == tuple(backend.value for backend in LLMBackend)
 
 
 def test_config_is_frozen() -> None:

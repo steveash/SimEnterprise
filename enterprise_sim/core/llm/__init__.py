@@ -43,6 +43,7 @@ from enterprise_sim.core.llm.pricing import (
     ModelPricing,
     cost_of,
     estimate_cost,
+    looks_like_bedrock_model_id,
     normalize_model_id,
     pricing_for,
 )
@@ -94,6 +95,7 @@ __all__ = [
     "cost_of",
     "estimate_cost",
     "estimate_tokens",
+    "looks_like_bedrock_model_id",
     "normalize_model_id",
     "pricing_for",
     "request_key",

@@ -10,6 +10,7 @@ stale table never silently changes a past run's accounting.
 from __future__ import annotations
 
 import re
+import warnings
 from dataclasses import dataclass
 
 from enterprise_sim.core.llm.types import TokenUsage
@@ -38,6 +39,20 @@ def normalize_model_id(model: str) -> str:
     """
     match = _BEDROCK_MODEL_RE.search(model)
     return match.group(1) if match else model
+
+
+def looks_like_bedrock_model_id(model: str) -> bool:
+    """Return whether ``model`` is a Bedrock inference-profile / ARN model id (finding F2).
+
+    True for the ``…anthropic.claude-<family>-<YYYYMMDD>-vN:N`` shape (bare,
+    region-prefixed, or as an ARN suffix) that the Bedrock backend must be given —
+    the same family :func:`normalize_model_id` recognises, so the two never drift. A
+    1P id (``claude-sonnet-4-6``) or any other string returns ``False``, which lets a
+    client build reject it *before* the first live call rather than letting Bedrock
+    fail on the 1P id (we deliberately don't map 1P→Bedrock: dated inference-profile
+    ids can't be verified offline, so a wrong table would be worse than none).
+    """
+    return _BEDROCK_MODEL_RE.search(model) is not None
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,14 +88,46 @@ PRICING: dict[str, ModelPricing] = {
 # Used for any model not in :data:`PRICING` so accounting never silently zeroes.
 FALLBACK_PRICING = ModelPricing(3.0, 0.3, 15.0)
 
+# Normalized model keys already warned about (finding F5): a fallback is emitted
+# once per model, not once per call, so a long render doesn't spam stderr.
+_FALLBACK_WARNED: set[str] = set()
+
+
+def _warn_pricing_fallback(model: str, key: str) -> None:
+    """Warn (once per model) that ``model`` is priced at fallback rates (finding F5).
+
+    An unknown model — a fresh 1P id, or a Bedrock id whose family isn't in
+    :data:`PRICING` (e.g. opus behind a custom application-inference-profile ARN) —
+    is billed at :data:`FALLBACK_PRICING` (the sonnet rate). That *under*-prices a
+    pricier model, so the D13 cost ceiling and dry-run estimate silently under-
+    enforce. This surfaces the degradation deterministically without failing the
+    run; the dedup keeps it to one line per distinct model.
+    """
+    if key in _FALLBACK_WARNED:
+        return
+    _FALLBACK_WARNED.add(key)
+    warnings.warn(
+        f"model {model!r} has no pricing entry (keyed as {key!r}); billing at fallback "
+        f"rates (${FALLBACK_PRICING.input_per_mtok:g}/${FALLBACK_PRICING.output_per_mtok:g} "
+        f"per Mtok in/out) — the D13 cost ceiling may under-enforce for this model",
+        stacklevel=3,
+    )
+
 
 def pricing_for(model: str, *, table: dict[str, ModelPricing] | None = None) -> ModelPricing:
     """Return the :class:`ModelPricing` for ``model``, falling back if unknown.
 
     ``model`` is normalized first (:func:`normalize_model_id`) so a Bedrock
-    inference-profile id prices identically to its 1P equivalent (D13).
+    inference-profile id prices identically to its 1P equivalent (D13). A model that
+    resolves to no pricing row falls back to :data:`FALLBACK_PRICING` and warns once
+    (finding F5) so the cost ceiling's under-enforcement is visible, not silent.
     """
-    return (table or PRICING).get(normalize_model_id(model), FALLBACK_PRICING)
+    key = normalize_model_id(model)
+    resolved = (table or PRICING).get(key)
+    if resolved is not None:
+        return resolved
+    _warn_pricing_fallback(model, key)
+    return FALLBACK_PRICING
 
 
 def cost_of(
