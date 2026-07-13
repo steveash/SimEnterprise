@@ -18,7 +18,8 @@ Before you finish any change — before committing or opening a PR — run:
 ```
 
 It auto-formats (`ruff format`), applies lint fixes, then runs mypy (strict) and the full
-pytest suite (~1000 tests, ~20s, fully keyless/offline). CI runs the **same script** in
+pytest suite (~1000 tests, ~20s, fully keyless/offline), and prints one coverage line while
+enforcing a `fail_under` floor (see `docs/DEVELOPMENT.md`). CI runs the **same script** in
 `--check` mode, so if the gate passes locally, CI passes. Do not hand-run a subset of the
 checks; run the script. Historically, skipping the format step was the #1 cause of red CI.
 
@@ -127,4 +128,6 @@ Live paths (`--backend anthropic_api`, `bench run`, `reconstruct build/reason`) 
 `--extra bench` plus `ANTHROPIC_API_KEY`. Amazon Bedrock is wired end-to-end (the
 `bedrock` backend, `run --backend bedrock`, the `--use-bedrock` runners) and needs
 `--extra bench` plus AWS creds instead of a 1P key; model ids must be inference-profile
-form (a 1P id fails fast at build) — see `specs/0001-bedrock-first-class.md`.
+form (a 1P id fails fast at build) — see `specs/0001-bedrock-first-class.md`. Recording
+LLM cassettes (`make record-cassettes`, ~$1) is likewise keyed; replaying them in the gate
+is keyless — see `specs/0002-local-testing-hardening.md` and `docs/DEVELOPMENT.md`.

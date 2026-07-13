@@ -35,6 +35,29 @@ uv run enterprise-sim eval runs/golden/golden-slice-co-6c66fbef69f8
 pinned by `tests/test_golden_run.py` and documented in `docs/GOLDEN_RUN.md` — if you
 change it deliberately, update both.
 
+## Coverage
+
+The gate measures statement coverage of `enterprise_sim/` and prints **one summary line**
+after the pytest step (no per-file table — the flag `--cov-report=` suppresses it so CI
+logs stay quiet):
+
+```
+coverage: 94.2% total (run 'make coverage' for per-file detail)
+```
+
+`make coverage` gives the human/agent per-file view (`--show-missing --skip-covered`);
+run it after the gate, which populates `.coverage` (gitignored). A bare `uv run pytest`
+(the fast iteration loop) stays coverage-free — the `--cov` flags live only in
+`scripts/gate.sh`.
+
+The gate also enforces a **floor**: `fail_under` in `[tool.coverage.report]` (currently
+`93`, set to the observed baseline minus a point of slack). `coverage report` exits
+non-zero below it, so the gate goes red on a coverage regression. Keyed tests are
+`pragma: no cover` and additive, so the floor never flakes keyless-vs-keyed. If a floor
+trip is legitimate — you deleted dead code, or moved live logic behind a keyed path that
+the keyless suite can't reach — lower `fail_under` in the same commit and say why; if you
+raised coverage, bump it up so the ratchet holds.
+
 ## Keyed (real-LLM) development
 
 Everything above needs no key and no network. The live paths — `eval --judge
@@ -111,6 +134,57 @@ One-command end-to-end eval (build → fidelity → reason → attribution repor
 scripts/reconstruct_eval.sh --keyless-smoke   # wiring check, no key
 scripts/reconstruct_eval.sh --out /tmp/eval   # real run, needs key
 ```
+
+## Cassettes: replaying real-LLM responses keyless
+
+The parsing/resolution paths that only real model output exercises — `reconstruct`
+extract/resolve and the RAG answer step — are regression-tested keyless by **replaying
+recorded responses** ("cassettes", spec `specs/0002-local-testing-hardening.md`). A
+cassette is nothing new: it is the existing on-disk `ResponseCache` (D31), committed under
+`tests/cassettes/<scenario>/` as `<sha256>.json` files (`extract/`, `resolve/`, `rag/`).
+
+**How replay works.** Every target path funnels through `LLMClient`'s cache-first `_call`,
+so a warm cache short-circuits the backend entirely — replay *is* the production path for a
+warm cache. `tests/test_llm_cassettes.py` points the client at the committed dir; a cache
+hit serves the recorded `Completion`, and a **miss fails loudly** (`CassetteMissBackend`
+raises a terminal `LLMError` naming the drifted request key and the re-record command). The
+cache key folds prompt hash, model, mode, schema, candidate set and temperature, so a
+prompt/schema/model/temperature drift misses rather than silently replaying stale output.
+
+**Skip-if-unrecorded.** If a scenario directory is *absent*, its replay test `pytest.skip`s
+with the record command — the state after this infra landed but before the (keyed) owner
+records. The keyless gate stays green either way; the round-trip self-test still exercises
+strict-miss behaviour with the `fake` backend, so replay logic is covered regardless.
+
+**Recording (keyed, manual, ~$1 ceiling).** Needs `ANTHROPIC_API_KEY` and the bench extra:
+
+```bash
+uv sync --extra bench
+ESIM_CASSETTES=record uv run pytest tests/test_llm_cassettes.py   # == make record-cassettes
+```
+
+Record mode swaps in a real `anthropic_api` client (Haiku, `cost_ceiling_usd=1.0`) whose
+misses hit the API and write the JSON; the assertions run against fresh output. Without a
+key (or the extra) it **skips**, it does not error.
+
+**Re-record procedure.** Cassettes hits would short-circuit recording, so you must **delete
+the scenario directory first**:
+
+```bash
+rm -rf tests/cassettes/extract          # (or resolve / rag — whichever drifted)
+uv sync --extra bench
+ESIM_CASSETTES=record uv run pytest tests/test_llm_cassettes.py   # rewrites the dir
+./scripts/gate.sh                       # replay it keyless, then commit the new JSON
+```
+
+Record mode **scans every written file** for the live `ANTHROPIC_API_KEY` value and the
+`sk-ant-` prefix and aborts the recording if either appears — belt-and-braces, since
+`Completion.to_dict()` (text/usage/model/structured/references_used) cannot contain
+credentials by construction.
+
+**Keyless escape hatch.** A keyless contributor who must change a recorded prompt moves the
+scenario dir aside in the same PR (the tests flip to a visible skip) and flags the
+re-record as a keyed follow-up — a loud, reviewable act rather than a broken gate.
 
 ## Repo orientation
 

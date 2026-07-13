@@ -46,13 +46,21 @@ cred-gated live smoke.
 
 ## E2 — Local testing hardening: backend contract + record/replay (P0) — `specs/0002-local-testing-hardening.md`
 
-**Status: spec'd (approved)** — see the spec for the slice plan. Note the overlap with
-spec 0001, which already delivered part of this epic: the shared `_AnthropicSDKBackend`
-request path has keyless stubbed-client coverage (`tests/test_llm_sdk_path.py`; the
-original "entire request path is `pragma: no cover`" claim here is stale),
-`scripts/import_smoke.py` pins the SDK's `Messages.create` signature, and config/CLI/
-`build_backend` lockstep is enforced (`test_backend_enum_matches_backend_factory`,
-plus the `ModelConfig.backend = "fake"` default fix).
+**Status: done (cassette recordings pending a keyed run)** — all seven slices landed: a
+parametrized backend-contract suite over all four backends with a completeness pin
+(`tests/test_backend_contract.py`), cassette record/replay built on `ResponseCache`
+(`tests/test_llm_cassettes.py` + `tests/llm_stubs.py`, replay keyless / recording keyed via
+`make record-cassettes`), and coverage in the gate with a `fail_under` floor. The
+extract/resolve/rag cassettes are unrecorded — a keyed step for the owner; until then the
+three scenario tests skip keyless and the round-trip self-test covers the replay/drift
+machinery. See the spec's acceptance criteria for the pending-recording item. Note the
+overlap with spec 0001, which already delivered part of this epic: the shared
+`_AnthropicSDKBackend` request path has keyless stubbed-client coverage
+(`tests/test_llm_sdk_path.py`; the original "entire request path is `pragma: no cover`"
+claim here is stale), `scripts/import_smoke.py` pins the SDK's `Messages.create` signature,
+and config/CLI/`build_backend` lockstep is enforced
+(`test_backend_enum_matches_backend_factory`, plus the `ModelConfig.backend = "fake"`
+default fix).
 
 Make the real-LLM paths testable without a key, so regressions in prompt assembly,
 tool-forced structured output, error normalization, and answer parsing/resolution are
