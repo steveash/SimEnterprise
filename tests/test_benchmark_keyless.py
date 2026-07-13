@@ -47,6 +47,46 @@ requires_llm_runner = pytest.mark.skipif(
 )
 
 
+def _aws_creds_present() -> bool:
+    """True when the environment carries AWS credentials the Bedrock path can use.
+
+    Any one of the standard credential sources counts — a static access key, a
+    named profile, or a Bedrock bearer token. Presence, not validity: a live call
+    still fails if the credentials are wrong, but this is enough to decide whether a
+    provider-agnostic keyed test is worth *attempting* on Bedrock.
+    """
+    return any(
+        os.environ.get(var)
+        for var in ("AWS_ACCESS_KEY_ID", "AWS_PROFILE", "AWS_BEARER_TOKEN_BEDROCK")
+    )
+
+
+def live_llm_capable() -> bool:
+    """Whether a real Claude call can run here — via *either* provider (Bedrock slice).
+
+    Live-capable means EITHER a 1P Anthropic key (``ANTHROPIC_API_KEY``) OR a Bedrock
+    setup: AWS credentials present **and** the Bedrock intent flag
+    ``CLAUDE_CODE_USE_BEDROCK`` set. The intent flag is required so that ambient AWS
+    credentials (present for some unrelated boto usage) don't mis-mark a 1P-only
+    environment as Bedrock-capable and silently un-skip a test with no way to reach a
+    model. Gates keyed tests whose code path is provider-agnostic after slice 6; a
+    test that hard-codes ``backend="anthropic_api"`` stays on :data:`requires_llm_runner`.
+    """
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        return True
+    return bool(os.environ.get("CLAUDE_CODE_USE_BEDROCK")) and _aws_creds_present()
+
+
+# The provider-agnostic sibling of :data:`requires_llm_runner`: for graph-agent runner
+# tests that work on Bedrock as well as the 1P API (the runner gained a Bedrock mode in
+# slice 6). Still needs the agent SDK; live-capable via either provider.
+requires_live_llm = pytest.mark.skipif(
+    not (live_llm_capable() and importlib.util.find_spec("claude_agent_sdk")),
+    reason="live graph runner needs claude-agent-sdk and either ANTHROPIC_API_KEY or "
+    "Bedrock creds (AWS creds + CLAUDE_CODE_USE_BEDROCK); gated, esim-uzc.4",
+)
+
+
 @pytest.fixture(scope="module")
 def gold() -> tuple[World, dict[str, list[str]]]:
     """A single golden run shared across the reference-query checks."""
@@ -187,3 +227,37 @@ def test_runner_gate_skips_without_credentials() -> None:
     # Mirrors `requires_llm_runner`: gate is active (skips) iff a prerequisite is missing.
     gate_active = not (have_key and have_sdk)
     assert gate_active == (not have_key or not have_sdk)
+
+
+def test_live_llm_capable_accepts_either_provider(monkeypatch: pytest.MonkeyPatch) -> None:
+    """live_llm_capable is true for a 1P key OR a complete Bedrock setup, else false."""
+    from tests.test_benchmark_keyless import live_llm_capable
+
+    for var in (
+        "ANTHROPIC_API_KEY",
+        "CLAUDE_CODE_USE_BEDROCK",
+        "AWS_ACCESS_KEY_ID",
+        "AWS_PROFILE",
+        "AWS_BEARER_TOKEN_BEDROCK",
+    ):
+        monkeypatch.delenv(var, raising=False)
+
+    # Nothing set: not capable.
+    assert live_llm_capable() is False
+
+    # A 1P key alone is enough.
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "k")
+    assert live_llm_capable() is True
+    monkeypatch.delenv("ANTHROPIC_API_KEY")
+
+    # AWS creds without the Bedrock intent flag do NOT un-skip (conservative).
+    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "AKIA")
+    assert live_llm_capable() is False
+
+    # Intent flag + creds: Bedrock-capable.
+    monkeypatch.setenv("CLAUDE_CODE_USE_BEDROCK", "1")
+    assert live_llm_capable() is True
+
+    # Intent flag but no creds of any kind: not capable.
+    monkeypatch.delenv("AWS_ACCESS_KEY_ID")
+    assert live_llm_capable() is False

@@ -413,7 +413,14 @@ def _run_graph_runner(
     from enterprise_sim.benchmark.runners.graph_agent import run_benchmark
 
     try:
-        return run_benchmark(benchmark, run_dir=run_dir, model=args.model, limit=args.limit)
+        return run_benchmark(
+            benchmark,
+            run_dir=run_dir,
+            model=args.model,
+            limit=args.limit,
+            use_bedrock=args.use_bedrock,
+            aws_region=args.aws_region,
+        )
     except RuntimeError as exc:
         print(f"enterprise-sim bench run: {exc}", file=sys.stderr)
         return None
@@ -489,6 +496,18 @@ def _add_bench_run_parser(
         default=None,
         metavar="N",
         help="[graph] answer only the first N questions (default: all)",
+    )
+    run_parser.add_argument(
+        "--use-bedrock",
+        action="store_true",
+        help="[graph] route the agent SDK to Amazon Bedrock (CLAUDE_CODE_USE_BEDROCK=1, "
+        "authenticates from ambient AWS creds instead of ANTHROPIC_API_KEY)",
+    )
+    run_parser.add_argument(
+        "--aws-region",
+        default=None,
+        metavar="REGION",
+        help="[graph] AWS region for --use-bedrock (sets AWS_REGION; default: ambient AWS env)",
     )
     run_parser.set_defaults(func=_cmd_bench_run)
 
@@ -1316,7 +1335,14 @@ def _cmd_reconstruct_reason(args: argparse.Namespace) -> int:
     world, groundings = project_with_groundings(kg, gold_artifact_ids)
     runner = GraphRunner(GraphModel.from_world(world, groundings))
     try:
-        predictions = run_benchmark(benchmark, runner=runner, model=args.model, limit=args.limit)
+        predictions = run_benchmark(
+            benchmark,
+            runner=runner,
+            model=args.model,
+            limit=args.limit,
+            use_bedrock=args.use_bedrock,
+            aws_region=args.aws_region,
+        )
     except RuntimeError as exc:
         print(f"enterprise-sim reconstruct reason: {exc}", file=sys.stderr)
         return 2
@@ -1399,6 +1425,18 @@ def _add_reconstruct_reason_parser(
         default=None,
         metavar="N",
         help="answer only the first N questions (default: all)",
+    )
+    reason_parser.add_argument(
+        "--use-bedrock",
+        action="store_true",
+        help="route the agent SDK to Amazon Bedrock (CLAUDE_CODE_USE_BEDROCK=1, "
+        "authenticates from ambient AWS creds instead of ANTHROPIC_API_KEY)",
+    )
+    reason_parser.add_argument(
+        "--aws-region",
+        default=None,
+        metavar="REGION",
+        help="AWS region for --use-bedrock (sets AWS_REGION; default: ambient AWS env)",
     )
     reason_parser.set_defaults(func=_cmd_reconstruct_reason)
 

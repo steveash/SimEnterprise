@@ -18,7 +18,6 @@ are present.
 
 from __future__ import annotations
 
-import importlib.util
 import os
 from collections.abc import Iterator
 from pathlib import Path
@@ -49,6 +48,8 @@ from enterprise_sim.reconstruct import (
     project_with_groundings,
     resolve_entities,
 )
+
+from tests.test_benchmark_keyless import requires_live_llm
 
 # --------------------------------------------------------------------------- #
 # One gold model, built once for the whole module (the golden run is the slow bit).
@@ -409,24 +410,98 @@ def test_bench_run_requires_api_key(tmp_path: Path, capsys: Any, monkeypatch: An
 # Keyed agent loop (skipped without a key / the SDK).
 # --------------------------------------------------------------------------- #
 
-_HAVE_SDK = importlib.util.find_spec("claude_agent_sdk") is not None
 
-
-@pytest.mark.skipif(
-    not (os.environ.get("ANTHROPIC_API_KEY") and _HAVE_SDK),
-    reason="needs ANTHROPIC_API_KEY and claude-agent-sdk",
-)
+@requires_live_llm
 def test_graph_agent_produces_scored_predictions(
     gold: tuple[World, dict[str, list[str]], GraphModel],
 ) -> None:
-    """With a key: the agent answers a small subset and the predictions are scorable."""
+    """With live creds: the agent answers a small subset and the predictions are scorable.
+
+    Provider-agnostic after the Bedrock slice: runs on the 1P API when a key is
+    present, otherwise (AWS creds + ``CLAUDE_CODE_USE_BEDROCK``) drives the same
+    agent through Bedrock — the mode is chosen from which credentials are available.
+    """
     from enterprise_sim.benchmark.generate import build_benchmark
     from enterprise_sim.benchmark.runners.graph_agent import run_benchmark
     from enterprise_sim.benchmark.score import score
 
     world, groundings, _model = gold
     benchmark = build_benchmark(world, groundings)
-    predictions = run_benchmark(benchmark, limit=2)
+    # No 1P key ⇒ the live env is a Bedrock one (requires_live_llm guaranteed creds).
+    use_bedrock = not os.environ.get("ANTHROPIC_API_KEY")
+    predictions = run_benchmark(benchmark, limit=2, use_bedrock=use_bedrock)
     assert len(predictions) >= 1
     report = score(benchmark, predictions)
     assert report.overall.count == len(benchmark)
+
+
+# --------------------------------------------------------------------------- #
+# Bedrock mode (keyless: the env override is a pure function; flags thread through).
+# --------------------------------------------------------------------------- #
+
+
+def test_agent_env_bedrock_override() -> None:
+    """_agent_env is empty for the 1P path and sets the Bedrock vars when asked."""
+    from enterprise_sim.benchmark.runners.graph_agent import _agent_env
+
+    assert _agent_env(False, None) == {}
+    assert _agent_env(False, "us-west-2") == {}  # region without the flag is inert
+    assert _agent_env(True, None) == {"CLAUDE_CODE_USE_BEDROCK": "1"}
+    assert _agent_env(True, "us-west-2") == {
+        "CLAUDE_CODE_USE_BEDROCK": "1",
+        "AWS_REGION": "us-west-2",
+    }
+
+
+def test_bench_run_graph_bedrock_flags_parse() -> None:
+    args = build_parser().parse_args(
+        [
+            "bench",
+            "run",
+            "--runner",
+            "graph",
+            "--bench",
+            "b.jsonl",
+            "--use-bedrock",
+            "--aws-region",
+            "eu-central-1",
+        ]
+    )
+    assert args.use_bedrock is True
+    assert args.aws_region == "eu-central-1"
+
+
+def test_bench_run_graph_threads_bedrock_to_runner(tmp_path: Path, monkeypatch: Any) -> None:
+    """--use-bedrock / --aws-region reach run_benchmark (stub the runner boundary)."""
+    from enterprise_sim.benchmark.runners import graph_agent
+    from enterprise_sim.benchmark.score import Predictions
+
+    captured: dict[str, Any] = {}
+
+    def _fake_run_benchmark(benchmark: Any, **kwargs: Any) -> Predictions:
+        captured.update(kwargs)
+        return Predictions()
+
+    monkeypatch.setattr(graph_agent, "run_benchmark", _fake_run_benchmark)
+    bench_path = tmp_path / "bench.jsonl"
+    bench_path.write_text("", encoding="utf-8")
+    out_path = tmp_path / "pred.jsonl"
+
+    code = main(
+        [
+            "bench",
+            "run",
+            "--runner",
+            "graph",
+            "--bench",
+            str(bench_path),
+            "--use-bedrock",
+            "--aws-region",
+            "us-west-2",
+            "-o",
+            str(out_path),
+        ]
+    )
+    assert code == 0
+    assert captured["use_bedrock"] is True
+    assert captured["aws_region"] == "us-west-2"

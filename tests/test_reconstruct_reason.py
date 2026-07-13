@@ -196,7 +196,7 @@ def test_run_benchmark_builds_engines_once(tmp_path: Path, monkeypatch: Any) -> 
     seen: list[int] = []
 
     async def _fake_predict(
-        active: GraphRunner, pair: QAPair, *, model: str, max_turns: int
+        active: GraphRunner, pair: QAPair, *, model: str, max_turns: int, env: dict[str, str]
     ) -> list[str]:
         seen.append(id(active))
         return ["person:boss"]
@@ -261,6 +261,31 @@ def test_reason_run_flag_defaults_to_none() -> None:
         ["reconstruct", "reason", "--reconstructed", "recon", "--bench", "b.jsonl"]
     )
     assert args.run is None
+
+
+def test_reason_bedrock_flags_parse() -> None:
+    # --use-bedrock / --aws-region route the shared graph runner through Bedrock.
+    default = build_parser().parse_args(
+        ["reconstruct", "reason", "--reconstructed", "recon", "--bench", "b.jsonl"]
+    )
+    assert default.use_bedrock is False
+    assert default.aws_region is None
+
+    args = build_parser().parse_args(
+        [
+            "reconstruct",
+            "reason",
+            "--reconstructed",
+            "recon",
+            "--bench",
+            "b.jsonl",
+            "--use-bedrock",
+            "--aws-region",
+            "us-west-2",
+        ]
+    )
+    assert args.use_bedrock is True
+    assert args.aws_region == "us-west-2"
 
 
 def test_reason_cli_requires_api_key(tmp_path: Path, capsys: Any, monkeypatch: Any) -> None:

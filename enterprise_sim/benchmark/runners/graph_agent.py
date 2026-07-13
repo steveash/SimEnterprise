@@ -120,6 +120,8 @@ def run_benchmark(
     model: str = DEFAULT_MODEL,
     limit: int | None = None,
     max_turns: int = DEFAULT_MAX_TURNS,
+    use_bedrock: bool = False,
+    aws_region: str | None = None,
 ) -> Predictions:
     """Run the graph agent over ``benchmark`` and return its :class:`Predictions`.
 
@@ -129,10 +131,17 @@ def run_benchmark(
     the caller then owns — otherwise from the gold KG (a fresh golden run, or
     ``run_dir`` when given, so the graph matches the benchmark's gold answers). One
     agent answers each question (the first ``limit`` if set) against that single
-    runner. Requires ``ANTHROPIC_API_KEY`` and ``claude-agent-sdk``; raises
-    :class:`RuntimeError` if the key is missing.
+    runner.
+
+    The default (1P) path requires ``ANTHROPIC_API_KEY`` and raises
+    :class:`RuntimeError` if the key is missing. With ``use_bedrock`` the agent SDK
+    subprocess is instead routed to Amazon Bedrock (``CLAUDE_CODE_USE_BEDROCK=1`` +
+    an optional ``aws_region``, see :func:`_agent_env`), which authenticates from
+    ambient AWS credentials rather than the 1P key — so that gate is skipped.
+    ``claude-agent-sdk`` is required either way (imported lazily in
+    :func:`_predict_pair`).
     """
-    if not os.environ.get("ANTHROPIC_API_KEY"):
+    if not use_bedrock and not os.environ.get("ANTHROPIC_API_KEY"):
         raise RuntimeError("graph runner needs ANTHROPIC_API_KEY (the agent calls the Claude API)")
 
     import asyncio
@@ -142,12 +151,33 @@ def run_benchmark(
     owns_runner = runner is None
     active = _build_runner(run_dir) if runner is None else runner
     pairs = list(benchmark)[: limit if limit is not None else len(benchmark)]
+    env = _agent_env(use_bedrock, aws_region)
     try:
-        rows = asyncio.run(_run_all(active, pairs, model=model, max_turns=max_turns))
+        rows = asyncio.run(_run_all(active, pairs, model=model, max_turns=max_turns, env=env))
     finally:
         if owns_runner:
             active.close()
     return Predictions.of(rows)
+
+
+def _agent_env(use_bedrock: bool, aws_region: str | None) -> dict[str, str]:
+    """Env overrides layered onto the agent SDK subprocess: route it to Bedrock.
+
+    The empty mapping (the ``use_bedrock=False`` default) leaves the subprocess on
+    its inherited 1P configuration — today's behavior. Otherwise
+    ``CLAUDE_CODE_USE_BEDROCK=1`` makes the agent CLI resolve Anthropic models
+    through Amazon Bedrock (authenticating from ambient AWS credentials), and an
+    explicit ``aws_region`` pins ``AWS_REGION``. The result is passed to
+    ``ClaudeAgentOptions.env``, which the SDK merges *on top of* ``os.environ`` for
+    the child only — so this process's environment is never mutated (no leakage
+    across questions or tests, keeping the run deterministic).
+    """
+    if not use_bedrock:
+        return {}
+    env = {"CLAUDE_CODE_USE_BEDROCK": "1"}
+    if aws_region:
+        env["AWS_REGION"] = aws_region
+    return env
 
 
 def _build_runner(run_dir: str | None) -> GraphRunner:
@@ -174,11 +204,12 @@ async def _run_all(
     *,
     model: str,
     max_turns: int,
+    env: dict[str, str],
 ) -> list[Prediction]:
     """Answer each pair in turn, returning one :class:`Prediction` apiece."""
     out: list[Prediction] = []
     for pair in pairs:
-        predicted = await _predict_pair(runner, pair, model=model, max_turns=max_turns)
+        predicted = await _predict_pair(runner, pair, model=model, max_turns=max_turns, env=env)
         out.append(Prediction(qa_id=pair.id, predicted_ids=tuple(predicted)))
     return out
 
@@ -189,6 +220,7 @@ async def _predict_pair(
     *,
     model: str,
     max_turns: int,
+    env: dict[str, str],
 ) -> list[str]:
     """Run one agent over one question; return the node ids it submits (sorted)."""
     from claude_agent_sdk import (
@@ -255,6 +287,8 @@ async def _predict_pair(
             "mcp__graph__search_nodes",
             "mcp__graph__submit_answer",
         ],
+        # Empty for the 1P path; Bedrock routing when use_bedrock (see _agent_env).
+        env=env,
     )
     prompt = (
         f"Question: {pair.question}\n\n"
