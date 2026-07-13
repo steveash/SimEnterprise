@@ -28,7 +28,7 @@ While iterating:
 uv run pytest tests/test_scheduler.py            # one file
 uv run pytest -k "golden and manifest"           # by keyword
 uv run enterprise-sim run examples/golden.toml   # deterministic end-to-end run (make golden)
-uv run enterprise-sim eval runs/golden/golden-slice-co-40644d551158
+uv run enterprise-sim eval runs/golden/golden-slice-co-6c66fbef69f8
 ```
 
 `runs/` is gitignored; regenerate anything under it. The golden run's exact shape is

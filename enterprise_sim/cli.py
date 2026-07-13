@@ -117,10 +117,12 @@ def _resolve_run_client(config: RunConfig, backend: str) -> LLMClient | None:
     network-free ``fake`` backend — a real provider is always an explicit opt-in
     (the determinism invariant; ``_DEFAULT_BACKEND`` in ``assembly/runner``). The
     config's ``[model].backend`` does *not* drive ``run`` implicitly (open question
-    in specs/0001-bedrock-first-class.md); so when the config *names* a real backend
-    the flag then ignores — either overridden by a different real flag, or (the
-    historical silent surprise this fixes) left rendering with ``fake`` — a one-line
-    warning goes to stderr so the config stays meaningful.
+    in specs/0001-bedrock-first-class.md); so whenever the effective flag disagrees
+    with the config's declared backend — a real flag overriding a different backend,
+    or the flag left at ``fake`` while the config named a real one — a one-line
+    warning goes to stderr so the config stays meaningful. This is a pure value
+    comparison: ``ModelConfig.backend`` now defaults to ``fake`` (D31), so a config
+    with no ``[model]`` block records ``fake`` and the default run stays silent.
 
     Returns the LLM client the producers render against, or ``None`` for the default
     ``fake`` backend so that path stays byte-identical to a run with no client wired.
@@ -129,8 +131,7 @@ def _resolve_run_client(config: RunConfig, backend: str) -> LLMClient | None:
     from enterprise_sim.core.llm import build_client
 
     config_backend = config.model.backend.value
-    named_in_config = "backend" in config.model.model_fields_set
-    if named_in_config and config_backend != "fake" and config_backend != backend:
+    if config_backend != backend:
         print(
             f"enterprise-sim run: config [model].backend={config_backend!r} is ignored; "
             f"rendering with --backend {backend!r}",

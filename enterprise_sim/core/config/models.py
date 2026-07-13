@@ -98,7 +98,11 @@ class ModelConfig(_Frozen):
     """LLM backend selection and the realism/cost dial (ARCHITECTURE.md §7)."""
 
     backend: LLMBackend = Field(
-        default=LLMBackend.ANTHROPIC_API, description="Which provider/backend to call."
+        default=LLMBackend.FAKE,
+        description=(
+            "Which provider/backend to call; defaults to the deterministic, "
+            "network-free ``fake`` — the engine's actual default render backend (D31)."
+        ),
     )
     name: str = Field(
         default="claude-opus-4-8",

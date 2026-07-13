@@ -113,6 +113,45 @@ LLM layer, which is core infrastructure — allowed); golden-run pin unaffected.
 - [ ] README + docs/DEVELOPMENT.md contain a copy-pasteable Bedrock quickstart.
 - [ ] `./scripts/gate.sh` green on every commit; no new network in default paths.
 
+## Review findings & resolutions
+
+An adversarial review of slices 1–5 raised seven findings (F1–F7). This fix round
+(`fix(run): honest backend defaults, self-describing run dirs, symmetric backend
+warnings`) resolves F1/F3/F4; F2/F5/F6/F7 are the next fix round.
+
+Resolved this round:
+
+- **F1 — run dir not self-describing / backend collision.** The run id is a pure
+  function of `(config, seed)` and does not fold in the render backend, so the same
+  config rendered by `fake` then a real provider collided on one run id and silently
+  overwrote. Fix: the manifest gains a `render_backend` field recording the effective
+  backend that produced the corpus (schema bumped to 1.2), and `execute_run` refuses
+  (`RunCollisionError`) to overwrite a run dir whose existing manifest names a
+  different backend; a same-backend rerun stays idempotent.
+- **F3 — fake-pin override was silent (the dangerous direction).** A config that
+  explicitly pinned `backend = "fake"` overridden by a real `--backend` flag emitted no
+  warning. Fix: `_resolve_run_client` now warns on any pure value mismatch
+  (`config.model.backend != flag`), dropping the `model_fields_set` gate.
+- **F4 — snapshot round-trip warned misleadingly.** With the old `anthropic_api`
+  default, a config that named no `[model]` block snapshotted `anthropic_api`, so
+  reloading the snapshot under the default `fake` flag warned spuriously. Fix:
+  `ModelConfig.backend` now defaults to `fake` (the engine's actual default render
+  backend, D31), so a minimal config snapshots `fake` and its round-trip is silent.
+  Consequence: the config digest hashes `model.backend`, so the golden run id moved
+  `40644d551158 → 6c66fbef69f8` (content-identical corpus; see docs/GOLDEN_RUN.md).
+
+Pending (next fix round):
+
+- **F2 — 1P model id sent to Bedrock.** The default model is a 1P id; a Bedrock run
+  must send the inference-profile form, not just normalize the pricing key.
+- **F5 — app-inference-profile ARN under-prices vs the D13 ceiling.** Custom
+  application-inference-profile ARNs don't normalize to a pricing key, so cost lookup
+  falls through and under-prices against the cost ceiling.
+- **F6 — stub tests don't pin the real SDK signature.** The keyless request-path tests
+  duck-type the client, so they wouldn't catch a real `anthropic` SDK signature drift.
+- **F7 — CLI backend choices hardcoded 6×.** The `{fake,anthropic_api,bedrock,claude_cli}`
+  choices list is duplicated across CLI subparsers instead of deriving from `LLMBackend`.
+
 ## Open questions
 
 - One `bench` extra vs a separate `bedrock` extra (boto3 is heavy)? Lean: fold into

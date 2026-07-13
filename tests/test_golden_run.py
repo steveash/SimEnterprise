@@ -186,7 +186,7 @@ def test_golden_run_reproduces_byte_for_byte(tmp_path: Path) -> None:
     assert blob(a.run_dir) == blob(b.run_dir)
 
 
-@pytest.mark.parametrize("expected_run_id", ["golden-slice-co-40644d551158"])
+@pytest.mark.parametrize("expected_run_id", ["golden-slice-co-6c66fbef69f8"])
 def test_golden_run_id_is_pinned(tmp_path: Path, expected_run_id: str) -> None:
     # The run id is a pure function of (config, seed); pinning it makes an
     # accidental change to the golden config a loud, reviewable test failure.

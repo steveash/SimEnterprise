@@ -56,6 +56,15 @@ _CONFIG_SNAPSHOT = "config.snapshot.json"
 _MANIFEST = "manifest.json"
 
 
+class RunCollisionError(RuntimeError):
+    """A run dir already holds a run rendered by a *different* backend (finding F1).
+
+    The run id does not fold in the render backend, so two backends rendering the
+    same config would collide on one id; :func:`execute_run` refuses to overwrite
+    rather than silently mixing corpora from different providers under one run id.
+    """
+
+
 @dataclass(frozen=True, slots=True)
 class RunResult:
     """The outcome of :func:`execute_run`: where the run landed and its manifest.
@@ -108,6 +117,31 @@ def _client_for(config: RunConfig, client: LLMClient | None) -> LLMClient:
     return build_client(llm_config_for(config))
 
 
+def _guard_backend_collision(run_dir: Path, render_backend: str) -> None:
+    """Refuse to overwrite a run dir rendered by a *different* backend (finding F1).
+
+    The run id is a pure function of ``(config, seed)`` — it does *not* fold in the
+    render backend (that is a routing choice, not run identity). So the same config
+    rendered by ``fake`` and later by a real provider would collide on one run id and
+    silently overwrite. A same-backend rerun stays idempotent; a mismatch is a hard
+    error naming the honest fix (delete the dir or change ``output_dir``).
+    """
+    existing = run_dir / _MANIFEST
+    if not existing.is_file():
+        return
+    try:
+        prior_backend = json.loads(existing.read_text(encoding="utf-8")).get("render_backend")
+    except (json.JSONDecodeError, OSError):
+        return
+    if prior_backend is not None and prior_backend != render_backend:
+        raise RunCollisionError(
+            f"run dir {run_dir} already holds a run rendered with backend "
+            f"{prior_backend!r}; the same config rendered with a different backend "
+            f"({render_backend!r}) collides on the same run id. Delete the dir or "
+            f"change output_dir."
+        )
+
+
 def _slugify(name: str) -> str:
     """Return a filesystem-safe, lowercase slug of ``name`` (empty → ``run``)."""
     slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
@@ -156,6 +190,7 @@ def build_manifest(
     counts: dict[str, int] | None = None,
     validation: dict[str, object] | None = None,
     generated_at: str | None = None,
+    render_backend: str = _DEFAULT_BACKEND,
 ) -> Manifest:
     """Build the :class:`Manifest` for ``config`` (no filesystem side effects).
 
@@ -163,7 +198,10 @@ def build_manifest(
     It defaults to zeros so the manifest can be built before a world exists;
     :func:`execute_run` passes the real Layer-A counts. ``validation`` is the
     consistency-validator summary of ``validation/issues.jsonl`` (total + per-kind
-    tally); it defaults to an empty/clean summary.
+    tally); it defaults to an empty/clean summary. ``render_backend`` records the
+    *effective* backend that rendered the corpus (the client's backend name), so the
+    run dir self-describes how its content was produced; it defaults to the
+    deterministic ``fake`` (finding F1, spec 0001).
     """
     digest = compute_config_digest(config)
     stamp = generated_at if generated_at is not None else datetime.now(UTC).isoformat()
@@ -175,6 +213,7 @@ def build_manifest(
         tool_version=__version__,
         seed=config.seed,
         config_digest=digest,
+        render_backend=render_backend,
         company={
             "name": config.company.name,
             "vertical": config.company.vertical,
@@ -234,6 +273,7 @@ def execute_run(
             reproducible and free out of the box.
     """
     client = _client_for(config, client)
+    render_backend = client.config.backend
 
     world = build_world(config)
     corpus = build_corpus(world, config, client)
@@ -259,8 +299,10 @@ def execute_run(
         counts=counts,
         validation=summarize_issue_rows(issue_rows),
         generated_at=generated_at,
+        render_backend=render_backend,
     )
     run_dir = config.output_dir / manifest.run_id
+    _guard_backend_collision(run_dir, render_backend)
 
     for name in (_ORGANIZATION_DIR, _KG_DIR, _VALIDATION_DIR, _ARTIFACTS_DIR):
         (run_dir / name).mkdir(parents=True, exist_ok=True)

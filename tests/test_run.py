@@ -272,6 +272,43 @@ def test_execute_run_is_idempotent(tmp_path: Path) -> None:
     ).read_text()
 
 
+def test_manifest_records_effective_render_backend(tmp_path: Path) -> None:
+    # F1: the run dir self-describes how its corpus was produced. A default run
+    # renders with the deterministic fake backend, so the manifest records "fake".
+    result = execute_run(_config(tmp_path))
+    assert result.manifest.render_backend == "fake"
+    on_disk = json.loads((result.run_dir / "manifest.json").read_text())
+    assert on_disk["render_backend"] == "fake"
+
+
+def test_rerun_same_backend_is_allowed(tmp_path: Path) -> None:
+    # F1 guard: re-rendering the same config with the *same* effective backend stays
+    # idempotent — the guard only fires on a backend mismatch.
+    config = _config(tmp_path)
+    first = execute_run(config, generated_at="2026-06-22T00:00:00+00:00")
+    second = execute_run(config, generated_at="2026-06-22T00:00:00+00:00")
+    assert first.run_dir == second.run_dir
+    assert second.manifest.render_backend == "fake"
+
+
+def test_run_collision_on_backend_mismatch(tmp_path: Path) -> None:
+    # F1 guard: a run dir already rendered by a different backend must not be silently
+    # overwritten (run ids don't fold in the backend). We fake a prior real-backend
+    # manifest, then a default (fake) run over the same id raises a clear error.
+    import pytest
+    from enterprise_sim.assembly import RunCollisionError
+
+    config = _config(tmp_path)
+    result = execute_run(config)
+    manifest_path = result.run_dir / "manifest.json"
+    on_disk = json.loads(manifest_path.read_text())
+    on_disk["render_backend"] = "bedrock"
+    manifest_path.write_text(json.dumps(on_disk, sort_keys=True, indent=2) + "\n")
+
+    with pytest.raises(RunCollisionError, match="different backend"):
+        execute_run(config)
+
+
 def test_cli_run_writes_outputs(tmp_path: Path) -> None:
     cfg_path = tmp_path / "demo.toml"
     cfg_path.write_text(
@@ -346,6 +383,51 @@ def test_cli_run_warns_when_flag_contradicts_config_backend(tmp_path: Path, caps
     err = capsys.readouterr().err
     assert "[model].backend='bedrock' is ignored" in err
     assert "--backend 'anthropic_api'" in err
+
+
+def test_cli_run_warns_when_flag_overrides_fake_config(tmp_path: Path, capsys: Any) -> None:
+    # F3 (the dangerous direction, previously silent): a config that explicitly pins
+    # fake, overridden by a real --backend flag, now warns. The dry-run keeps it
+    # keyless (no SDK client, no creds).
+    cfg_path = tmp_path / "demo.toml"
+    _write_config(cfg_path, backend="fake")
+    assert (
+        main(
+            [
+                "run",
+                "-c",
+                str(cfg_path),
+                "-o",
+                str(tmp_path / "out"),
+                "--dry-run",
+                "--backend",
+                "bedrock",
+            ]
+        )
+        == 0
+    )
+    err = capsys.readouterr().err
+    assert "[model].backend='fake' is ignored" in err
+    assert "--backend 'bedrock'" in err
+
+
+def test_cli_run_snapshot_of_minimal_config_reloads_silently(tmp_path: Path, capsys: Any) -> None:
+    # F4: with ModelConfig's default backend now fake, a snapshot of a config that
+    # named no [model] block records "fake" — so reloading that snapshot and running
+    # with the default flag round-trips silently (no misleading ignored-backend warning).
+    cfg_path = tmp_path / "demo.toml"
+    _write_config(cfg_path)  # no [model] block
+    assert main(["run", "-c", str(cfg_path), "-o", str(tmp_path / "out")]) == 0
+    capsys.readouterr()  # drop the first run's output
+
+    run_dirs = list((tmp_path / "out").iterdir())
+    assert len(run_dirs) == 1
+    snapshot = run_dirs[0] / "config.snapshot.json"
+    assert json.loads(snapshot.read_text())["model"]["backend"] == "fake"
+
+    # Reload the snapshot itself as the config; the default fake flag matches — silent.
+    assert main(["run", "-c", str(snapshot), "-o", str(tmp_path / "out2")]) == 0
+    assert "is ignored" not in capsys.readouterr().err
 
 
 def test_cli_run_bedrock_dry_run_is_keyless(tmp_path: Path, capsys: Any) -> None:

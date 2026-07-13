@@ -25,7 +25,7 @@ fmt: ## ruff format + lint --fix
 
 golden: ## regenerate + eval the deterministic golden run
 	uv run enterprise-sim run examples/golden.toml
-	uv run enterprise-sim eval runs/golden/golden-slice-co-40644d551158
+	uv run enterprise-sim eval runs/golden/golden-slice-co-6c66fbef69f8
 
 smoke: ## real-LLM runtime import smoke (bench extra, no key needed)
 	uv sync --extra dev --extra bench

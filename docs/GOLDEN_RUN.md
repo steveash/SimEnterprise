@@ -23,13 +23,21 @@ from its seed and can be checked in CI without any API cost.
 enterprise-sim run examples/golden.toml
 
 # Evaluate the completed run (structural realism metrics).
-enterprise-sim eval runs/golden/golden-slice-co-40644d551158
+enterprise-sim eval runs/golden/golden-slice-co-6c66fbef69f8
 ```
 
 Both commands are also runnable as `python -m enterprise_sim.cli ...`. The run id
-`golden-slice-co-40644d551158` is a pure function of `(config, seed)`; it is
+`golden-slice-co-6c66fbef69f8` is a pure function of `(config, seed)`; it is
 pinned by the acceptance test, so any change to the config that would alter the
 run surfaces as a loud test failure.
+
+> **Run id history.** The id moved from `golden-slice-co-40644d551158` to
+> `golden-slice-co-6c66fbef69f8` when `ModelConfig`'s default backend became `fake`
+> (the engine's actual default render backend, D31; previously the config snapshot
+> mislabeled fake-rendered runs as `anthropic_api`). The config digest hashes
+> `model.backend`, so its value change moved the id. The corpus, gold KG, and
+> validation log are otherwise **content-identical** — only the id, the snapshot's
+> `model.backend`, and the manifest's new `render_backend` field differ.
 
 A `--dry-run` first prints the artifact count and estimated cost without
 rendering:
@@ -41,8 +49,8 @@ enterprise-sim run examples/golden.toml --dry-run
 ## What the run produces
 
 ```
-runs/golden/golden-slice-co-40644d551158/
-├── manifest.json              # run index: ids, counts, validation summary
+runs/golden/golden-slice-co-6c66fbef69f8/
+├── manifest.json              # run index: ids, counts, render_backend, validation summary
 ├── config.snapshot.json       # the validated config, frozen for reproducibility
 ├── organization/              # Layer A reference data (markdown)
 │   ├── README.md  company.md  people.md

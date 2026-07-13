@@ -22,7 +22,9 @@ from typing import Any
 
 # Bumped when the manifest shape changes incompatibly. Consumers should check it.
 # 1.1 added the ``validation`` summary block (consistency validator, §11.4/D17).
-SCHEMA_VERSION = "1.1"
+# 1.2 added ``render_backend`` — the effective backend that rendered the run, so a
+# run dir self-describes how its corpus was produced (spec 0001, finding F1).
+SCHEMA_VERSION = "1.2"
 
 # Fields that intentionally vary between otherwise-identical runs (wall clock,
 # host, …). Excluded from the structural view used for reproducibility checks.
@@ -42,6 +44,7 @@ class Manifest:
     tool_version: str
     seed: int
     config_digest: str
+    render_backend: str
     company: dict[str, Any]
     window: dict[str, str]
     counts: dict[str, int]
@@ -57,6 +60,7 @@ class Manifest:
             "tool_version": self.tool_version,
             "seed": self.seed,
             "config_digest": self.config_digest,
+            "render_backend": self.render_backend,
             "company": dict(self.company),
             "window": dict(self.window),
             "counts": dict(self.counts),
@@ -74,6 +78,7 @@ class Manifest:
             tool_version=data["tool_version"],
             seed=data["seed"],
             config_digest=data["config_digest"],
+            render_backend=data["render_backend"],
             company=dict(data["company"]),
             window=dict(data["window"]),
             counts=dict(data["counts"]),

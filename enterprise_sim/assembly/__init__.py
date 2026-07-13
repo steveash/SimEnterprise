@@ -15,6 +15,7 @@ from enterprise_sim.assembly.manifest import (
     structural_view,
 )
 from enterprise_sim.assembly.runner import (
+    RunCollisionError,
     RunResult,
     build_manifest,
     compute_config_digest,
@@ -34,6 +35,7 @@ __all__ = [
     "CorpusResult",
     "Manifest",
     "RenderEstimate",
+    "RunCollisionError",
     "RunResult",
     "build_corpus",
     "build_manifest",

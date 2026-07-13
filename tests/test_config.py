@@ -44,7 +44,9 @@ def test_defaults_applied_for_minimal_config() -> None:
     assert config.seed == 0
     assert config.output_dir == Path("runs")
     assert config.projects == ()
-    assert config.model.backend is LLMBackend.ANTHROPIC_API
+    # The engine's actual default render backend is the deterministic ``fake`` (D31),
+    # so a config with no [model] block records that rather than claiming a real one.
+    assert config.model.backend is LLMBackend.FAKE
     assert config.model.realism == pytest.approx(0.7)
 
 
