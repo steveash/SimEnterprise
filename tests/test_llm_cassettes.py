@@ -180,13 +180,19 @@ def test_cassette_miss_backend_is_terminal() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_require_cassette_skips_when_absent(tmp_path: Path) -> None:
+def test_require_cassette_skips_when_absent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Pin replay mode: these assert the *keyless* semantics, which an ambient
+    # ESIM_CASSETTES=record (e.g. during a recording session) would invert.
+    monkeypatch.delenv("ESIM_CASSETTES", raising=False)
     with pytest.raises(pytest.skip.Exception) as excinfo:
         require_cassette(tmp_path / "never-recorded")
     assert RECORD_COMMAND in str(excinfo.value)
 
 
-def test_require_cassette_skips_when_empty(tmp_path: Path) -> None:
+def test_require_cassette_skips_when_empty(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("ESIM_CASSETTES", raising=False)
     empty = tmp_path / "scenario"
     empty.mkdir()
     with pytest.raises(pytest.skip.Exception):

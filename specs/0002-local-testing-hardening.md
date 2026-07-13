@@ -305,15 +305,14 @@ implementation time (same convention as spec 0001's live-validation items).
       self-test's drift case, which runs keyless).
 - [x] `grep -c sk-ant tests/cassettes -r` finds nothing in committed cassettes (vacuous
       until recorded — the dir is absent; enforced at record time by the redaction scan).
-- [~] `ESIM_CASSETTES=record uv run pytest tests/test_llm_cassettes.py` without a key
-      skips (does not error) with a message naming the key and extra required. *The
-      recording fixture itself does skip with exactly that message (the four scenario
-      recorders); but two keyless-semantics unit tests
-      (`test_require_cassette_skips_when_absent`, `…_when_empty`) fail under an ambient
-      `ESIM_CASSETTES=record` because they assert the non-record skip without pinning the
-      env var — a slice-2 test-hygiene gap, tracked in Open questions.*
-- [x] `./scripts/gate.sh` prints exactly one coverage summary line (no per-file table
-      in CI logs) and `make coverage` prints the per-file view.
+- [x] `ESIM_CASSETTES=record uv run pytest tests/test_llm_cassettes.py` without a key
+      skips (does not error) with a message naming the key and extra required. *(The two
+      keyless-semantics unit tests that originally failed under an ambient
+      `ESIM_CASSETTES=record` now pin the env var with `monkeypatch.delenv` — resolved
+      post-review.)*
+- [x] `./scripts/gate.sh` prints a one-line coverage total (plus pytest-cov's own short
+      total block — no per-file table in CI logs) and `make coverage` prints the
+      per-file view.
 - [x] Timing budget: covered run ≤1.5× the uncovered run. *(the gate's covered pytest
       step runs the ~1000-test suite in ~20s — a few percent over the uncovered baseline
       with the sysmon core, well inside 1.5×.)*
@@ -348,11 +347,7 @@ implementation time (same convention as spec 0001's live-validation items).
 - **Content-assertion tightness on recorded output.** Lean: match the existing keyed
   tests' structural style plus the few obviously-stable content checks; accept that a
   re-record may adjust them. If re-records prove churny, downgrade to structural-only.
-- **`require_cassette` skip tests leak the `ESIM_CASSETTES` env var** (slice-2
-  follow-up). `test_require_cassette_skips_when_{absent,empty}` assert the *keyless* skip
-  path but don't pin the env var, so under an ambient `ESIM_CASSETTES=record` they fail
-  ("DID NOT RAISE skip") — the one wrinkle in acceptance criterion 7. The recording
-  fixture and the four scenario recorders skip correctly. Fix is a one-line
-  `monkeypatch.delenv("ESIM_CASSETTES", raising=False)` in those two tests; deliberately
-  left for a `test(...)` commit rather than folded into this `docs` closeout (no scope
-  creep). Low stakes: the gate never sets the var, so the keyless path stays green.
+- **`require_cassette` skip tests leak the `ESIM_CASSETTES` env var** — RESOLVED
+  post-review: `test_require_cassette_skips_when_{absent,empty}` now pin replay mode
+  with `monkeypatch.delenv("ESIM_CASSETTES", raising=False)`, so an ambient
+  `ESIM_CASSETTES=record` no longer inverts their asserted keyless semantics.
