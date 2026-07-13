@@ -18,8 +18,11 @@ The self-tests here prove the infrastructure keyless and offline, using the dete
   recording, and record mode without a key skips with a clear message;
 * the record-time redaction scan flags a credential-shaped secret.
 
-The keyed scenario replays (extract/resolve/rag) land in slices 3–4; until their
-cassettes are recorded they skip via :func:`~tests.llm_stubs.require_cassette`.
+The frozen extract/resolve scenario replays land here in slice 3; the RAG scenario lands
+in slice 4. Every scenario uses **frozen-literal** inputs (never the golden-run fixture),
+so a golden-pin change can neither read nor invalidate a cassette. Until an owner records
+them (keyed), the scenario tests skip via :func:`~tests.llm_stubs.require_cassette`; once
+``tests/cassettes/{extract,resolve}/`` are committed they replay strictly and offline.
 """
 
 from __future__ import annotations
@@ -31,9 +34,19 @@ import pytest
 from enterprise_sim.core.llm.client import LLMConfig, build_client
 from enterprise_sim.core.llm.prompt import Prompt, PromptLayer
 from enterprise_sim.core.llm.types import LLMError
+from enterprise_sim.reconstruct import (
+    NODE_TYPES,
+    RELATION_TYPES,
+    Chunk,
+    Extraction,
+    MentionSpan,
+    adjudicate_pair,
+    extract_chunk,
+)
 from enterprise_sim.reconstruct.extract import HAIKU_MODEL
 
 from tests.llm_stubs import (
+    CASSETTE_ROOT,
     RECORD_COMMAND,
     CassetteMissBackend,
     cassette_client,
@@ -226,3 +239,115 @@ def test_redaction_scan_flags_live_key(tmp_path: Path, monkeypatch: pytest.Monke
 def test_redaction_scan_passes_clean_cassette(tmp_path: Path) -> None:
     (tmp_path / "clean.json").write_text('{"text": "an ordinary recorded completion"}')
     scan_cassette_for_secrets(tmp_path)  # no raise
+
+
+# ---------------------------------------------------------------------------
+# Frozen scenario replays (spec 0002 §1, slice 3): extract_chunk / adjudicate_pair
+# ---------------------------------------------------------------------------
+#
+# The scenario inputs below are **frozen literals**, deliberately *not* derived from the
+# golden-run fixture: a cassette's ``request_key`` folds the prompt text, so binding a
+# scenario to the golden pin would make every pin regeneration a keyed re-record. Each
+# replay drives the *real* extract/resolve code path (``extract_chunk`` /
+# ``adjudicate_pair``) through :func:`~tests.llm_stubs.cassette_client` — strict replay
+# keyless (a miss fails via :class:`~tests.llm_stubs.CassetteMissBackend`), keyed
+# recording under ``ESIM_CASSETTES=record``. Assertions are the structural invariants any
+# competent model satisfies on these tiny fixtures plus the obviously-correct answer,
+# matching the gated keyed tests' style (``test_reconstruct_extract.py`` /
+# ``test_reconstruct_resolve.py``); a re-record may legitimately loosen a content check.
+
+_EXTRACT_DIR = CASSETTE_ROOT / "extract"
+_RESOLVE_DIR = CASSETTE_ROOT / "resolve"
+
+# One chunk of enterprise org prose: two people, a team, and reporting / membership
+# relations a competent model recovers as ontology-typed mentions and triples.
+_EXTRACT_CHUNK = Chunk(
+    id="cassette-extract-1",
+    text=(
+        "Priya Nair leads the Payments team. Priya reports to Dana Okoro, the head of "
+        "Engineering. Marcus Bell is a member of the Payments team."
+    ),
+    source_path="org/payments.md",
+    offset=0,
+    section="Engineering > Payments",
+)
+
+
+def test_extract_chunk_replay() -> None:
+    """``extract_chunk`` over a frozen org chunk replays ontology-valid, located output."""
+    require_cassette(_EXTRACT_DIR)
+    client = cassette_client(_EXTRACT_DIR)
+
+    result = extract_chunk(_EXTRACT_CHUNK, client, model=HAIKU_MODEL)
+
+    assert isinstance(result, Extraction)
+    assert result.chunk_id == _EXTRACT_CHUNK.id
+    # Closed extraction: every mention/relation is gold ontology vocabulary.
+    assert all(m.entity_type in NODE_TYPES for m in result.mentions)
+    assert all(t.rel in RELATION_TYPES for t in result.triples)
+    # Triples carry the chunk id as provenance; located spans point back verbatim.
+    assert all(t.provenance == _EXTRACT_CHUNK.id for t in result.triples)
+    for mention in result.mentions:
+        if mention.start >= 0:
+            assert _EXTRACT_CHUNK.text[mention.start : mention.end] == mention.surface_form
+    # This chunk plainly names entities and relations, so something is recovered.
+    assert result.mentions or result.triples
+
+    if recording_enabled():
+        scan_cassette_for_secrets(_EXTRACT_DIR)
+
+
+# A same-entity coreference pair (full name / short form) sharing one context sentence —
+# the obviously-mergeable case — and a distinct-people pair that must stay split.
+_COREF_A = MentionSpan(chunk_id="c1", surface_form="Ben Cho", start=0, end=7, entity_type="Person")
+_COREF_B = MentionSpan(chunk_id="c1", surface_form="Ben", start=0, end=3, entity_type="Person")
+_COREF_CONTEXT = "Ben Cho leads the Platform team; later that week Ben reviewed the design."
+
+_DISTINCT_A = MentionSpan(
+    chunk_id="c1", surface_form="Ben Cho", start=0, end=7, entity_type="Person"
+)
+_DISTINCT_B = MentionSpan(
+    chunk_id="c2", surface_form="Ben Ortiz", start=0, end=9, entity_type="Person"
+)
+_DISTINCT_CONTEXT_A = "Ben Cho leads the Platform team in the Engineering department."
+_DISTINCT_CONTEXT_B = "Ben Ortiz manages the Warehouse team in the Logistics department."
+
+
+def test_adjudicate_pair_coref_replay() -> None:
+    """``adjudicate_pair`` merges a full-name / short-form pair in shared context."""
+    require_cassette(_RESOLVE_DIR)
+    client = cassette_client(_RESOLVE_DIR)
+
+    decision = adjudicate_pair(
+        _COREF_A,
+        _COREF_B,
+        client,
+        context_a=_COREF_CONTEXT,
+        context_b=_COREF_CONTEXT,
+        model=HAIKU_MODEL,
+    )
+
+    assert decision is True
+
+    if recording_enabled():
+        scan_cassette_for_secrets(_RESOLVE_DIR)
+
+
+def test_adjudicate_pair_distinct_replay() -> None:
+    """``adjudicate_pair`` keeps two different people with a shared first name apart."""
+    require_cassette(_RESOLVE_DIR)
+    client = cassette_client(_RESOLVE_DIR)
+
+    decision = adjudicate_pair(
+        _DISTINCT_A,
+        _DISTINCT_B,
+        client,
+        context_a=_DISTINCT_CONTEXT_A,
+        context_b=_DISTINCT_CONTEXT_B,
+        model=HAIKU_MODEL,
+    )
+
+    assert decision is False
+
+    if recording_enabled():
+        scan_cassette_for_secrets(_RESOLVE_DIR)
