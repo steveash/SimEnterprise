@@ -26,50 +26,19 @@ from enterprise_sim.core.llm.backends import (
 from enterprise_sim.core.llm.prompt import Prompt, PromptLayer
 from enterprise_sim.core.llm.types import LLMError, TokenUsage, TransientLLMError
 
+from tests.llm_stubs import (
+    StubClient,
+    StubSDKError,
+    backend_with_client,
+    simple_prompt,
+    tool_use_response,
+)
+
 # ---------------------------------------------------------------------------
-# Stubs: a duck-typed stand-in for the official SDK client and its responses.
+# The duck-typed SDK stubs live in ``tests/llm_stubs.py`` (shared with the
+# cross-backend contract suite). This module keeps only the SDK-path-specific
+# helpers: the lazy-creation subclass and the mixed cacheability prompt.
 # ---------------------------------------------------------------------------
-
-
-class _StubMessages:
-    """Records every ``create`` kwargs dict and returns a canned response (or raises)."""
-
-    def __init__(self, response: Any = None, error: Exception | None = None) -> None:
-        self._response = response
-        self._error = error
-        self.calls: list[dict[str, Any]] = []
-
-    def create(self, **kwargs: Any) -> Any:
-        self.calls.append(kwargs)
-        if self._error is not None:
-            raise self._error
-        return self._response
-
-
-class _StubClient:
-    """Stand-in for ``anthropic.Anthropic`` / ``AnthropicBedrock`` (duck-typed ``Any``)."""
-
-    def __init__(self, response: Any = None, error: Exception | None = None) -> None:
-        self.messages = _StubMessages(response, error)
-
-
-class _StubSDKError(Exception):
-    """A stand-in for an ``anthropic`` SDK exception, shaped how the normalizer reads it.
-
-    ``_normalize_sdk_error`` only ``getattr``s ``status_code`` and ``response.headers``,
-    so this reproduces exactly that surface without importing the SDK's error types.
-    """
-
-    def __init__(
-        self,
-        message: str,
-        *,
-        status_code: int | None = None,
-        headers: dict[str, str] | None = None,
-    ) -> None:
-        super().__init__(message)
-        self.status_code = status_code
-        self.response = SimpleNamespace(headers=headers) if headers is not None else None
 
 
 class _StubSDKBackend(_AnthropicSDKBackend):
@@ -87,29 +56,6 @@ class _StubSDKBackend(_AnthropicSDKBackend):
 
 # The two production backends that share the request path.
 _SDK_BACKENDS = [AnthropicAPIBackend, BedrockBackend]
-
-
-def _backend_with_client(
-    cls: type[_AnthropicSDKBackend], client: Any, *, max_tokens: int = 4096
-) -> _AnthropicSDKBackend:
-    """Construct ``cls`` and inject a stub client via the ``_client`` cache slot."""
-    backend = cls(max_tokens=max_tokens)
-    backend._client = client
-    return backend
-
-
-def _tool_use_response(tool_input: dict[str, Any], usage: Any = None) -> SimpleNamespace:
-    block = SimpleNamespace(type="tool_use", input=tool_input)
-    return SimpleNamespace(content=[block], usage=usage if usage is not None else SimpleNamespace())
-
-
-def _simple_prompt() -> Prompt:
-    return Prompt(
-        layers=(
-            PromptLayer(role="system", text="S", cacheable=True, label="system"),
-            PromptLayer(role="user", text="U"),
-        )
-    )
 
 
 def _mixed_prompt() -> Prompt:
@@ -131,8 +77,8 @@ def _mixed_prompt() -> Prompt:
 @pytest.mark.parametrize("cls", _SDK_BACKENDS)
 def test_call_tool_builds_expected_request(cls: type[_AnthropicSDKBackend]) -> None:
     usage = SimpleNamespace(input_tokens=7, cache_read_input_tokens=3, output_tokens=5)
-    client = _StubClient(_tool_use_response({"answer": 42}, usage))
-    backend = _backend_with_client(cls, client, max_tokens=1234)
+    client = StubClient(tool_use_response({"answer": 42}, usage))
+    backend = backend_with_client(cls, client, max_tokens=1234)
     schema = {"type": "object", "properties": {"answer": {"type": "integer"}}}
 
     data, mapped_usage = backend._call_tool(
@@ -170,10 +116,10 @@ def test_call_tool_raises_without_tool_use_block(cls: type[_AnthropicSDKBackend]
         content=[SimpleNamespace(type="text", text="just prose")],
         usage=SimpleNamespace(),
     )
-    backend = _backend_with_client(cls, _StubClient(response))
+    backend = backend_with_client(cls, StubClient(response))
     with pytest.raises(LLMError, match="no tool_use block"):
         backend._call_tool(
-            _simple_prompt(),
+            simple_prompt(),
             schema={"type": "object"},
             model="m",
             temperature=0.0,
@@ -184,11 +130,11 @@ def test_call_tool_raises_without_tool_use_block(cls: type[_AnthropicSDKBackend]
 @pytest.mark.parametrize("cls", _SDK_BACKENDS)
 def test_call_tool_normalizes_sdk_exception(cls: type[_AnthropicSDKBackend]) -> None:
     # An error raised by ``messages.create`` is normalized into our hierarchy.
-    client = _StubClient(error=_StubSDKError("rate limited", status_code=429))
-    backend = _backend_with_client(cls, client)
+    client = StubClient(error=StubSDKError("rate limited", status_code=429))
+    backend = backend_with_client(cls, client)
     with pytest.raises(TransientLLMError):
         backend._call_tool(
-            _simple_prompt(),
+            simple_prompt(),
             schema={"type": "object"},
             model="m",
             temperature=0.0,
@@ -199,13 +145,13 @@ def test_call_tool_normalizes_sdk_exception(cls: type[_AnthropicSDKBackend]) -> 
 def test_client_created_lazily_and_cached() -> None:
     # The lazy-creation path (`_make_client` via `_client_or_create`): built once,
     # then reused across calls — proven with a subclass overriding `_make_client`.
-    client = _StubClient(_tool_use_response({"ok": True}))
+    client = StubClient(tool_use_response({"ok": True}))
     backend = _StubSDKBackend(client)
     assert backend.make_client_calls == 0  # nothing constructed at __init__
 
     for _ in range(2):
         backend._call_tool(
-            _simple_prompt(),
+            simple_prompt(),
             schema={"type": "object"},
             model="m",
             temperature=0.0,
@@ -221,11 +167,11 @@ def test_client_created_lazily_and_cached() -> None:
 
 @pytest.mark.parametrize("cls", _SDK_BACKENDS)
 def test_generate_structured_returns_sorted_json(cls: type[_AnthropicSDKBackend]) -> None:
-    client = _StubClient(_tool_use_response({"b": 2, "a": 1}))
-    backend = _backend_with_client(cls, client)
+    client = StubClient(tool_use_response({"b": 2, "a": 1}))
+    backend = backend_with_client(cls, client)
 
     completion = backend.generate_structured(
-        _simple_prompt(), schema={"type": "object"}, model="m", temperature=0.0
+        simple_prompt(), schema={"type": "object"}, model="m", temperature=0.0
     )
 
     assert completion.structured == {"b": 2, "a": 1}
@@ -236,11 +182,11 @@ def test_generate_structured_returns_sorted_json(cls: type[_AnthropicSDKBackend]
 
 @pytest.mark.parametrize("cls", _SDK_BACKENDS)
 def test_generate_content_parses_envelope(cls: type[_AnthropicSDKBackend]) -> None:
-    client = _StubClient(_tool_use_response({"content": "hi", "references_used": ["x", "y"]}))
-    backend = _backend_with_client(cls, client)
+    client = StubClient(tool_use_response({"content": "hi", "references_used": ["x", "y"]}))
+    backend = backend_with_client(cls, client)
 
     completion = backend.generate_content(
-        _simple_prompt(), candidate_references=["x"], model="m", temperature=0.5
+        simple_prompt(), candidate_references=["x"], model="m", temperature=0.5
     )
 
     assert completion.text == "hi"
@@ -254,11 +200,11 @@ def test_generate_content_parses_envelope(cls: type[_AnthropicSDKBackend]) -> No
 
 @pytest.mark.parametrize("cls", _SDK_BACKENDS)
 def test_generate_content_tolerates_missing_references(cls: type[_AnthropicSDKBackend]) -> None:
-    client = _StubClient(_tool_use_response({"content": "solo"}))
-    backend = _backend_with_client(cls, client)
+    client = StubClient(tool_use_response({"content": "solo"}))
+    backend = backend_with_client(cls, client)
 
     completion = backend.generate_content(
-        _simple_prompt(), candidate_references=[], model="m", temperature=0.5
+        simple_prompt(), candidate_references=[], model="m", temperature=0.5
     )
 
     assert completion.text == "solo"
@@ -267,11 +213,11 @@ def test_generate_content_tolerates_missing_references(cls: type[_AnthropicSDKBa
 
 @pytest.mark.parametrize("cls", _SDK_BACKENDS)
 def test_generate_content_tolerates_missing_content(cls: type[_AnthropicSDKBackend]) -> None:
-    client = _StubClient(_tool_use_response({"references_used": ["x"]}))
-    backend = _backend_with_client(cls, client)
+    client = StubClient(tool_use_response({"references_used": ["x"]}))
+    backend = backend_with_client(cls, client)
 
     completion = backend.generate_content(
-        _simple_prompt(), candidate_references=["x"], model="m", temperature=0.5
+        simple_prompt(), candidate_references=["x"], model="m", temperature=0.5
     )
 
     assert completion.text == ""  # missing content defaults to empty prose
@@ -308,32 +254,32 @@ def test_usage_from_sdk_tolerates_none_fields() -> None:
 
 
 def test_normalize_rate_limit_is_transient() -> None:
-    result = _normalize_sdk_error(_StubSDKError("rate limited", status_code=429))
+    result = _normalize_sdk_error(StubSDKError("rate limited", status_code=429))
     assert isinstance(result, TransientLLMError)
 
 
 @pytest.mark.parametrize("status", [500, 503, 599])
 def test_normalize_server_error_is_transient(status: int) -> None:
-    result = _normalize_sdk_error(_StubSDKError("boom", status_code=status))
+    result = _normalize_sdk_error(StubSDKError("boom", status_code=status))
     assert isinstance(result, TransientLLMError)
 
 
 @pytest.mark.parametrize("status", [400, 401, 404, 600])
 def test_normalize_other_status_is_terminal(status: int) -> None:
-    result = _normalize_sdk_error(_StubSDKError("bad request", status_code=status))
+    result = _normalize_sdk_error(StubSDKError("bad request", status_code=status))
     assert isinstance(result, LLMError)
     assert not isinstance(result, TransientLLMError)
 
 
 def test_normalize_no_status_is_terminal() -> None:
-    result = _normalize_sdk_error(_StubSDKError("something odd"))
+    result = _normalize_sdk_error(StubSDKError("something odd"))
     assert isinstance(result, LLMError)
     assert not isinstance(result, TransientLLMError)
 
 
 def test_normalize_extracts_numeric_retry_after() -> None:
     result = _normalize_sdk_error(
-        _StubSDKError("rate limited", status_code=429, headers={"retry-after": "12"})
+        StubSDKError("rate limited", status_code=429, headers={"retry-after": "12"})
     )
     assert isinstance(result, TransientLLMError)
     assert result.retry_after == 12.0
@@ -342,7 +288,7 @@ def test_normalize_extracts_numeric_retry_after() -> None:
 def test_normalize_garbage_retry_after_still_transient_for_429() -> None:
     # A 429 stays transient even if its Retry-After header can't be parsed.
     result = _normalize_sdk_error(
-        _StubSDKError("rate limited", status_code=429, headers={"retry-after": "soon"})
+        StubSDKError("rate limited", status_code=429, headers={"retry-after": "soon"})
     )
     assert isinstance(result, TransientLLMError)
     assert result.retry_after is None
@@ -351,27 +297,27 @@ def test_normalize_garbage_retry_after_still_transient_for_429() -> None:
 def test_normalize_retry_after_without_status_is_transient() -> None:
     # A parseable Retry-After alone (no 429/5xx) is still treated as retryable;
     # the capitalized header name exercises the case-insensitive fallback.
-    result = _normalize_sdk_error(_StubSDKError("throttled", headers={"Retry-After": "5"}))
+    result = _normalize_sdk_error(StubSDKError("throttled", headers={"Retry-After": "5"}))
     assert isinstance(result, TransientLLMError)
     assert result.retry_after == 5.0
 
 
 def test_normalize_garbage_retry_after_without_status_is_terminal() -> None:
     # No status and an unparseable Retry-After → terminal (no retry signal survives).
-    result = _normalize_sdk_error(_StubSDKError("throttled", headers={"retry-after": "later"}))
+    result = _normalize_sdk_error(StubSDKError("throttled", headers={"retry-after": "later"}))
     assert isinstance(result, LLMError)
     assert not isinstance(result, TransientLLMError)
 
 
 def test_retry_after_from_numeric() -> None:
-    assert _retry_after_from(_StubSDKError("x", headers={"retry-after": "3.5"})) == 3.5
+    assert _retry_after_from(StubSDKError("x", headers={"retry-after": "3.5"})) == 3.5
 
 
 def test_retry_after_from_garbage_is_none() -> None:
-    assert _retry_after_from(_StubSDKError("x", headers={"retry-after": "whenever"})) is None
+    assert _retry_after_from(StubSDKError("x", headers={"retry-after": "whenever"})) is None
 
 
 def test_retry_after_from_missing_is_none() -> None:
     # No response object at all, and a header dict lacking the retry-after key.
-    assert _retry_after_from(_StubSDKError("x")) is None
-    assert _retry_after_from(_StubSDKError("x", headers={"content-type": "json"})) is None
+    assert _retry_after_from(StubSDKError("x")) is None
+    assert _retry_after_from(StubSDKError("x", headers={"content-type": "json"})) is None

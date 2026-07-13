@@ -406,7 +406,7 @@ class ClaudeCLIBackend:
         schema: Mapping[str, Any],
         model: str,
         temperature: float,
-    ) -> Completion:  # pragma: no cover - needs CLI
+    ) -> Completion:
         instruction = (
             f"{prompt.text}\n\nReturn ONLY a JSON object matching this schema:\n"
             f"{json.dumps(schema, sort_keys=True)}"
@@ -427,7 +427,7 @@ class ClaudeCLIBackend:
         candidate_references: Sequence[str],
         model: str,
         temperature: float,
-    ) -> Completion:  # pragma: no cover - needs CLI
+    ) -> Completion:
         instruction = (
             f"{prompt.text}\n\nReturn ONLY a JSON object: "
             '{"content": <prose>, "references_used": [<artifact ids you cited>]}'
@@ -453,7 +453,7 @@ def _estimated_usage(prompt: Prompt, output: str) -> TokenUsage:  # pragma: no c
     )
 
 
-def _extract_json_object(raw: str) -> dict[str, Any]:  # pragma: no cover - needs CLI
+def _extract_json_object(raw: str) -> dict[str, Any]:
     """Best-effort parse of a JSON object from CLI text (tolerates surrounding prose)."""
     raw = raw.strip()
     try:
