@@ -128,12 +128,63 @@ Not yet covered: `reconstruct sweep --models` still defaults to 1P model ids (pa
 ids explicitly to sweep on Bedrock), and there is no live Bedrock CI job — the smoke is the
 manual gate.
 
-One-command end-to-end eval (build → fidelity → reason → attribution report):
+## End-to-end eval and score baselines
+
+`enterprise-sim reconstruct e2e` runs the whole attribution chain — golden run →
+`bench generate` → `reconstruct build` → `fidelity` → oracle/reconstructed/rag
+reason slots → `report` — in-process into one `--out` dir, plus a machine-readable
+`summary.json` (spec `specs/0003-e2e-eval-hardening.md`):
 
 ```bash
-scripts/reconstruct_eval.sh --keyless-smoke   # wiring check, no key
-scripts/reconstruct_eval.sh --out /tmp/eval   # real run, needs key
+make e2e-smoke                                                        # keyless smoke + full baseline check
+uv run enterprise-sim reconstruct e2e --keyless-smoke -o /tmp/e2e     # just the smoke (no key)
+uv run enterprise-sim reconstruct e2e --backend anthropic_api -o eval/ # real keyed run (needs key + bench extra)
 ```
+
+The keyless smoke rides the `fake` backend — a keyless RAG prediction stands in for
+all three reason slots — so it proves the plumbing with no key; the numbers are
+wiring stand-ins, not an eval. `scripts/reconstruct_eval.sh` is now a **deprecated
+shim** that forwards its flags to `reconstruct e2e`; use the CLI.
+
+**Score baselines.** Keyless fidelity is regression-tracked by committed baselines
+under `evals/baselines/` (`golden-fake.json`, `matrix-fake.json`):
+
+```bash
+uv run enterprise-sim reconstruct baseline check --cell all               # exit non-zero on drift
+uv run enterprise-sim reconstruct baseline update --cell golden-fake --reason "why it moved"
+```
+
+`check` regenerates each fake cell (golden/matrix run + reconstruct + fidelity) and
+compares at 6 decimal places (`exact` mode, tolerance 0.0) — an unreviewed behaviour
+change trips it. The **update convention** mirrors the golden pin and `fail_under`: a
+change that *deliberately* moves a metric runs `baseline update --reason "…"` **in the
+same commit** as the code change, so the diff carries its own justification (the
+`--reason` text lands in the cell file). `check` failing on `main` means an unreviewed
+behaviour change. The keyed `golden-keyed` cell is `warn` mode (nondeterministic
+answer-F1) and stays **unseeded** until the first keyed run supplies numbers — until
+then `check` reports it "unseeded — skipped", never an error.
+
+**CI.** Two workflows carry the eval (spec 0003):
+
+- `.github/workflows/ci.yml` runs the **`e2e-smoke` job** on every PR: `reconstruct
+  e2e --keyless-smoke` + `baseline check --cell all`, keyless, parallel to the
+  `quality` gate job (so PR wall-clock is the slower job, not the sum). `make
+  e2e-smoke` is the exact local parity.
+- `.github/workflows/eval-keyed.yml` (**`Keyed eval`**) is **manual dispatch only** —
+  no `pull_request`/`push`/`schedule` trigger, so it never gates a PR. The key owner
+  runs it from the Actions tab with repo secrets (`ANTHROPIC_API_KEY`, or the `AWS_*`
+  secrets on the `bedrock` path); it runs the keyed `reconstruct e2e`, a warn-mode
+  `baseline check --cell golden-keyed --against eval-out/`, an `eval --judge` verdict,
+  and uploads `eval-out/` as an artifact. **Seed the keyed baseline from the first
+  dispatch's artifact**: download `eval-out/`, then commit
+
+  ```bash
+  uv run enterprise-sim reconstruct baseline update --cell golden-keyed \
+      --against <downloaded eval-out> --reason "seed from first keyed eval run"
+  ```
+
+  which creates `evals/baselines/golden-keyed.json`; later dispatches warn on drift
+  against it.
 
 ## Cassettes: replaying real-LLM responses keyless
 

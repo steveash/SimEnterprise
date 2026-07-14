@@ -4,7 +4,8 @@
 # `schedule` trigger, so it never runs as a required check. It is dispatched by
 # hand (Actions tab → "Keyed eval" → Run workflow) by someone holding the repo
 # secrets, spends real model budget (bounded by `limit`, D13), and uploads the
-# attribution report + summary + predictions as a build artifact. A cron cadence
+# attribution report + summary + predictions + an LLM-judge verdict as a build
+# artifact. A cron cadence
 # is intentionally omitted until per-run cost is observed (spec 0003, open
 # question); add it here once two manual runs establish the cost.
 #
@@ -103,6 +104,27 @@ jobs:
       - name: Baseline check (keyed, warn mode)
         run: uv run enterprise-sim reconstruct baseline check --cell golden-keyed --against eval-out/
 
+      # Judge thin slice (spec 0003 decision 6): run the LLM-as-judge on the fresh
+      # e2e golden run and drop its verdict next to the structural metrics in the
+      # artifact. `--judge` samples ONE artifact, so this is a qualitative reading
+      # to file alongside fidelity, not a calibrated score — the full calibration
+      # harness is deferred. `eval --judge` routes through LLMClient (not the agent
+      # SDK), so `--backend bedrock` needs only ambient AWS creds, no `--use-bedrock`.
+      - name: LLM judge verdict
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+        run: |
+          # e2e wrote the fresh golden run under eval-out/runs/<run-id>; summary.json
+          # names it, so the judge grades the exact corpus the eval reconstructed.
+          RUN_DIR="eval-out/runs/$(jq -r .run_id eval-out/summary.json)"
+          uv run enterprise-sim eval "$RUN_DIR" \
+            --judge --backend "${{ inputs.backend }}" \
+            --model "${{ inputs.model }}" \
+            | tee eval-out/judge.txt
+
       # Optional keyed reconstruction matrix (off by default): extraction over the
       # 6-cell matrix is the expensive part, so it rides an explicit opt-in.
       - name: Keyed reconstruction matrix
@@ -120,7 +142,8 @@ jobs:
             --json -o eval-out/matrix-keyed.json
 
       # Always upload whatever landed, even if the baseline check warned or an
-      # earlier step failed, so the run's artifacts are inspectable.
+      # earlier step failed, so the run's artifacts are inspectable
+      # (attribution.md, summary.json, fidelity.json, predictions, judge.txt).
       - name: Upload eval artifact
         if: always()
         uses: actions/upload-artifact@v4

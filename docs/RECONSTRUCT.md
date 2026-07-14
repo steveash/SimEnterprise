@@ -268,6 +268,17 @@ along at the top as the context that *explains* the understanding gap.
 
 ## Results — before / after the gap fixes
 
+> **Where the current numbers live.** The tables in this section are the
+> **historical narrative** — the BEFORE/AFTER snapshots that motivated each round
+> of fixes, kept for the reasoning they record, not as a live scoreboard. The
+> regression-tracked numbers are elsewhere: keyless fidelity baselines are committed
+> under [`evals/baselines/`](../evals/baselines/) (`golden-fake.json`,
+> `matrix-fake.json`) and enforced by `reconstruct baseline check`; keyed answer-F1
+> comes from the `Keyed eval` workflow's uploaded artifact (`summary.json` +
+> `attribution.md`), compared against `golden-keyed.json` in warn mode. Regenerate or
+> verify them with `reconstruct e2e` + `reconstruct baseline check` (below) — never
+> by hand-editing this doc.
+
 The first full-64 attribution run (epic `esim-ecr`) pinpointed *where* the
 reference app loses: it is bottlenecked by **understanding** (reconstruction),
 not reasoning, and reconstruction failed *totally* on two families — **Goals**
@@ -306,6 +317,15 @@ enterprise-sim reconstruct e2e --keyless-smoke -o /tmp/eval
 
 `scripts/reconstruct_eval.sh` still works — it is now a thin deprecated shim that
 forwards its flags to `reconstruct e2e` — but new callers should use the CLI.
+
+The keyless smoke is not a local nicety only: the **`e2e-smoke` job** in
+`.github/workflows/ci.yml` runs `reconstruct e2e --keyless-smoke` **and**
+`reconstruct baseline check --cell all` on **every pull request**, so a change that
+silently moves keyless fidelity fails the PR that caused it. Run the same pair
+locally with `make e2e-smoke`. The committed baselines it checks live in
+[`evals/baselines/`](../evals/baselines/); a deliberate metric move updates them in
+the same commit via `reconstruct baseline update --reason …` (see
+[`docs/DEVELOPMENT.md`](DEVELOPMENT.md)).
 
 ### Attribution — overall F1 (higher is better)
 
@@ -373,10 +393,24 @@ while `provenance` was the one family RAG *won* (graph fidelity 0.000, so the
 reconstructed graph had nothing to ground with). `esim-ecr.2` makes that family
 answerable over the reconstruction; the AFTER run confirms whether it flips.
 
-> **Filling AFTER:** run the keyed command above against a fresh run, read
-> `eval/attribution.md` (overall + gap tables) and `eval/fidelity.json` (node/edge
-> and per-type F1, including `provenance.overall.f1` and the `Goal` rows), and
-> paste the numbers into the `_TBD_` cells.
+> **Refreshing these numbers.** The keyed `reconstruct e2e` numbers are no longer
+> hand-pasted into this table: the `Keyed eval` workflow (dispatch it from the
+> Actions tab) runs the chain with repo secrets and uploads `attribution.md` +
+> `summary.json` + `fidelity.json` (+ a judge verdict) as its artifact, and
+> `reconstruct baseline check --cell golden-keyed --against <dir>` tracks drift
+> against `evals/baselines/golden-keyed.json` (warn mode). The tables above stay
+> frozen as the historical record of this round.
+
+**Reading the judge next to the structural metrics.** The `Keyed eval` workflow
+also runs `enterprise-sim eval <run> --judge --backend <backend>` on the same
+golden run and drops the verdict (`judge.txt`) in the artifact beside
+`fidelity.json`. Treat it as **one qualitative reading, not a calibrated score**:
+`--judge` samples a *single* artifact (`judge_sample`), so the verdict is one
+model's take on one document's realism, useful for spotting gross regressions
+alongside the exact structural fidelity numbers — not a metric to track over time.
+A calibrated multi-artifact judge (correlating judge scores against the structural
+metrics on a fixed artifact set) is deferred to its own spec; this thin slice
+collects the per-run verdicts that harness will eventually correlate.
 
 ---
 

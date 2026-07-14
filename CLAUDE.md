@@ -31,6 +31,7 @@ uv sync --extra dev                 # one-time setup (also run by the SessionSta
 uv run pytest tests/test_run.py -k name   # a single test file / test while iterating
 uv run enterprise-sim run examples/golden.toml            # deterministic end-to-end run
 uv run enterprise-sim eval runs/golden/golden-slice-co-6c66fbef69f8   # structural metrics
+uv run enterprise-sim reconstruct e2e --keyless-smoke -o /tmp/e2e     # keyless e2e eval smoke (make e2e-smoke)
 uv sync --extra dev --extra bench && uv run python scripts/import_smoke.py  # real-LLM dep smoke
 ```
 
@@ -51,7 +52,7 @@ network-free: the default LLM backend is `fake` (D31), so same seed → same run
 | `enterprise_sim/reconstruct/` | Corpus → reconstructed KG → fidelity/attribution (docs/RECONSTRUCT.md) |
 | `enterprise_sim/cli.py` | `enterprise-sim {run,lint,eval,bench,reconstruct}` |
 | `tests/` | Keyless by default; keyed tests skip without `ANTHROPIC_API_KEY` |
-| `scripts/` | `gate.sh` (quality gate), `import_smoke.py`, `reconstruct_eval.sh` (one-command e2e eval) |
+| `scripts/` | `gate.sh` (quality gate), `import_smoke.py`, `reconstruct_eval.sh` (deprecated shim → `reconstruct e2e`) |
 | `evals/baselines/` | Committed score-baseline cells (`*.json`); `reconstruct baseline check\|update` regenerate + compare them — a metric move needs `baseline update --reason` in the same commit (spec 0003) |
 | `specs/` | Feature workflow: `ROADMAP.md` (epics) + one spec per feature — see `specs/README.md` |
 | `apps/graph-explorer/` | Electron app for exploring a run's gold KG (own npm toolchain, own README) |

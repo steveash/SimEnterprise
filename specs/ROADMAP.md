@@ -81,11 +81,20 @@ caught by the keyless gate instead of a live run. Remaining work, designed in th
 
 ## E3 — End-to-end eval hardening (P0) — `specs/0003-e2e-eval-hardening.md`
 
-**Status: spec approved** — design + slices in the spec. Notable deltas from the text
-below (audit 2026-07-14): the CLI home is `enterprise-sim reconstruct e2e` (the flat
-`eval <run>` command can't grow subcommands without breaking its documented surface);
-nothing in CI runs the keyless smoke today (docs/RECONSTRUCT.md's claim is stale); the
-keyless smoke rides the `fake` backend, not E2's cassettes (cassette keys would be
+**Status: done (keyed live validation pending creds)** — all six slices landed:
+`enterprise-sim reconstruct e2e` (+ `--keyless-smoke`, `summary.json`, and
+`reconstruct_eval.sh` demoted to a shim); committed score baselines under
+`evals/baselines/` with `reconstruct baseline check|update` (same-commit `--reason`
+convention); an explicit `--seeds` axis on `reconstruct scale` + the standing
+`matrix-fake` baseline + `make e2e-smoke`; a keyless `e2e-smoke` job on every PR
+(`ci.yml`); and a manual-dispatch `Keyed eval` workflow (`eval-keyed.yml`) with the
+judge thin slice (verdict in the artifact). The keyed `golden-keyed` baseline stays
+unseeded until the first owner-dispatched run supplies numbers (pending creds, like
+E1/E2). Notable deltas from the text below (audit 2026-07-14): the CLI home is
+`enterprise-sim reconstruct e2e` (the flat `eval <run>` command can't grow subcommands
+without breaking its documented surface); the keyless smoke now *is* CI-exercised (the
+`e2e-smoke` job — the earlier docs/RECONSTRUCT.md claim was stale before this epic);
+the keyless smoke rides the `fake` backend, not E2's cassettes (cassette keys would be
 invalidated by any corpus/prompt change, and the agent-SDK reason slots bypass the
 cache); judge calibration is a thin slice riding the keyed workflow, with the full
 harness deferred.

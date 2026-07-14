@@ -131,3 +131,13 @@ A change to the simulator keeps the golden run honest when:
 
 If the golden config changes on purpose, update the pinned run id and counts in
 the acceptance test and in this document together.
+
+> **Pin ↔ baseline coupling.** The committed score baselines
+> (`evals/baselines/golden-fake.json`, `matrix-fake.json`) are pure functions of
+> this pinned run (`reconstruct e2e` reuses `examples/golden.toml` — spec
+> `specs/0003-e2e-eval-hardening.md`), so a deliberate golden-pin change also moves
+> the `golden-fake` fidelity metrics. Regenerate them in the **same commit** as the
+> pin change with `enterprise-sim reconstruct baseline update --cell all --reason
+> "golden pin regen: …"`, alongside `tests/test_golden_run.py` and this doc — each
+> update stating why. `reconstruct baseline check` on `main` failing means a run
+> shifted without that coupled update.
