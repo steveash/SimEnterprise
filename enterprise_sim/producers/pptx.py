@@ -23,14 +23,16 @@ The deck itself is built with **python-pptx** (real OOXML slides, not a markdown
 stand-in). The :class:`~enterprise_sim.producers.artifact.ProducedArtifact` carries
 the ``.pptx`` bytes in ``binary_body`` (what the runner writes) and a plain-text
 *outline* in ``body`` — the deterministic textual rendering the mention tagger and
-grounding layers reason over. python-pptx writes a fixed package timestamp, so the
-bytes are deterministic given a deterministic backend.
+grounding layers reason over. python-pptx stamps each zip entry with the wall-clock
+mtime, so :func:`build_kickoff_deck` rewrites the package to a fixed zip epoch (D10/D31);
+the bytes are then deterministic given a deterministic backend.
 """
 
 from __future__ import annotations
 
 import io
 import re
+import zipfile
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
@@ -70,6 +72,11 @@ _REVIEWER_ROLES = ("reviewer", "reviewers")
 # python-pptx default-template layout indices.
 _LAYOUT_TITLE = 0  # "Title Slide": centre title + subtitle.
 _LAYOUT_CONTENT = 1  # "Title and Content": title + bulleted body placeholder.
+
+# Fixed zip timestamp (the ZIP epoch) so identical input yields byte-identical output.
+# python-pptx stamps each entry with the wall-clock mtime; normalizing to this makes the
+# package a pure function of its contents (D10/D31), matching the .docx builders' _ZIP_EPOCH.
+_ZIP_EPOCH = (1980, 1, 1, 0, 0, 0)
 
 # Deliverable kinds this producer renders (presentation decks). ``kickoff_deck`` is
 # the kind the binding map rebinds away from the markdown default.
@@ -273,8 +280,9 @@ def build_kickoff_deck(slides: Sequence[Slide]) -> bytes:
 
     The first slide is laid out as the title slide (centre title + subtitle); every
     later slide is a "Title and Content" slide whose bullets fill the body
-    placeholder. Output is deterministic for identical input (python-pptx writes a
-    fixed package timestamp).
+    placeholder. Output is deterministic for identical input: python-pptx stamps each
+    zip entry with the wall-clock mtime, so the serialized package is normalized to a
+    fixed zip epoch via :func:`_normalize_zip` before returning (D10/D31).
     """
     if not slides:
         raise ValueError("a deck needs at least one slide")
@@ -286,7 +294,30 @@ def build_kickoff_deck(slides: Sequence[Slide]) -> bytes:
             _add_content_slide(prs, slide)
     buf = io.BytesIO()
     prs.save(buf)
-    return buf.getvalue()
+    return _normalize_zip(buf.getvalue())
+
+
+def _normalize_zip(data: bytes) -> bytes:
+    """Rewrite a zip's entries with a fixed timestamp so its bytes are content-only.
+
+    python-pptx stamps every ``ZipInfo`` with the wall-clock mtime at save time, so two
+    otherwise-identical decks built either side of a 2-second DOS-time boundary differ in
+    the mod-time field of each local file header — a wall-clock leak on a default path
+    (D10/D31). This reads every entry in order and re-writes it with ``date_time`` pinned
+    to :data:`_ZIP_EPOCH`, preserving entry order and names and deflating throughout, so
+    the output is a pure function of the entries' contents.
+    """
+    src = io.BytesIO(data)
+    out = io.BytesIO()
+    with (
+        zipfile.ZipFile(src, "r") as zin,
+        zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zout,
+    ):
+        for name in zin.namelist():
+            info = zipfile.ZipInfo(name, date_time=_ZIP_EPOCH)
+            info.compress_type = zipfile.ZIP_DEFLATED
+            zout.writestr(info, zin.read(name))
+    return out.getvalue()
 
 
 def _add_title_slide(prs: PresentationObj, slide: Slide) -> None:

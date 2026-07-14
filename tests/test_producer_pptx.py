@@ -186,7 +186,7 @@ def test_artifact_node_records_format_and_slide_count() -> None:
 def test_produce_is_deterministic() -> None:
     a = _produce()
     b = _produce()
-    assert a.binary_body == b.binary_body  # python-pptx writes a fixed package stamp
+    assert a.binary_body == b.binary_body  # zip timestamps normalized to a fixed epoch
     assert a.body == b.body
     assert [e.id for e in a.edges] == [e.id for e in b.edges]
 
@@ -296,6 +296,20 @@ def test_build_kickoff_deck_opens_and_is_deterministic() -> None:
     assert a == b
     prs = Presentation(io.BytesIO(a))
     assert len(prs.slides) == len(sample_deck())
+
+
+def test_build_kickoff_deck_zip_timestamps_are_the_fixed_epoch() -> None:
+    # python-pptx stamps each entry with the wall-clock mtime; the producer normalizes
+    # every ZipInfo.date_time to the zip epoch so the bytes are content-only (D10/D31).
+    # Pinning the timestamp is what makes the determinism test above flake-proof: two
+    # builds can no longer straddle a 2-second DOS-time boundary.
+    import zipfile
+
+    with zipfile.ZipFile(io.BytesIO(build_kickoff_deck(sample_deck()))) as zf:
+        names = zf.namelist()
+        assert names, "a real deck has zip entries"
+        for info in zf.infolist():
+            assert info.date_time == (1980, 1, 1, 0, 0, 0), info.filename
 
 
 def test_build_kickoff_deck_rejects_empty() -> None:
