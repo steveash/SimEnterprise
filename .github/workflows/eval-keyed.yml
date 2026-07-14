@@ -1,0 +1,130 @@
+# Keyed end-to-end eval — MANUAL DISPATCH ONLY.
+#
+# This workflow NEVER blocks pull requests: it has no `pull_request`, `push`, or
+# `schedule` trigger, so it never runs as a required check. It is dispatched by
+# hand (Actions tab → "Keyed eval" → Run workflow) by someone holding the repo
+# secrets, spends real model budget (bounded by `limit`, D13), and uploads the
+# attribution report + summary + predictions as a build artifact. A cron cadence
+# is intentionally omitted until per-run cost is observed (spec 0003, open
+# question); add it here once two manual runs establish the cost.
+#
+# Credentials (repo secrets, Settings → Secrets and variables → Actions):
+#   - backend=anthropic_api (default): ANTHROPIC_API_KEY   (1P; the pending E1
+#     live path — every recorded number in docs/RECONSTRUCT.md came from 1P).
+#   - backend=bedrock: AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY (+ optional
+#     AWS_REGION); the reason slots route through Amazon Bedrock (--use-bedrock,
+#     ambient AWS env) instead of a 1P key. Model ids must be inference-profile
+#     form on that path (spec 0001).
+# The Preflight step checks the selected backend's creds up front and fails with
+# a clear message before spending any budget, rather than crashing mid-eval.
+
+name: Keyed eval
+
+on:
+  workflow_dispatch:
+    inputs:
+      backend:
+        description: "LLM backend for the reason slots"
+        type: choice
+        options:
+          - anthropic_api
+          - bedrock
+        default: anthropic_api
+      model:
+        description: "Model the reason slots answer with (inference-profile id on bedrock)"
+        type: string
+        default: claude-sonnet-4-6
+      limit:
+        description: "Answer only the first N graph-agent questions (cost ceiling, D13)"
+        type: string
+        default: "16"
+      matrix:
+        description: "Also run the keyed reconstruction matrix (expensive: extraction over 6 corpora)"
+        type: boolean
+        default: false
+
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+
+      # The live paths need the real-LLM runtime (anthropic SDK + claude-agent-sdk).
+      - name: Install dependencies (dev + bench)
+        run: uv sync --extra dev --extra bench
+
+      # Fail fast and clearly if the selected backend's creds are missing, so a
+      # misconfigured dispatch does not crash halfway through the eval.
+      - name: Preflight — verify credentials for the selected backend
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        run: |
+          if [ "${{ inputs.backend }}" = "bedrock" ]; then
+            if [ -z "$AWS_ACCESS_KEY_ID" ] || [ -z "$AWS_SECRET_ACCESS_KEY" ]; then
+              echo "::error::backend=bedrock needs the AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY repo secrets; at least one is unset. Add them under Settings → Secrets and variables → Actions, or dispatch with backend=anthropic_api."
+              exit 1
+            fi
+          else
+            if [ -z "$ANTHROPIC_API_KEY" ]; then
+              echo "::error::backend=anthropic_api needs the ANTHROPIC_API_KEY repo secret; it is unset. Add it under Settings → Secrets and variables → Actions, or dispatch with backend=bedrock (with AWS secrets)."
+              exit 1
+            fi
+          fi
+
+      - name: Keyed e2e eval
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+        run: |
+          EXTRA=""
+          if [ "${{ inputs.backend }}" = "bedrock" ]; then
+            EXTRA="--use-bedrock"
+            if [ -n "$AWS_REGION" ]; then EXTRA="$EXTRA --aws-region $AWS_REGION"; fi
+          fi
+          uv run enterprise-sim reconstruct e2e \
+            --backend "${{ inputs.backend }}" \
+            --model "${{ inputs.model }}" \
+            --limit "${{ inputs.limit }}" \
+            $EXTRA \
+            -o eval-out/
+
+      # warn mode: keyed answer-F1 is nondeterministic, so drift only warns (exit
+      # 0) — this never gates the dispatch. Until the first run seeds
+      # evals/baselines/golden-keyed.json the cell reports "unseeded, skipped".
+      - name: Baseline check (keyed, warn mode)
+        run: uv run enterprise-sim reconstruct baseline check --cell golden-keyed --against eval-out/
+
+      # Optional keyed reconstruction matrix (off by default): extraction over the
+      # 6-cell matrix is the expensive part, so it rides an explicit opt-in.
+      - name: Keyed reconstruction matrix
+        if: ${{ inputs.matrix }}
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+        run: |
+          uv run enterprise-sim reconstruct scale \
+            --runs 3 --seeds 7,107 \
+            --backend "${{ inputs.backend }}" \
+            --model "${{ inputs.model }}" \
+            --json -o eval-out/matrix-keyed.json
+
+      # Always upload whatever landed, even if the baseline check warned or an
+      # earlier step failed, so the run's artifacts are inspectable.
+      - name: Upload eval artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-out-${{ inputs.backend }}
+          path: eval-out/
+          if-no-files-found: warn
