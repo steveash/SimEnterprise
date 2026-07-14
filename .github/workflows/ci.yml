@@ -36,3 +36,28 @@ jobs:
         run: |
           uv sync --extra dev --extra bench
           uv run python scripts/import_smoke.py
+
+  # Runs in parallel with `quality` (not inside gate.sh): the keyless e2e wiring
+  # smoke + full baseline check, so a fidelity regression is caught on the PR that
+  # causes it. Kept out of gate.sh to preserve "gate output = quality job output"
+  # and keep the ~20s local loop fast; the golden-cell baseline test in the gate
+  # already catches most drift, this job adds the matrix cell + e2e wiring on top.
+  # It is keyless and deterministic (fake backend), so no key / network is needed.
+  e2e-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: uv sync --extra dev
+
+      # Invoke the Makefile target rather than re-listing the two commands here:
+      # `make e2e-smoke` is their single definition, so local and CI cannot drift.
+      # make is preinstalled on ubuntu-latest.
+      - name: Keyless e2e smoke + baseline check
+        run: make e2e-smoke
