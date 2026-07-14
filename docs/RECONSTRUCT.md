@@ -284,22 +284,28 @@ the AFTER column is filled by that crew run.
 
 ### Reproducing it — one command
 
-`scripts/reconstruct_eval.sh` runs the whole chain end to end — the six commands
-from [Running it](#running-it) (`build → fidelity → oracle/reconstructed/rag →
-report`) with every artifact landing under one `--out` dir:
+`enterprise-sim reconstruct e2e` runs the whole chain end to end — the six
+commands from [Running it](#running-it) (`build → fidelity →
+oracle/reconstructed/rag → report`) in-process, with every artifact landing under
+one `--out` dir plus a machine-readable `summary.json` (fidelity headline metrics,
+per-system answer F1, and the understanding/reasoning/total gaps):
 
 ```bash
 # Keyed crew run — fills the AFTER tables (needs a key + the bench extra):
 uv sync --extra bench
-scripts/reconstruct_eval.sh --run runs/<run-id> --backend anthropic_api -o eval/
-#   -> eval/attribution.md  (+ fidelity.json, recon/, pred.{oracle,reconstructed,rag}.jsonl)
-# Omit --run to spin a fresh golden run; --limit N caps the reasoners for a cheap probe.
+enterprise-sim reconstruct e2e --run runs/<run-id> --backend anthropic_api -o eval/
+#   -> eval/attribution.md, summary.json  (+ fidelity.json, recon/, pred.*.jsonl)
+# Omit --run to spin a fresh golden run; --limit N caps the reasoners for a cheap
+# probe; --use-bedrock routes the graph-agent slots to Amazon Bedrock.
 
 # Keyless wiring smoke — proves the plumbing with NO key (fake backend; a keyless
 # RAG prediction stands in for all three reasoners, so the numbers are wiring
-# stand-ins, not an eval). This is what CI exercises:
-scripts/reconstruct_eval.sh --keyless-smoke -o /tmp/eval
+# stand-ins, not an eval):
+enterprise-sim reconstruct e2e --keyless-smoke -o /tmp/eval
 ```
+
+`scripts/reconstruct_eval.sh` still works — it is now a thin deprecated shim that
+forwards its flags to `reconstruct e2e` — but new callers should use the CLI.
 
 ### Attribution — overall F1 (higher is better)
 

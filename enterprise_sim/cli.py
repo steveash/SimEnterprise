@@ -808,13 +808,13 @@ def _add_reconstruct_parser(
             "Read the raw artifact corpus back out into a reconstructed knowledge "
             "graph (in the gold KG's on-disk schema), score its fidelity against "
             "the gold graph, sweep the edge-confidence threshold, and reason over "
-            "it. Subcommands: build/fidelity/sweep/reason/report (epic esim-nc6) "
-            "and scale (esim-ecr.5)."
+            "it. Subcommands: build/fidelity/sweep/reason/report (epic esim-nc6), "
+            "scale (esim-ecr.5), and e2e — the one-command attribution eval (spec 0003)."
         ),
     )
     reconstruct_subparsers = reconstruct_parser.add_subparsers(
         dest="reconstruct_command",
-        metavar="{build,fidelity,sweep,reason,report,scale}",
+        metavar="{build,fidelity,sweep,reason,report,scale,e2e}",
     )
     reconstruct_parser.set_defaults(
         func=_cmd_reconstruct,
@@ -828,6 +828,7 @@ def _add_reconstruct_parser(
     _add_reconstruct_reason_parser(reconstruct_subparsers)
     _add_reconstruct_report_parser(reconstruct_subparsers)
     _add_reconstruct_scale_parser(reconstruct_subparsers)
+    _add_reconstruct_e2e_parser(reconstruct_subparsers)
 
 
 def _cmd_reconstruct_build(args: argparse.Namespace) -> int:
@@ -1776,6 +1777,130 @@ def _add_reconstruct_scale_parser(
         help="write the report to PATH (default: stdout)",
     )
     scale_parser.set_defaults(func=_cmd_reconstruct_scale)
+
+
+def _cmd_reconstruct_e2e(args: argparse.Namespace) -> int:
+    """One-command attribution eval: build → fidelity → reason → report (spec 0003).
+
+    Drives the whole chain in-process (:func:`enterprise_sim.reconstruct.e2e.run_e2e`)
+    and writes every artifact — ``bench.jsonl``, ``recon/``, ``fidelity.json``,
+    ``pred.{oracle,reconstructed,rag}.jsonl``, ``attribution.md`` — plus a machine-
+    readable ``summary.json`` under ``-o``. ``--keyless-smoke`` forces the ``fake``
+    backend and stands one keyless RAG prediction in for all three reason slots
+    (wiring proof, no key); the keyed path runs the graph agent (oracle +
+    reconstructed) and the RAG baseline through ``--backend`` / ``--model``, with
+    ``--use-bedrock`` routing the graph-agent slots to Amazon Bedrock. The build/
+    fail-fast and missing-key gates surface cleanly on stderr (exit 2).
+    """
+    from enterprise_sim.reconstruct.e2e import run_e2e
+
+    try:
+        result = run_e2e(
+            args.output,
+            run_dir=args.run,
+            backend=args.backend,
+            model=args.model,
+            limit=args.limit,
+            keyless_smoke=args.keyless_smoke,
+            use_bedrock=args.use_bedrock,
+            aws_region=args.aws_region,
+        )
+    except ValueError as exc:
+        # The F2 fail-fast (bedrock + a 1P model id) surfaces at build time.
+        print(f"enterprise-sim reconstruct e2e: {exc}", file=sys.stderr)
+        return 2
+    except RuntimeError as exc:
+        # A reason slot's runner exits cleanly on a missing key / creds.
+        print(f"enterprise-sim reconstruct e2e: {exc}", file=sys.stderr)
+        return 2
+
+    gap = result.attribution.gap()
+    print(
+        f"\nenterprise-sim reconstruct e2e: mode={result.mode} "
+        f"(node F1={result.fidelity.nodes.overall.f1:.3f}, "
+        f"understanding={gap.understanding:+.3f}, reasoning={gap.reasoning:+.3f}, "
+        f"total={gap.total:+.3f}) -> {result.out_dir}/summary.json",
+        file=sys.stderr,
+    )
+    return 0
+
+
+def _add_reconstruct_e2e_parser(
+    reconstruct_subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
+    """Wire ``reconstruct e2e -o DIR [--keyless-smoke] [--run] [--backend] …`` (spec 0003)."""
+    from enterprise_sim.reconstruct.e2e import DEFAULT_REASON_MODEL
+
+    e2e_parser = reconstruct_subparsers.add_parser(
+        "e2e",
+        help="one-command attribution eval: build -> fidelity -> reason -> report",
+        description=(
+            "Run the whole attribution eval end to end into one output dir: generate "
+            "the benchmark, reconstruct + score the KG, reason over it three ways "
+            "(oracle graph agent on the gold KG, the same agent on the reconstructed "
+            "KG, and the RAG baseline), and render the understanding-vs-reasoning "
+            "attribution report — plus a machine-readable summary.json. The reason "
+            "slots need a key/creds; --keyless-smoke forces the fake backend and "
+            "stands one keyless RAG prediction in for all three slots (wiring proof, "
+            "NOT an eval result). The in-process successor to reconstruct_eval.sh."
+        ),
+    )
+    e2e_parser.add_argument(
+        "-o",
+        "--output",
+        "--out",
+        required=True,
+        type=Path,
+        metavar="DIR",
+        help="output dir every artifact + summary.json lands under",
+    )
+    e2e_parser.add_argument(
+        "--run",
+        type=Path,
+        default=None,
+        metavar="DIR",
+        help="gold run dir to reconstruct + score against (default: a fresh golden run)",
+    )
+    e2e_parser.add_argument(
+        "--backend",
+        default="anthropic_api",
+        choices=_BACKEND_CHOICES,
+        help="LLM backend for the reason slots (default: anthropic_api; "
+        "--keyless-smoke forces fake)",
+    )
+    e2e_parser.add_argument(
+        "--model",
+        default=DEFAULT_REASON_MODEL,
+        metavar="MODEL",
+        help=f"the model the reason slots answer with (default: {DEFAULT_REASON_MODEL})",
+    )
+    e2e_parser.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        metavar="N",
+        help="answer only the first N questions in the graph-agent slots (default: all)",
+    )
+    e2e_parser.add_argument(
+        "--keyless-smoke",
+        dest="keyless_smoke",
+        action="store_true",
+        help="force the fake backend + stand one keyless RAG prediction in for all "
+        "three reason slots (wiring proof, no key; the numbers are stand-ins)",
+    )
+    e2e_parser.add_argument(
+        "--use-bedrock",
+        action="store_true",
+        help="route the graph-agent reason slots to Amazon Bedrock "
+        "(CLAUDE_CODE_USE_BEDROCK=1, ambient AWS creds instead of ANTHROPIC_API_KEY)",
+    )
+    e2e_parser.add_argument(
+        "--aws-region",
+        default=None,
+        metavar="REGION",
+        help="AWS region for --use-bedrock (sets AWS_REGION; default: ambient AWS env)",
+    )
+    e2e_parser.set_defaults(func=_cmd_reconstruct_e2e)
 
 
 def build_parser() -> argparse.ArgumentParser:

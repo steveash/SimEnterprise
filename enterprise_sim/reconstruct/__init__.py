@@ -43,6 +43,10 @@ from enterprise_sim.reconstruct.chunk import (
     chunk_run,
     iter_corpus_files,
 )
+from enterprise_sim.reconstruct.e2e import (
+    E2EResult,
+    run_e2e,
+)
 from enterprise_sim.reconstruct.extract import (
     EXTRACTION_SCHEMA,
     HAIKU_MODEL,
@@ -129,6 +133,7 @@ __all__ = [
     "CandidateTriple",
     "CanonicalEntity",
     "Chunk",
+    "E2EResult",
     "EdgeFidelity",
     "EntityResolution",
     "Extraction",
@@ -172,6 +177,7 @@ __all__ = [
     "reconstruct_and_score",
     "render_markdown",
     "resolve_entities",
+    "run_e2e",
     "run_pipeline",
     "run_scale",
     "score_fidelity",
