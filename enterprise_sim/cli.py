@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     from enterprise_sim.core.config import RunConfig
     from enterprise_sim.core.llm import LLMClient
     from enterprise_sim.core.world import World
+    from enterprise_sim.reconstruct.baseline import CompareResult
 
 # The single source of truth for every ``--backend`` flag's choices (finding F7).
 # These are the ``LLMBackend`` enum values (core.config) in enum order; kept a plain
@@ -809,12 +810,13 @@ def _add_reconstruct_parser(
             "graph (in the gold KG's on-disk schema), score its fidelity against "
             "the gold graph, sweep the edge-confidence threshold, and reason over "
             "it. Subcommands: build/fidelity/sweep/reason/report (epic esim-nc6), "
-            "scale (esim-ecr.5), and e2e — the one-command attribution eval (spec 0003)."
+            "scale (esim-ecr.5), e2e — the one-command attribution eval — and "
+            "baseline — check/update the committed score baselines (spec 0003)."
         ),
     )
     reconstruct_subparsers = reconstruct_parser.add_subparsers(
         dest="reconstruct_command",
-        metavar="{build,fidelity,sweep,reason,report,scale,e2e}",
+        metavar="{build,fidelity,sweep,reason,report,scale,e2e,baseline}",
     )
     reconstruct_parser.set_defaults(
         func=_cmd_reconstruct,
@@ -829,6 +831,7 @@ def _add_reconstruct_parser(
     _add_reconstruct_report_parser(reconstruct_subparsers)
     _add_reconstruct_scale_parser(reconstruct_subparsers)
     _add_reconstruct_e2e_parser(reconstruct_subparsers)
+    _add_reconstruct_baseline_parser(reconstruct_subparsers)
 
 
 def _cmd_reconstruct_build(args: argparse.Namespace) -> int:
@@ -1901,6 +1904,288 @@ def _add_reconstruct_e2e_parser(
         help="AWS region for --use-bedrock (sets AWS_REGION; default: ambient AWS env)",
     )
     e2e_parser.set_defaults(func=_cmd_reconstruct_e2e)
+
+
+def _print_drifts(result: CompareResult) -> None:
+    """Print the failing metrics of a :class:`CompareResult` as a named drift table.
+
+    Each line names the metric, its pinned/observed values, the signed delta, and the
+    cell's tolerance — the message the spec's acceptance criteria require so a
+    perturbation is self-explanatory on stderr.
+    """
+    for drift in result.exceedances:
+        print(
+            f"  {drift.metric}: expected {drift.expected:.6f} actual {drift.actual:.6f} "
+            f"(Δ {drift.delta:+.6f} > tolerance {result.tolerance:.6f})",
+            file=sys.stderr,
+        )
+
+
+def _cmd_reconstruct_baseline_check(args: argparse.Namespace) -> int:
+    """Check committed baseline cells against freshly regenerated / observed metrics (spec 0003 §2).
+
+    Fake cells (``mode == "exact"``) are **regenerated** keylessly in a temp dir
+    (golden run + fake reconstruct + fidelity) and compared at 6 dp — any drift exits
+    non-zero. Keyed cells (``mode == "warn"``) read their metrics from ``--against``'s
+    ``summary.json`` and only warn unless ``--strict`` is passed; an absent keyed cell
+    is reported ``unseeded`` and skipped (the harness lands keyless-first). ``--cell
+    all`` checks every committed cell under ``evals/baselines/``.
+    """
+    import json
+
+    from enterprise_sim.reconstruct.baseline import (
+        BASELINES_DIR,
+        CELL_SPECS,
+        BaselineCell,
+        cell_path,
+        compare,
+        metrics_from_summary,
+        regenerate_fake_metrics,
+    )
+
+    if args.cell == "all":
+        names = sorted(p.stem for p in BASELINES_DIR.glob("*.json"))
+        if not names:
+            print(
+                "enterprise-sim reconstruct baseline check: no committed cells under "
+                f"{BASELINES_DIR}",
+                file=sys.stderr,
+            )
+            return 0
+    else:
+        names = [args.cell]
+
+    failed = False
+    warned = False
+    for name in names:
+        path = cell_path(name)
+        spec = CELL_SPECS.get(name)
+        if not path.is_file():
+            # An unseeded keyed cell (e.g. golden-keyed before the first keyed run) is
+            # skipped, not an error — the harness lands keyless-first (spec 0003 §2).
+            if spec is not None and spec.keyed:
+                print(
+                    f"enterprise-sim reconstruct baseline check: {name} — unseeded "
+                    f"(no {path}), skipped",
+                    file=sys.stderr,
+                )
+                continue
+            print(
+                f"enterprise-sim reconstruct baseline check: no baseline {path}",
+                file=sys.stderr,
+            )
+            failed = True
+            continue
+
+        cell = BaselineCell.read(path)
+        if cell.mode == "exact":
+            current = regenerate_fake_metrics(CELL_SPECS[name])
+        else:
+            # Keyed cell: metrics come from an existing e2e run's summary.json.
+            if args.against is None:
+                print(
+                    f"enterprise-sim reconstruct baseline check: {name} "
+                    f"(warn) needs --against DIR/summary.json, skipped",
+                    file=sys.stderr,
+                )
+                continue
+            summary = json.loads((args.against / "summary.json").read_text(encoding="utf-8"))
+            current = metrics_from_summary(summary)
+
+        result = compare(cell, current)
+        if result.ok:
+            print(
+                f"enterprise-sim reconstruct baseline check: {name} "
+                f"({cell.mode}, tolerance {cell.tolerance:.6f}) — OK ({len(cell.metrics)} metrics)",
+                file=sys.stderr,
+            )
+            continue
+
+        verdict = "FAIL" if cell.mode == "exact" or args.strict else "WARN"
+        print(
+            f"enterprise-sim reconstruct baseline check: {name} "
+            f"({cell.mode}, tolerance {cell.tolerance:.6f}) — {verdict} "
+            f"({len(result.exceedances)}/{len(cell.metrics)} metrics drifted)",
+            file=sys.stderr,
+        )
+        _print_drifts(result)
+        if cell.mode == "exact" or args.strict:
+            failed = True
+        else:
+            warned = True
+
+    if failed:
+        return 1
+    if warned:
+        # Warn-mode drift without --strict never blocks (keyed numbers are noisy).
+        print(
+            "enterprise-sim reconstruct baseline check: warn-mode drift only "
+            "(pass --strict to fail on it)",
+            file=sys.stderr,
+        )
+    return 0
+
+
+def _cmd_reconstruct_baseline_update(args: argparse.Namespace) -> int:
+    """Regenerate + rewrite baseline cells, requiring ``--reason`` (spec 0003 §2).
+
+    Mirrors the golden-pin / ``fail_under`` convention: a deliberate metric move runs
+    ``baseline update --reason "…"`` **in the same commit** as the code change, and
+    the ``--reason`` text lands in the file. Fake cells are regenerated keylessly;
+    a keyed cell copies its metrics from ``--against``'s ``summary.json`` (keyed
+    numbers cannot be regenerated offline). ``--cell all`` updates every fake cell.
+    """
+    import json
+
+    from enterprise_sim.reconstruct.baseline import (
+        CELL_SPECS,
+        FAKE_CELLS,
+        build_cell,
+        cell_path,
+        metrics_from_summary,
+        regenerate_fake_metrics,
+    )
+
+    if args.reason is None:
+        print(
+            "enterprise-sim reconstruct baseline update: --reason is required — a "
+            "deliberate metric move must record why (same-commit convention, like the "
+            "golden pin and fail_under); refusing.",
+            file=sys.stderr,
+        )
+        return 2
+
+    if args.cell == "all":
+        names = sorted(FAKE_CELLS)
+    else:
+        names = [args.cell]
+
+    for name in names:
+        spec = CELL_SPECS.get(name)
+        if spec is None:
+            print(
+                f"enterprise-sim reconstruct baseline update: unknown cell {name!r} "
+                f"(known: {', '.join(sorted(CELL_SPECS))})",
+                file=sys.stderr,
+            )
+            return 2
+        if spec.keyed:
+            if args.against is None:
+                print(
+                    f"enterprise-sim reconstruct baseline update: {name} is keyed — "
+                    "seed it from a keyed run via --against DIR",
+                    file=sys.stderr,
+                )
+                return 2
+            summary = json.loads((args.against / "summary.json").read_text(encoding="utf-8"))
+            metrics = metrics_from_summary(summary)
+        else:
+            metrics = regenerate_fake_metrics(spec)
+
+        cell = build_cell(spec, metrics, args.reason)
+        path = cell_path(name)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(cell.to_json(), encoding="utf-8")
+        print(
+            f"enterprise-sim reconstruct baseline update: {name} -> {path} "
+            f"({len(metrics)} metrics, reason: {args.reason!r})",
+            file=sys.stderr,
+        )
+    return 0
+
+
+def _add_reconstruct_baseline_parser(
+    reconstruct_subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
+    """Wire ``reconstruct baseline {check,update}`` (spec 0003 §2)."""
+    baseline_parser = reconstruct_subparsers.add_parser(
+        "baseline",
+        help="check / update the committed score baselines (evals/baselines/)",
+        description=(
+            "Track eval regressions against committed baseline cells "
+            "(evals/baselines/*.json). check regenerates each fake cell keylessly "
+            "(golden run + fake reconstruct + fidelity) and compares at 6 dp — any "
+            "drift exits non-zero; keyed cells read --against's summary.json and only "
+            "warn. update rewrites the cell files, requiring --reason (the same-commit "
+            "convention that mirrors the golden pin). Subcommands: check, update."
+        ),
+    )
+    baseline_subparsers = baseline_parser.add_subparsers(
+        dest="baseline_command",
+        metavar="{check,update}",
+    )
+    baseline_parser.set_defaults(
+        func=_cmd_reconstruct_baseline,
+        baseline_parser=baseline_parser,
+    )
+
+    check_parser = baseline_subparsers.add_parser(
+        "check",
+        help="regenerate + compare committed baseline cells (fails on exact drift)",
+        description=(
+            "Regenerate each fake cell keylessly and compare it to the committed "
+            "baseline at 6 dp (exact mode exits non-zero on any drift). Keyed cells "
+            "read their metrics from --against's summary.json and warn unless --strict "
+            "is given; an unseeded keyed cell is skipped. Default: --cell all."
+        ),
+    )
+    check_parser.add_argument(
+        "--cell",
+        default="all",
+        metavar="NAME|all",
+        help="the cell to check, or 'all' for every committed cell (default: all)",
+    )
+    check_parser.add_argument(
+        "--against",
+        type=Path,
+        default=None,
+        metavar="DIR",
+        help="an e2e output dir whose summary.json seeds a keyed cell's current metrics",
+    )
+    check_parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="treat warn-mode (keyed) drift as a failure too (default: warn-only)",
+    )
+    check_parser.set_defaults(func=_cmd_reconstruct_baseline_check)
+
+    update_parser = baseline_subparsers.add_parser(
+        "update",
+        help="regenerate + rewrite baseline cells (requires --reason)",
+        description=(
+            "Regenerate each fake cell keylessly (or copy a keyed cell's metrics from "
+            "--against's summary.json) and rewrite evals/baselines/<cell>.json. "
+            "--reason is required and lands in the file: a deliberate metric move must "
+            "record why, in the same commit as the code change. Default: --cell all "
+            "(every fake cell)."
+        ),
+    )
+    update_parser.add_argument(
+        "--cell",
+        default="all",
+        metavar="NAME|all",
+        help="the cell to update, or 'all' for every fake cell (default: all)",
+    )
+    update_parser.add_argument(
+        "--against",
+        type=Path,
+        default=None,
+        metavar="DIR",
+        help="an e2e output dir whose summary.json seeds a keyed cell's metrics",
+    )
+    update_parser.add_argument(
+        "--reason",
+        default=None,
+        metavar="TEXT",
+        help="why the baseline is being moved (required; recorded in the cell file)",
+    )
+    update_parser.set_defaults(func=_cmd_reconstruct_baseline_update)
+
+
+def _cmd_reconstruct_baseline(args: argparse.Namespace) -> int:
+    """The ``reconstruct baseline`` group: no subcommand prints usage (mirrors the group)."""
+    args.baseline_parser.print_help()
+    return 2
 
 
 def build_parser() -> argparse.ArgumentParser:

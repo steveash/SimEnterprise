@@ -52,6 +52,7 @@ network-free: the default LLM backend is `fake` (D31), so same seed → same run
 | `enterprise_sim/cli.py` | `enterprise-sim {run,lint,eval,bench,reconstruct}` |
 | `tests/` | Keyless by default; keyed tests skip without `ANTHROPIC_API_KEY` |
 | `scripts/` | `gate.sh` (quality gate), `import_smoke.py`, `reconstruct_eval.sh` (one-command e2e eval) |
+| `evals/baselines/` | Committed score-baseline cells (`*.json`); `reconstruct baseline check\|update` regenerate + compare them — a metric move needs `baseline update --reason` in the same commit (spec 0003) |
 | `specs/` | Feature workflow: `ROADMAP.md` (epics) + one spec per feature — see `specs/README.md` |
 | `apps/graph-explorer/` | Electron app for exploring a run's gold KG (own npm toolchain, own README) |
 | `skills/author-playbook/` | Agent skill: author a new business domain as a validated playbook |

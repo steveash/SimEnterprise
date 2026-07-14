@@ -1,0 +1,24 @@
+{
+  "backend": "fake",
+  "cell": "golden-fake",
+  "config": "examples/golden.toml",
+  "metrics": {
+    "edge_f1": 0.345679,
+    "edge_precision": 0.933333,
+    "edge_recall": 0.212121,
+    "node_f1": 0.311111,
+    "node_precision": 0.411765,
+    "node_recall": 0.25,
+    "over_merges": 0,
+    "provenance_f1": 0.0,
+    "reconstructed_edges": 30,
+    "reconstructed_nodes": 34,
+    "under_merges": 0
+  },
+  "mode": "exact",
+  "reason": "initial baseline (spec 0003 slice 2)",
+  "schema": 1,
+  "seed": 7,
+  "source": "enterprise-sim reconstruct baseline update --cell golden-fake",
+  "tolerance": 0.0
+}
