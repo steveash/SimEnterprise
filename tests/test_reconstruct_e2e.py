@@ -25,6 +25,7 @@ from enterprise_sim.reconstruct.e2e import (
     PRED_RAG_FILE,
     PRED_RECONSTRUCTED_FILE,
     SUMMARY_FILE,
+    _attribution_markdown,
     run_e2e,
 )
 
@@ -131,6 +132,22 @@ def test_e2e_cli_keyless_smoke_writes_summary(tmp_path: Path, capsys: Any) -> No
     # The one-line stderr summary + the loud stand-ins note both land.
     assert "reconstruct e2e: mode=keyless-smoke" in err
     assert "wiring stand-ins" in err
+
+
+def test_smoke_banner_marks_the_attribution_report(tmp_path: Path) -> None:
+    """In smoke mode the written report leads with the loud stand-ins banner (F5).
+
+    The banner is applied at the write site, not in ``render_markdown``, so the same
+    attribution rendered for the keyed path carries no banner (unit level).
+    """
+    result = run_e2e(tmp_path / "eval", keyless_smoke=True)
+    report = (result.out_dir / ATTRIBUTION_FILE).read_text(encoding="utf-8")
+    assert report.startswith("> **KEYLESS SMOKE**")
+    assert "NOT an eval" in report.splitlines()[0]
+    # The keyed path construction renders the exact same attribution unbannered.
+    keyed = _attribution_markdown(result.attribution, keyless_smoke=False)
+    assert not keyed.startswith("> **KEYLESS SMOKE**")
+    assert "KEYLESS SMOKE" not in keyed
 
 
 @pytest.mark.parametrize("backend", ["anthropic_api", "bedrock"])

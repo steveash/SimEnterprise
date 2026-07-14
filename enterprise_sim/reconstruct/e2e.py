@@ -58,6 +58,12 @@ SUMMARY_FILE = "summary.json"
 # keyless-smoke run can never be mistaken for an eval result.
 _SMOKE_NOTE = "--keyless-smoke numbers are wiring stand-ins, NOT an eval."
 
+# The same warning as a one-line markdown banner prepended to the human-readable
+# attribution report in smoke mode (F5) — so a report file that outlives its dir (or
+# gets pasted somewhere) still declares its numbers are stand-ins, matching the
+# ``summary.json`` note the machine-readable side carries.
+_SMOKE_BANNER = f"> **KEYLESS SMOKE** — {_SMOKE_NOTE}\n\n"
+
 
 @dataclass(frozen=True)
 class E2EResult:
@@ -179,6 +185,19 @@ def _build_summary(
     if mode == "keyless-smoke":
         summary["note"] = _SMOKE_NOTE
     return summary
+
+
+def _attribution_markdown(attribution: Attribution, *, keyless_smoke: bool) -> str:
+    """Render the attribution report, prepending the loud smoke banner in smoke mode (F5).
+
+    The banner is applied here, at the write site — ``render_markdown`` stays a pure
+    projection of the :class:`Attribution` and is reused unbannered by the keyed path
+    and by every other caller (``reconstruct report``).
+    """
+    from enterprise_sim.reconstruct.attribution import render_markdown
+
+    body = render_markdown(attribution)
+    return _SMOKE_BANNER + body if keyless_smoke else body
 
 
 def run_e2e(
@@ -324,9 +343,9 @@ def run_e2e(
     attribution = build_attribution(
         benchmark, oracle=oracle, reconstructed=reconstructed, rag=rag, fidelity=fidelity
     )
-    from enterprise_sim.reconstruct.attribution import render_markdown
-
-    (out / ATTRIBUTION_FILE).write_text(render_markdown(attribution), encoding="utf-8")
+    (out / ATTRIBUTION_FILE).write_text(
+        _attribution_markdown(attribution, keyless_smoke=keyless_smoke), encoding="utf-8"
+    )
 
     summary = _build_summary(
         mode=mode,

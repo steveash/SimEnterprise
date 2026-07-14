@@ -31,7 +31,7 @@ projection of one e2e summary, not a second source of truth.
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -57,6 +57,26 @@ FIDELITY_METRIC_KEYS: tuple[str, ...] = (
     "reconstructed_nodes",
     "reconstructed_edges",
 )
+
+#: The per-system answer-F1 keys a keyed cell additionally pins, flattened from the
+#: e2e ``summary.json`` ``"answer_f1"`` block (spec 0003 §2; F1). Keyed cells measure
+#: the graph agent's *reasoning* advantage, not just reconstruction fidelity.
+ANSWER_F1_METRIC_KEYS: tuple[str, ...] = (
+    "answer_f1.oracle",
+    "answer_f1.reconstructed",
+    "answer_f1.rag",
+)
+
+#: The understanding/reasoning/total gap keys a keyed cell pins, flattened from the
+#: ``"gaps"`` block — the attribution headline the keyed eval exists to track.
+GAP_METRIC_KEYS: tuple[str, ...] = (
+    "gaps.understanding",
+    "gaps.reasoning",
+    "gaps.total",
+)
+
+#: The full metric-key set a keyed cell pins: fidelity + answer-F1 + gaps (F1).
+KEYED_METRIC_KEYS: tuple[str, ...] = FIDELITY_METRIC_KEYS + ANSWER_F1_METRIC_KEYS + GAP_METRIC_KEYS
 
 #: The committed baselines live at the repo root (this file is
 #: ``enterprise_sim/reconstruct/…``), tracked eval state referenced by both PR CI
@@ -116,6 +136,12 @@ class CellSpec:
         tolerance: The per-cell tolerance (0.0 for exact, F1 points for warn).
         keyed: ``True`` when metrics can only come from a keyed run (``--against``);
             ``False`` for a keylessly regenerable fake cell.
+        metrics_shape: Which metric-key set the cell pins (F1) —
+            ``"fidelity"`` (the 11 fidelity keys), ``"fidelity+answers"`` (fidelity +
+            per-system answer-F1 + gaps, for keyed cells), or ``"matrix"`` (dynamic
+            per-cell labels, validated against a regeneration rather than a static list).
+            :func:`expected_metric_keys` turns it into the concrete key set the file's
+            ``metrics`` must carry; ``metrics_from_summary`` extracts accordingly.
     """
 
     cell: str
@@ -125,6 +151,7 @@ class CellSpec:
     mode: str
     tolerance: float
     keyed: bool
+    metrics_shape: str = "fidelity"
 
 
 #: Keylessly regenerable fake cells (``check``/``update`` rebuild + compare offline).
@@ -151,6 +178,7 @@ FAKE_CELLS: dict[str, CellSpec] = {
         mode="exact",
         tolerance=0.0,
         keyed=False,
+        metrics_shape="matrix",
     ),
 }
 
@@ -165,6 +193,7 @@ KEYED_CELLS: dict[str, CellSpec] = {
         mode="warn",
         tolerance=0.05,
         keyed=True,
+        metrics_shape="fidelity+answers",
     ),
 }
 
@@ -180,6 +209,24 @@ def cell_path(cell: str) -> Path:
 def _source_for(cell: str) -> str:
     """The provenance line stamped into a cell's ``source`` field (stable across updates)."""
     return f"enterprise-sim reconstruct baseline update --cell {cell}"
+
+
+def expected_metric_keys(spec: CellSpec) -> tuple[str, ...] | None:
+    """The concrete metric-key set a cell of ``spec``'s shape must pin (F1/F2).
+
+    ``"fidelity"`` → the 11 fidelity keys; ``"fidelity+answers"`` → those plus the
+    per-system answer-F1 and gap keys (keyed cells); ``"matrix"`` → ``None`` because
+    the matrix's keys are dynamic per-cell labels, so its authoritative key set comes
+    from a regeneration rather than a static list. Raises :class:`ValueError` for an
+    unknown shape.
+    """
+    if spec.metrics_shape == "fidelity":
+        return FIDELITY_METRIC_KEYS
+    if spec.metrics_shape == "fidelity+answers":
+        return KEYED_METRIC_KEYS
+    if spec.metrics_shape == "matrix":
+        return None
+    raise ValueError(f"unknown metrics_shape {spec.metrics_shape!r} for cell {spec.cell!r}")
 
 
 def regenerate_fake_metrics(spec: CellSpec) -> dict[str, float | int]:
@@ -205,8 +252,9 @@ def regenerate_fake_metrics(spec: CellSpec) -> dict[str, float | int]:
 
         with tempfile.TemporaryDirectory(prefix="esim-baseline-") as tmp:
             result = run_e2e(Path(tmp) / "e2e", keyless_smoke=True)
-        fidelity = result.summary["fidelity"]
-        return {key: fidelity[key] for key in FIDELITY_METRIC_KEYS}
+        # Extract through the one projection path so a fake cell stays a projection of
+        # one e2e summary (spec's metrics_shape decides which keys, F1).
+        return metrics_from_summary(spec, result.summary)
 
     if spec.cell == "matrix-fake":
         # The standing matrix cell: reconstruct + score the 6-cell seeds matrix over
@@ -224,17 +272,91 @@ def regenerate_fake_metrics(spec: CellSpec) -> dict[str, float | int]:
     raise ValueError(f"no keyless regenerator wired for fake cell {spec.cell!r}")
 
 
-def metrics_from_summary(summary: Mapping[str, object]) -> dict[str, float | int]:
-    """Pull the pinned metric keys out of an e2e ``summary.json`` payload.
+def metrics_from_summary(spec: CellSpec, summary: Mapping[str, object]) -> dict[str, float | int]:
+    """Pull the metric keys ``spec`` pins out of an e2e ``summary.json`` payload (F1).
 
-    Used by the keyed ``--against`` path: reads the ``"fidelity"`` block of an
-    existing e2e output dir's summary (keyed numbers cannot be regenerated
-    keylessly). Raises :class:`KeyError` if the summary is missing a pinned key.
+    A ``"fidelity"``-shaped cell (fake, and the fidelity half of any cell) takes just
+    the fidelity block; a ``"fidelity+answers"`` cell (keyed) additionally flattens the
+    ``"answer_f1"`` and ``"gaps"`` blocks to ``answer_f1.<slot>`` / ``gaps.<slot>`` keys
+    — so a keyed baseline pins the reasoning advantage the eval exists to track, not
+    just reconstruction fidelity. Raises :class:`KeyError` if a required block/key is
+    absent; :class:`ValueError` for a ``"matrix"`` shape (its metrics are not summary-
+    sourced — regenerate them via :func:`regenerate_fake_metrics`).
     """
+    if spec.metrics_shape == "matrix":
+        raise ValueError(
+            f"cell {spec.cell!r} has a matrix shape; its metrics come from a scale "
+            "regeneration, not a single summary.json"
+        )
     fidelity = summary["fidelity"]
     if not isinstance(fidelity, Mapping):
         raise KeyError("summary.json has no 'fidelity' object")
-    return {key: fidelity[key] for key in FIDELITY_METRIC_KEYS}
+    metrics: dict[str, float | int] = {key: fidelity[key] for key in FIDELITY_METRIC_KEYS}
+    if spec.metrics_shape == "fidelity+answers":
+        answer_f1 = summary["answer_f1"]
+        gaps = summary["gaps"]
+        if not isinstance(answer_f1, Mapping) or not isinstance(gaps, Mapping):
+            raise KeyError("summary.json has no 'answer_f1'/'gaps' object")
+        for slot in ("oracle", "reconstructed", "rag"):
+            metrics[f"answer_f1.{slot}"] = answer_f1[slot]
+        for slot in ("understanding", "reasoning", "total"):
+            metrics[f"gaps.{slot}"] = gaps[slot]
+    return metrics
+
+
+def keyed_summary_problem(spec: CellSpec, summary: Mapping[str, object]) -> str | None:
+    """Reject a ``--against`` summary that can't seed/check a keyed cell (F4).
+
+    A keyed baseline must come from a *real keyed eval*: refuse a ``keyless-smoke``
+    summary (its numbers are wiring stand-ins, not an eval) and refuse a summary whose
+    ``backend`` disagrees with the cell's registered backend (a 1P baseline compared
+    against a Bedrock run, or vice versa, is not a like-for-like drift). Returns a
+    human-readable reason string, or ``None`` when the summary is a valid source.
+    """
+    mode = summary.get("mode")
+    if mode == "keyless-smoke":
+        return (
+            f"summary.json mode is {mode!r} (keyless-smoke stand-in numbers, NOT an "
+            "eval); a keyed baseline must come from a real keyed eval run"
+        )
+    backend = summary.get("backend")
+    if backend != spec.backend:
+        return (
+            f"summary.json backend {backend!r} != cell {spec.cell!r} backend "
+            f"{spec.backend!r}; a keyed baseline must compare like-for-like backends"
+        )
+    return None
+
+
+def identity_mismatches(
+    cell: BaselineCell, spec: CellSpec, current_keys: Iterable[str]
+) -> list[str]:
+    """Self-enforce a committed cell against its code-defined :class:`CellSpec` (F2).
+
+    A cell file's ``mode``/``tolerance``/``backend`` and its metric-key set are
+    *declarative documentation*; the :data:`CELL_SPECS` registry (and, for fake cells,
+    the live regeneration's key set) is authoritative. Any divergence is a laundering
+    vector — a hand-edited tolerance bump, a mode flip, a silently deleted metric — so
+    this returns one message per mismatched field (empty ⇒ the file agrees with code).
+    ``current_keys`` is the authoritative metric-key set: the regenerated keys for a
+    fake cell, or the ``--against`` summary's extracted keys for a keyed cell.
+    """
+    problems: list[str] = []
+    if cell.mode != spec.mode:
+        problems.append(f"mode (file={cell.mode!r}, registry={spec.mode!r})")
+    if cell.tolerance != spec.tolerance:
+        problems.append(f"tolerance (file={cell.tolerance!r}, registry={spec.tolerance!r})")
+    if cell.backend != spec.backend:
+        problems.append(f"backend (file={cell.backend!r}, registry={spec.backend!r})")
+    file_keys = set(cell.metrics)
+    want_keys = set(current_keys)
+    missing = sorted(want_keys - file_keys)
+    if missing:
+        problems.append(f"metrics missing from file (no silent shrinkage): {missing}")
+    extra = sorted(file_keys - want_keys)
+    if extra:
+        problems.append(f"metrics in file but not produced by code: {extra}")
+    return problems
 
 
 def build_cell(spec: CellSpec, metrics: dict[str, float | int], reason: str) -> BaselineCell:

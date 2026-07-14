@@ -420,6 +420,58 @@ coupling, and CI topology — route their diffs to `adversary` per CLAUDE.md tri
 - [x] `./scripts/gate.sh` green on every commit; full-suite runtime stays within ~25s
       on the reference machine (the +2–3s budget for new keyless tests).
 
+## Review findings & resolutions
+
+An adversarial review of the baseline/e2e slices (2–6) raised six findings (F1–F6),
+all resolved in one fix round (`fix(reconstruct): self-enforcing baselines,
+registry-driven check, keyed answer-F1 pinning`). The committed fake cells are
+**byte-stable** — the fix adds check-time enforcement and a keyed metric-key concept,
+but no new fields to the fake-cell file format, so `golden-fake.json` /
+`matrix-fake.json` are unchanged on disk (verified: `git status` clean after the fix).
+
+- **F2 (worst) — baselines weren't self-enforcing.** A committed cell's
+  `mode`/`tolerance`/`backend` and metric-key set were declarative text a hand-edit
+  could launder (bump the tolerance, flip `exact`→`warn`, delete a metric) with
+  `check` still green. Fix: `baseline.identity_mismatches(cell, spec, current_keys)`
+  compares the file against the code-defined `CellSpec` registry (and, for fake cells,
+  the full key set the live regeneration produces) and `check` FAILs naming the
+  divergent field, with the message "identity fields are declarative documentation, the
+  registry is authoritative". A metric present in the regeneration but missing from the
+  file fails as "no silent shrinkage". Probes A/B/C (tolerance bump, mode flip, metric
+  deletion) now all exit 1.
+- **F3 — `--cell all` globbed the directory.** It iterated `evals/baselines/*.json`, so
+  a registered cell whose file vanished was silently absent and a stray unregistered
+  `.json` crashed with a raw `KeyError` from `regenerate_fake_metrics(CELL_SPECS[name])`.
+  Fix: `check --cell all` iterates the `CELL_SPECS` registry — a missing registered fake
+  cell FAILs ("registered baseline cell missing: <path>"), an unseeded keyed cell keeps
+  the exit-0 skip notice, and a stray file FAILs with a clear "unregistered baseline
+  file …" message (probe D, previously a traceback). A single unknown `--cell NAME` is
+  likewise a clear error, not a `KeyError`.
+- **F1 — keyed cells under-pinned.** The keyed `golden-keyed` cell pinned only the
+  fidelity block, discarding the answer-F1/gap headline the keyed eval exists to
+  measure. Fix: `CellSpec` gains a `metrics_shape` (`"fidelity"` / `"fidelity+answers"`
+  / `"matrix"`); `expected_metric_keys` and `metrics_from_summary(spec, summary)` extract
+  accordingly, so a keyed cell pins fidelity + `answer_f1.{oracle,reconstructed,rag}` +
+  `gaps.{understanding,reasoning,total}` flattened from `summary.json`. Fake cells are
+  unchanged (fidelity only). `docs/DEVELOPMENT.md`'s keyed-cell paragraph updated.
+- **F4 — no provenance guard on the keyed `--against` path.** `update`/`check --against`
+  would seed/compare a keyed cell from any `summary.json`, including a keyless-smoke
+  stand-in or a different backend's run. Fix: `keyed_summary_problem(spec, summary)`
+  refuses (clear error, nonzero exit) a summary whose `mode == "keyless-smoke"` or whose
+  `backend != spec.backend`. Probe F confirms both refusals on `update`; a seeded cell's
+  `check --against` refuses likewise.
+- **F5 — smoke marker only on the machine-readable side.** `summary.json` carried the
+  loud stand-ins note but the human-readable `attribution.md` did not, so a report file
+  that outlived its dir read as a real eval. Fix: `e2e._attribution_markdown` prepends a
+  one-line `> **KEYLESS SMOKE** — …` banner (matching the summary note) at the write
+  site in smoke mode; `render_markdown` stays a pure, unbannered projection reused by the
+  keyed path and `reconstruct report`.
+- **F6 — workflow script-injection hygiene.** `eval-keyed.yml` interpolated
+  `${{ inputs.* }}` directly inside `run:` shells. Fix: every dispatch input is routed
+  through an `env:` block and referenced as `"$BACKEND"`/`"$MODEL"`/`"$LIMIT"` in the
+  scripts (no `${{ }}` inside any `run:`); `if:`/`env:`/artifact-`name:` contexts, which
+  are not shell-injection surfaces, are unchanged. YAML re-validated structurally.
+
 ## Open questions (resolved)
 
 - **Delete `reconstruct_eval.sh` outright vs. shim?** **Resolved: shim.** Slice 1

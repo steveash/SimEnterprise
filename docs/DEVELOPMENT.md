@@ -160,9 +160,18 @@ change trips it. The **update convention** mirrors the golden pin and `fail_unde
 change that *deliberately* moves a metric runs `baseline update --reason "…"` **in the
 same commit** as the code change, so the diff carries its own justification (the
 `--reason` text lands in the cell file). `check` failing on `main` means an unreviewed
-behaviour change. The keyed `golden-keyed` cell is `warn` mode (nondeterministic
-answer-F1) and stays **unseeded** until the first keyed run supplies numbers — until
-then `check` reports it "unseeded — skipped", never an error.
+behaviour change. `check` also self-enforces each committed file against the
+code-defined `CellSpec` registry: the file's `mode`/`tolerance`/`backend` and its
+metric-key set are declarative documentation, the registry (plus the live
+regeneration) is authoritative, so a hand-laundered tolerance/mode or a silently
+deleted metric fails the check. The keyed `golden-keyed` cell is `warn` mode
+(nondeterministic answer-F1); it pins the fidelity block **plus** per-system
+`answer_f1.{oracle,reconstructed,rag}` and `gaps.{understanding,reasoning,total}` (the
+reasoning advantage the keyed eval exists to track), and stays **unseeded** until the
+first keyed run supplies numbers — until then `check` reports it "unseeded — skipped",
+never an error. `update`/`check --against` refuse a summary that is a keyless-smoke
+run or whose backend disagrees with the cell, so a keyed baseline is never seeded from
+stand-in numbers.
 
 **CI.** Two workflows carry the eval (spec 0003):
 

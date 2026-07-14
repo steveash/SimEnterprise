@@ -1978,47 +1978,67 @@ def _cmd_reconstruct_baseline_check(args: argparse.Namespace) -> int:
         BaselineCell,
         cell_path,
         compare,
+        identity_mismatches,
+        keyed_summary_problem,
         metrics_from_summary,
         regenerate_fake_metrics,
     )
 
+    failed = False
+    warned = False
+
     if args.cell == "all":
-        names = sorted(p.stem for p in BASELINES_DIR.glob("*.json"))
-        if not names:
-            print(
-                "enterprise-sim reconstruct baseline check: no committed cells under "
-                f"{BASELINES_DIR}",
-                file=sys.stderr,
-            )
-            return 0
+        # Iterate the code-defined registry, not a directory glob (F3): a registered
+        # fake cell whose file vanished is a FAIL, not a silently missing row, and a
+        # stray unregistered .json is named instead of crashing with a raw KeyError.
+        names = sorted(CELL_SPECS)
+        for stray in sorted(BASELINES_DIR.glob("*.json")):
+            if stray.stem not in CELL_SPECS:
+                print(
+                    "enterprise-sim reconstruct baseline check: unregistered baseline "
+                    f"file {stray} — not in the CELL_SPECS registry; remove it or "
+                    "register a CellSpec",
+                    file=sys.stderr,
+                )
+                failed = True
     else:
         names = [args.cell]
 
-    failed = False
-    warned = False
     for name in names:
         path = cell_path(name)
         spec = CELL_SPECS.get(name)
+        if spec is None:
+            # A cell name with no registered CellSpec (F3): a clear message, never a
+            # KeyError traceback from regenerate_fake_metrics(CELL_SPECS[name]).
+            print(
+                f"enterprise-sim reconstruct baseline check: unknown cell {name!r} — "
+                f"not in the CELL_SPECS registry ({', '.join(sorted(CELL_SPECS))})",
+                file=sys.stderr,
+            )
+            failed = True
+            continue
         if not path.is_file():
             # An unseeded keyed cell (e.g. golden-keyed before the first keyed run) is
             # skipped, not an error — the harness lands keyless-first (spec 0003 §2).
-            if spec is not None and spec.keyed:
+            if spec.keyed:
                 print(
                     f"enterprise-sim reconstruct baseline check: {name} — unseeded "
                     f"(no {path}), skipped",
                     file=sys.stderr,
                 )
                 continue
+            # A registered fake cell must have its committed file (F3).
             print(
-                f"enterprise-sim reconstruct baseline check: no baseline {path}",
+                "enterprise-sim reconstruct baseline check: registered baseline cell "
+                f"missing: {path}",
                 file=sys.stderr,
             )
             failed = True
             continue
 
         cell = BaselineCell.read(path)
-        if cell.mode == "exact":
-            current = regenerate_fake_metrics(CELL_SPECS[name])
+        if not spec.keyed:
+            current = regenerate_fake_metrics(spec)
         else:
             # Keyed cell: metrics come from an existing e2e run's summary.json.
             if args.against is None:
@@ -2029,7 +2049,32 @@ def _cmd_reconstruct_baseline_check(args: argparse.Namespace) -> int:
                 )
                 continue
             summary = json.loads((args.against / "summary.json").read_text(encoding="utf-8"))
-            current = metrics_from_summary(summary)
+            problem = keyed_summary_problem(spec, summary)
+            if problem is not None:
+                # Refuse a keyless-smoke / wrong-backend summary as a keyed source (F4).
+                print(
+                    f"enterprise-sim reconstruct baseline check: {name} — {problem}",
+                    file=sys.stderr,
+                )
+                failed = True
+                continue
+            current = metrics_from_summary(spec, summary)
+
+        # Self-enforce the file against the registry (F2): the file's identity fields
+        # are declarative documentation, the registry (plus the live regeneration's key
+        # set) is authoritative — a laundered tolerance/mode/backend or a deleted metric
+        # fails here, before the value comparison.
+        mismatches = identity_mismatches(cell, spec, current.keys())
+        if mismatches:
+            print(
+                f"enterprise-sim reconstruct baseline check: {name} — FAIL: file "
+                "disagrees with the CELL_SPECS registry (identity fields are "
+                "declarative documentation, the registry is authoritative): "
+                + "; ".join(mismatches),
+                file=sys.stderr,
+            )
+            failed = True
+            continue
 
         result = compare(cell, current)
         if result.ok:
@@ -2081,6 +2126,7 @@ def _cmd_reconstruct_baseline_update(args: argparse.Namespace) -> int:
         FAKE_CELLS,
         build_cell,
         cell_path,
+        keyed_summary_problem,
         metrics_from_summary,
         regenerate_fake_metrics,
     )
@@ -2117,7 +2163,16 @@ def _cmd_reconstruct_baseline_update(args: argparse.Namespace) -> int:
                 )
                 return 2
             summary = json.loads((args.against / "summary.json").read_text(encoding="utf-8"))
-            metrics = metrics_from_summary(summary)
+            problem = keyed_summary_problem(spec, summary)
+            if problem is not None:
+                # Refuse to seed a keyed baseline from a keyless-smoke / wrong-backend
+                # summary (F4): its numbers are not a real keyed eval of this backend.
+                print(
+                    f"enterprise-sim reconstruct baseline update: {name} — {problem}",
+                    file=sys.stderr,
+                )
+                return 2
+            metrics = metrics_from_summary(spec, summary)
         else:
             metrics = regenerate_fake_metrics(spec)
 

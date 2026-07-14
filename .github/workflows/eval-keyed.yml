@@ -61,13 +61,17 @@ jobs:
 
       # Fail fast and clearly if the selected backend's creds are missing, so a
       # misconfigured dispatch does not crash halfway through the eval.
+      # Dispatch inputs are routed through env vars and referenced as "$VAR" in the
+      # shell (never interpolated with ${{ }} inside run:), so a crafted input can't
+      # break out of the script (GitHub Actions script-injection hygiene).
       - name: Preflight — verify credentials for the selected backend
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          BACKEND: ${{ inputs.backend }}
         run: |
-          if [ "${{ inputs.backend }}" = "bedrock" ]; then
+          if [ "$BACKEND" = "bedrock" ]; then
             if [ -z "$AWS_ACCESS_KEY_ID" ] || [ -z "$AWS_SECRET_ACCESS_KEY" ]; then
               echo "::error::backend=bedrock needs the AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY repo secrets; at least one is unset. Add them under Settings → Secrets and variables → Actions, or dispatch with backend=anthropic_api."
               exit 1
@@ -85,16 +89,19 @@ jobs:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           AWS_REGION: ${{ secrets.AWS_REGION }}
+          BACKEND: ${{ inputs.backend }}
+          MODEL: ${{ inputs.model }}
+          LIMIT: ${{ inputs.limit }}
         run: |
           EXTRA=""
-          if [ "${{ inputs.backend }}" = "bedrock" ]; then
+          if [ "$BACKEND" = "bedrock" ]; then
             EXTRA="--use-bedrock"
             if [ -n "$AWS_REGION" ]; then EXTRA="$EXTRA --aws-region $AWS_REGION"; fi
           fi
           uv run enterprise-sim reconstruct e2e \
-            --backend "${{ inputs.backend }}" \
-            --model "${{ inputs.model }}" \
-            --limit "${{ inputs.limit }}" \
+            --backend "$BACKEND" \
+            --model "$MODEL" \
+            --limit "$LIMIT" \
             $EXTRA \
             -o eval-out/
 
@@ -116,13 +123,15 @@ jobs:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           AWS_REGION: ${{ secrets.AWS_REGION }}
+          BACKEND: ${{ inputs.backend }}
+          MODEL: ${{ inputs.model }}
         run: |
           # e2e wrote the fresh golden run under eval-out/runs/<run-id>; summary.json
           # names it, so the judge grades the exact corpus the eval reconstructed.
           RUN_DIR="eval-out/runs/$(jq -r .run_id eval-out/summary.json)"
           uv run enterprise-sim eval "$RUN_DIR" \
-            --judge --backend "${{ inputs.backend }}" \
-            --model "${{ inputs.model }}" \
+            --judge --backend "$BACKEND" \
+            --model "$MODEL" \
             | tee eval-out/judge.txt
 
       # Optional keyed reconstruction matrix (off by default): extraction over the
@@ -134,11 +143,13 @@ jobs:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           AWS_REGION: ${{ secrets.AWS_REGION }}
+          BACKEND: ${{ inputs.backend }}
+          MODEL: ${{ inputs.model }}
         run: |
           uv run enterprise-sim reconstruct scale \
             --runs 3 --seeds 7,107 \
-            --backend "${{ inputs.backend }}" \
-            --model "${{ inputs.model }}" \
+            --backend "$BACKEND" \
+            --model "$MODEL" \
             --json -o eval-out/matrix-keyed.json
 
       # Always upload whatever landed, even if the baseline check warned or an
