@@ -1,6 +1,6 @@
 # Thin wrappers over the canonical commands — scripts/gate.sh stays the single
 # source of truth for the quality gate; this file only saves keystrokes.
-.PHONY: help setup gate check test lint fmt golden smoke coverage record-cassettes
+.PHONY: help setup gate check test lint fmt golden smoke e2e-smoke coverage record-cassettes
 
 help: ## list targets
 	@grep -E '^[a-zA-Z_-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-8s %s\n", $$1, $$2}'
@@ -33,6 +33,10 @@ golden: ## regenerate + eval the deterministic golden run
 smoke: ## real-LLM runtime import smoke (bench extra, no key needed)
 	uv sync --extra dev --extra bench
 	uv run python scripts/import_smoke.py
+
+e2e-smoke: ## keyless e2e wiring smoke + full baseline check (mirrors the CI e2e-smoke job)
+	uv run enterprise-sim reconstruct e2e --keyless-smoke -o /tmp/e2e
+	uv run enterprise-sim reconstruct baseline check --cell all
 
 record-cassettes: ## (keyed, ~$$1 ceiling) record real-LLM cassettes: needs ANTHROPIC_API_KEY + `uv sync --extra bench`
 	ESIM_CASSETTES=record uv run pytest tests/test_llm_cassettes.py

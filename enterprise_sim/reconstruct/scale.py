@@ -33,7 +33,7 @@ from __future__ import annotations
 import json
 import math
 from collections.abc import Iterable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -55,11 +55,15 @@ from enterprise_sim.reconstruct.extract import HAIKU_MODEL
 from enterprise_sim.reconstruct.fidelity import FidelityReport, score_fidelity
 
 __all__ = [
+    "MATRIX_RUNS",
+    "MATRIX_SEEDS",
     "Aggregate",
     "AggregateFidelity",
     "RunFidelity",
     "RunSpec",
     "default_run_specs",
+    "matrix_metrics",
+    "matrix_run_specs",
     "reconstruct_and_score",
     "run_scale",
 ]
@@ -157,6 +161,38 @@ def default_run_specs(count: int = 2, *, seed: int = 7) -> list[RunSpec]:
                 seed=seed + index,
             )
         )
+    return specs
+
+
+#: The standing keyless matrix's shape (spec 0003 §3): the first three catalog specs
+#: — engineering-startup, retail-startup, engineering-small (two archetypes, two size
+#: bands) — crossed with seeds {7, 107}, i.e. 6 cells. Small on purpose so the whole
+#: matrix regenerates well inside the CI e2e-smoke bound; growing it is a
+#: baseline-update, not a design change. ``matrix-fake.json`` pins this exact set.
+MATRIX_RUNS = 3
+MATRIX_SEEDS: tuple[int, ...] = (7, 107)
+
+
+def matrix_run_specs(
+    count: int = MATRIX_RUNS, seeds: Sequence[int] = MATRIX_SEEDS
+) -> list[RunSpec]:
+    """The seeds-axis matrix: the first ``count`` catalog specs × ``seeds`` (spec 0003 §3).
+
+    Each ``(catalog entry, seed)`` pair is one matrix cell — a :class:`RunSpec`
+    carrying the catalog entry's archetype/size with its ``seed`` set to the axis
+    value and its ``label`` suffixed ``-s<seed>`` (so ``engineering-startup`` at seed
+    107 is ``engineering-startup-s107``). Order is stable and deterministic: catalog
+    entry outer, seed inner. ``count`` must be in ``1..len(catalog)`` (validated by
+    :func:`default_run_specs`); ``seeds`` must be non-empty with no duplicates.
+    """
+    if not seeds:
+        raise ValueError("matrix_run_specs needs at least one seed")
+    if len(set(seeds)) != len(seeds):
+        raise ValueError(f"seeds must be unique, got {list(seeds)}")
+    specs: list[RunSpec] = []
+    for base in default_run_specs(count):
+        for seed in seeds:
+            specs.append(replace(base, label=f"{base.label}-s{seed}", seed=seed))
     return specs
 
 
@@ -285,6 +321,57 @@ def build_aggregate(runs: Sequence[RunFidelity], *, backend: str) -> AggregateFi
         key: _aggregate([extractor(run.report) for run in runs]) for key, extractor in _METRICS
     }
     return AggregateFidelity(runs=tuple(runs), metrics=metrics, backend=backend)
+
+
+# The per-cell fidelity headline pinned in the standing matrix baseline: the same
+# rate + count metrics a golden cell carries, minus provenance (the matrix runs
+# score without a grounding key). ``matrix_metrics`` prefixes each with the cell's
+# label so every cell is pinned independently — a regression in one cell fails even
+# if the aggregate mean is unmoved.
+_MATRIX_CELL_METRICS: tuple[tuple[str, Any], ...] = (
+    ("node_f1", lambda r: r.nodes.overall.f1),
+    ("node_precision", lambda r: r.nodes.overall.precision),
+    ("node_recall", lambda r: r.nodes.overall.recall),
+    ("edge_f1", lambda r: r.edges.overall.f1),
+    ("edge_precision", lambda r: r.edges.overall.precision),
+    ("edge_recall", lambda r: r.edges.overall.recall),
+    ("over_merges", lambda r: r.entity_resolution.over_merges),
+    ("under_merges", lambda r: r.entity_resolution.under_merges),
+    ("reconstructed_nodes", lambda r: r.reconstructed_node_count),
+    ("reconstructed_edges", lambda r: r.reconstructed_edge_count),
+)
+
+#: The aggregate rate means pinned across the matrix (the "aggregate" half of the
+#: per-cell + aggregate baseline). Counts/merges aggregate trivially from the
+#: per-cell pins, so only the headline rates are summarised here.
+_MATRIX_AGGREGATE_KEYS: tuple[str, ...] = (
+    "node_f1",
+    "node_precision",
+    "node_recall",
+    "edge_f1",
+    "edge_precision",
+    "edge_recall",
+)
+
+
+def matrix_metrics(aggregate: AggregateFidelity) -> dict[str, float | int]:
+    """Flatten a matrix aggregate into the flat ``metrics`` dict a baseline cell pins.
+
+    Per cell (keyed ``<label>.<metric>``) the core rate + count fidelity headline,
+    then the aggregate rate means (keyed ``aggregate.<metric>_mean``) — the
+    "per-cell + aggregate" the standing matrix baseline commits (spec 0003 §3).
+    Rates are rounded to 6 dp (the exact-mode convention, matching the golden cell's
+    :func:`enterprise_sim.reconstruct.e2e._round`); counts/merges stay ints so the
+    JSON preserves the distinction. Pure: the same aggregate flattens identically.
+    """
+    metrics: dict[str, float | int] = {}
+    for run in aggregate.runs:
+        for key, extractor in _MATRIX_CELL_METRICS:
+            value = extractor(run.report)
+            metrics[f"{run.label}.{key}"] = round(value, 6) if isinstance(value, float) else value
+    for key in _MATRIX_AGGREGATE_KEYS:
+        metrics[f"aggregate.{key}_mean"] = round(aggregate.metrics[key].mean, 6)
+    return metrics
 
 
 def reconstruct_and_score(

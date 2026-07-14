@@ -110,6 +110,24 @@ def test_regenerate_fake_metrics_matches_committed_golden_cell() -> None:
     assert rebuilt.to_json() == cell_path("golden-fake").read_text(encoding="utf-8")
 
 
+def test_regenerate_matrix_cell_matches_committed_file() -> None:
+    """The committed matrix-fake cell equals a fresh keyless 6-cell regeneration (D10/D31).
+
+    The full seeds matrix (~0.4s in-process, well inside the ~5s gate budget measured
+    in slice 3) is regenerated and byte-compared, so a silent per-cell fidelity move
+    fails on the PR that causes it — the same guard the golden cell carries.
+    """
+    spec = FAKE_CELLS["matrix-fake"]
+    committed = BaselineCell.read(cell_path("matrix-fake"))
+    # 6 cells × (6 rate + 4 count/merge) + 6 aggregate means = 66 pinned metrics.
+    assert len(committed.metrics) == 66
+
+    current = regenerate_fake_metrics(spec)
+    assert compare(committed, current).ok
+    rebuilt = build_cell(spec, current, committed.reason)
+    assert rebuilt.to_json() == cell_path("matrix-fake").read_text(encoding="utf-8")
+
+
 def test_regenerate_refuses_keyed_cell() -> None:
     keyed = CellSpec(
         cell="golden-keyed",

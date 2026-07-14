@@ -1655,6 +1655,24 @@ def _add_reconstruct_report_parser(
     report_parser.set_defaults(func=_cmd_reconstruct_report)
 
 
+def _parse_seed_list(text: str) -> list[int]:
+    """Parse a ``--seeds`` value (``"7,107"``) into a list of ints (argparse ``type``).
+
+    Raises :class:`argparse.ArgumentTypeError` on an empty list or a non-integer
+    token so the seeds axis fails at parse time with a clear message rather than
+    deep in run generation.
+    """
+    tokens = [tok.strip() for tok in text.split(",") if tok.strip()]
+    if not tokens:
+        raise argparse.ArgumentTypeError("--seeds needs at least one integer, e.g. 7,107")
+    try:
+        return [int(tok) for tok in tokens]
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(
+            f"--seeds must be comma-separated integers: {text!r}"
+        ) from exc
+
+
 def _cmd_reconstruct_scale(args: argparse.Namespace) -> int:
     """Reconstruct + score several varied runs and aggregate the fidelity (esim-ecr.5).
 
@@ -1669,10 +1687,20 @@ def _cmd_reconstruct_scale(args: argparse.Namespace) -> int:
     import contextlib
     import tempfile
 
-    from enterprise_sim.reconstruct import BuildConfig, default_run_specs, run_scale
+    from enterprise_sim.reconstruct import (
+        BuildConfig,
+        default_run_specs,
+        matrix_run_specs,
+        run_scale,
+    )
 
     build_config = BuildConfig(edge_confidence_threshold=args.edge_threshold)
-    specs = default_run_specs(args.runs, seed=args.seed)
+    if args.seeds is not None:
+        # The seeds axis (spec 0003 §3): the first --runs catalog specs × --seeds, one
+        # cell per (spec, seed) with the label suffixed -s<seed>.
+        specs = matrix_run_specs(args.runs, args.seeds)
+    else:
+        specs = default_run_specs(args.runs, seed=args.seed)
     with contextlib.ExitStack() as stack:
         if args.work_dir is not None:
             work_dir: str = str(args.work_dir)
@@ -1737,6 +1765,17 @@ def _add_reconstruct_scale_parser(
         default=7,
         metavar="SEED",
         help="root seed for the varied run configs (each run uses seed+index; default: 7)",
+    )
+    scale_parser.add_argument(
+        "--seeds",
+        type=_parse_seed_list,
+        default=None,
+        metavar="N,N,...",
+        help=(
+            "seeds axis: cross the first --runs catalog specs with these seeds "
+            "(e.g. 7,107 → each spec at each seed, label suffixed -s<seed>); "
+            "overrides --seed. Default: off (the single --seed base)."
+        ),
     )
     scale_parser.add_argument(
         "--work-dir",

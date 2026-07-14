@@ -138,6 +138,20 @@ FAKE_CELLS: dict[str, CellSpec] = {
         tolerance=0.0,
         keyed=False,
     ),
+    # The standing keyless matrix (spec 0003 §3): the first three catalog specs ×
+    # seeds {7, 107} = 6 cells. Its metrics are the flattened per-cell + aggregate
+    # fidelity of ``reconstruct scale --runs 3 --seeds 7,107`` (fake backend); the
+    # ``config``/``seed`` fields are descriptive identity (the seed axis lives in the
+    # config string, so ``seed`` records only the base axis value).
+    "matrix-fake": CellSpec(
+        cell="matrix-fake",
+        backend="fake",
+        config="reconstruct scale --runs 3 --seeds 7,107",
+        seed=7,
+        mode="exact",
+        tolerance=0.0,
+        keyed=False,
+    ),
 }
 
 #: Keyed cells — seeded from a live e2e run's ``summary.json`` (``--against``); not
@@ -185,15 +199,29 @@ def regenerate_fake_metrics(spec: CellSpec) -> dict[str, float | int]:
             f"cell {spec.cell!r} is keyed (mode={spec.mode!r}); regenerate from a keyed "
             "run's summary.json via --against, not keylessly"
         )
-    if spec.cell != "golden-fake":
-        raise ValueError(f"no keyless regenerator wired for fake cell {spec.cell!r}")
 
-    from enterprise_sim.reconstruct.e2e import run_e2e
+    if spec.cell == "golden-fake":
+        from enterprise_sim.reconstruct.e2e import run_e2e
 
-    with tempfile.TemporaryDirectory(prefix="esim-baseline-") as tmp:
-        result = run_e2e(Path(tmp) / "e2e", keyless_smoke=True)
-    fidelity = result.summary["fidelity"]
-    return {key: fidelity[key] for key in FIDELITY_METRIC_KEYS}
+        with tempfile.TemporaryDirectory(prefix="esim-baseline-") as tmp:
+            result = run_e2e(Path(tmp) / "e2e", keyless_smoke=True)
+        fidelity = result.summary["fidelity"]
+        return {key: fidelity[key] for key in FIDELITY_METRIC_KEYS}
+
+    if spec.cell == "matrix-fake":
+        # The standing matrix cell: reconstruct + score the 6-cell seeds matrix over
+        # the fake backend and flatten it to the per-cell + aggregate metrics dict.
+        from enterprise_sim.reconstruct.scale import (
+            matrix_metrics,
+            matrix_run_specs,
+            run_scale,
+        )
+
+        with tempfile.TemporaryDirectory(prefix="esim-baseline-") as tmp:
+            aggregate = run_scale(matrix_run_specs(), Path(tmp))
+        return matrix_metrics(aggregate)
+
+    raise ValueError(f"no keyless regenerator wired for fake cell {spec.cell!r}")
 
 
 def metrics_from_summary(summary: Mapping[str, object]) -> dict[str, float | int]:

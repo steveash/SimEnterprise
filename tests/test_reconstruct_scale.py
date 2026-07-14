@@ -21,9 +21,13 @@ import pytest
 from enterprise_sim.cli import build_parser, main
 from enterprise_sim.core.config import CompanySize
 from enterprise_sim.reconstruct import (
+    MATRIX_RUNS,
+    MATRIX_SEEDS,
     AggregateFidelity,
     RunSpec,
     default_run_specs,
+    matrix_metrics,
+    matrix_run_specs,
     run_scale,
 )
 from enterprise_sim.reconstruct.scale import Aggregate, _aggregate, build_aggregate
@@ -64,6 +68,61 @@ def test_run_spec_to_config_maps_vertical_and_size() -> None:
     assert config.company.size == CompanySize.STARTUP
     assert config.seed == 3
     assert config.output_dir == Path("out")
+
+
+# --------------------------------------------------------------------------- #
+# Seeds axis (matrix specs).
+# --------------------------------------------------------------------------- #
+
+
+def test_matrix_run_specs_crosses_catalog_and_seeds() -> None:
+    specs = matrix_run_specs(3, [7, 107])
+    # 3 catalog specs × 2 seeds = 6 cells; catalog outer, seed inner (stable order).
+    assert [s.label for s in specs] == [
+        "engineering-startup-s7",
+        "engineering-startup-s107",
+        "retail-startup-s7",
+        "retail-startup-s107",
+        "engineering-small-s7",
+        "engineering-small-s107",
+    ]
+    # Each cell carries its axis seed (not seed+index) and its catalog archetype.
+    assert [s.seed for s in specs] == [7, 107, 7, 107, 7, 107]
+    assert [s.vertical for s in specs] == ["software"] * 2 + ["retail"] * 2 + ["software"] * 2
+    # Deterministic: same call, same specs.
+    assert matrix_run_specs(3, [7, 107]) == specs
+
+
+def test_matrix_run_specs_defaults_are_the_standing_matrix() -> None:
+    # The committed matrix baseline pins exactly matrix_run_specs() — 6 cells.
+    assert MATRIX_RUNS == 3
+    assert MATRIX_SEEDS == (7, 107)
+    assert len(matrix_run_specs()) == len(MATRIX_SEEDS) * MATRIX_RUNS == 6
+
+
+def test_matrix_run_specs_rejects_bad_seeds() -> None:
+    with pytest.raises(ValueError):
+        matrix_run_specs(3, [])
+    with pytest.raises(ValueError, match="unique"):
+        matrix_run_specs(3, [7, 7])
+
+
+def test_matrix_metrics_flattens_per_cell_and_aggregate(tmp_path: Path) -> None:
+    aggregate = run_scale(matrix_run_specs(2, [7, 107]), tmp_path)
+    metrics = matrix_metrics(aggregate)
+    # Per-cell node/edge headline is keyed "<label>.<metric>".
+    assert "engineering-startup-s7.node_f1" in metrics
+    assert "retail-startup-s107.edge_recall" in metrics
+    # Counts/merges stay ints; rates are floats.
+    assert isinstance(metrics["engineering-startup-s7.over_merges"], int)
+    assert isinstance(metrics["engineering-startup-s7.node_f1"], float)
+    # The aggregate rate means are present too (the "aggregate" half).
+    assert "aggregate.node_f1_mean" in metrics
+    assert metrics["aggregate.node_f1_mean"] == pytest.approx(
+        aggregate.metrics["node_f1"].mean, abs=1e-6
+    )
+    # Pure: the same aggregate flattens identically.
+    assert matrix_metrics(aggregate) == metrics
 
 
 # --------------------------------------------------------------------------- #
@@ -203,3 +262,52 @@ def test_scale_cli_json(tmp_path: Path, capsys: Any) -> None:
     data = json.loads(out)
     assert data["run_count"] == 2
     assert data["backend"] == "fake"
+
+
+def test_scale_cli_parses_seeds_axis() -> None:
+    parser = build_parser()
+    args = parser.parse_args(["reconstruct", "scale", "--runs", "3", "--seeds", "7,107"])
+    assert args.seeds == [7, 107]
+    # No --seeds ⇒ off (falls back to the single --seed base).
+    assert parser.parse_args(["reconstruct", "scale"]).seeds is None
+
+
+def _scale_json_via_cli(work_dir: Path, capsys: Any) -> dict[str, Any]:
+    """Run ``reconstruct scale --runs 3 --seeds 7,107 --json`` and parse the stdout."""
+    import json
+
+    rc = main(
+        [
+            "reconstruct",
+            "scale",
+            "--runs",
+            "3",
+            "--seeds",
+            "7,107",
+            "--work-dir",
+            str(work_dir),
+            "--json",
+        ]
+    )
+    assert rc == 0
+    data: dict[str, Any] = json.loads(capsys.readouterr().out)
+    return data
+
+
+def test_scale_cli_seeds_axis_emits_six_rows(tmp_path: Path, capsys: Any) -> None:
+    """--runs 3 --seeds 7,107 → 6 per-run rows, deterministically (acceptance)."""
+    import json
+
+    first = _scale_json_via_cli(tmp_path / "a", capsys)
+    second = _scale_json_via_cli(tmp_path / "b", capsys)
+    assert first["run_count"] == 6
+    assert [r["label"] for r in first["runs"]] == [
+        "engineering-startup-s7",
+        "engineering-startup-s107",
+        "retail-startup-s7",
+        "retail-startup-s107",
+        "engineering-small-s7",
+        "engineering-small-s107",
+    ]
+    # Deterministic across invocations (byte-identical JSON).
+    assert json.dumps(first, sort_keys=True) == json.dumps(second, sort_keys=True)
