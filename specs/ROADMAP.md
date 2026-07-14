@@ -79,7 +79,16 @@ caught by the keyless gate instead of a live run. Remaining work, designed in th
   (one-line report first, then a floor) so untested-but-live code is visible; the gate's
   ~20s budget holds.
 
-## E3 — End-to-end eval hardening (P0)
+## E3 — End-to-end eval hardening (P0) — `specs/0003-e2e-eval-hardening.md`
+
+**Status: spec approved** — design + slices in the spec. Notable deltas from the text
+below (audit 2026-07-14): the CLI home is `enterprise-sim reconstruct e2e` (the flat
+`eval <run>` command can't grow subcommands without breaking its documented surface);
+nothing in CI runs the keyless smoke today (docs/RECONSTRUCT.md's claim is stale); the
+keyless smoke rides the `fake` backend, not E2's cassettes (cassette keys would be
+invalidated by any corpus/prompt change, and the agent-SDK reason slots bypass the
+cache); judge calibration is a thin slice riding the keyed workflow, with the full
+harness deferred.
 
 The eval loop (golden run → bench → reconstruct → attribution report) is the product's
 proof of value; make it a first-class, regression-tracked harness instead of a script.
