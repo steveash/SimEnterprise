@@ -270,6 +270,7 @@ enterprise_sim/
     testkit.py      # Tier 2 TestWorld, run_process/run_playbook, conformance suite
     eval.py         # Tier 3 structural + LLM-judge evaluators
   world_builders/ # Layer A generators (company, goals, departments, initiatives, people…)
+  data_products/  # structured data: causal specs, sampler, views, question loop (§17)
   archetypes/     # DepartmentArchetype plugins (engineering, retail, legal, …)
   playbooks/      # Playbook plugins (build_software, sell_merchandise, …)
   processes/      # Process plugins (weekly_status, design_review, inventory_monitor, …)
@@ -696,3 +697,23 @@ One `LLMClient` over api / bedrock / cli with cross-cutting concerns:
   kit runs with **no real LLM calls** (free, fast, deterministic).
 - **Determinism caveat** — we never rely on LLM determinism; the *structure* (which calls, what
   context, what order) is deterministic, content varies. Prompt + response caches aid repeatability.
+
+---
+
+## 17. Structured data products
+
+The document pipeline's structured-data sibling (`enterprise_sim/data_products/`,
+detailed in [`docs/DATA_PRODUCTS.md`](./docs/DATA_PRODUCTS.md)): registered
+**data scenarios** declare a causal graph (exogenous distributions + structural
+equations over categorical/numerical variables, global daily factors with
+seasonality and shocks) over entity populations **bound to the gold KG**
+(identity bindings and KG-backed dimensions, recorded as lineage); a
+deterministic, chunk-streamed sampler draws partitioned parquet tables at
+arbitrary scale; DuckDB views materialize the joins/rollups; and an iterative
+**question loop** proposes business questions with answering SQL, evaluates
+answerability against the data, and patches the spec (additive deltas) to close
+recognized gaps. The same §7 contracts hold: deterministic seeded skeleton
+(template plugins), LLM elaboration through the one `core/llm` client with
+validation + lint + repair, keyless-green on the `fake` backend, and the final
+`spec.json` shipping as the data's causal ground-truth answer key.
+

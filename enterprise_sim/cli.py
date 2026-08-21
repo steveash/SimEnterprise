@@ -1648,6 +1648,121 @@ def _add_reconstruct_scale_parser(
     scale_parser.set_defaults(func=_cmd_reconstruct_scale)
 
 
+def _cmd_data_run(args: argparse.Namespace) -> int:
+    """Run structured data-product scenarios from a data config (docs/DATA_PRODUCTS.md)."""
+    try:
+        from enterprise_sim.data_products import execute_data_run, load_data_config
+    except ModuleNotFoundError as exc:
+        print(
+            f"enterprise-sim data run: missing dependency {exc.name!r} — install the data "
+            "extra: uv sync --extra data (or pip install 'enterprise-sim[data]')"
+        )
+        return 2
+    from enterprise_sim.data_products.config import DataConfigError
+    from enterprise_sim.data_products.linking import LinkageError
+    from enterprise_sim.data_products.lint import SpecLintError
+
+    try:
+        config = load_data_config(args.config)
+    except DataConfigError as exc:
+        print(f"enterprise-sim data run: {exc}")
+        return 2
+    except ValidationError as exc:
+        print(f"enterprise-sim data run: invalid config {args.config}:\n{exc}")
+        return 2
+
+    if args.output_dir is not None:
+        config = config.model_copy(update={"output_dir": args.output_dir})
+    if args.scale is not None:
+        config = config.model_copy(
+            update={"scale": config.scale.model_copy(update={"factor": args.scale})}
+        )
+    if args.iterations is not None:
+        config = config.model_copy(
+            update={"loop": config.loop.model_copy(update={"iterations": args.iterations})}
+        )
+
+    try:
+        result = execute_data_run(config)
+    except (SpecLintError, LinkageError) as exc:
+        print(f"enterprise-sim data run: {exc}")
+        return 1
+
+    for scenario in result.scenarios:
+        total_rows = sum(scenario.rows_by_table.values())
+        print(
+            f"enterprise-sim data run: {scenario.scenario} -> {scenario.run_dir} "
+            f"({total_rows:,} rows across {len(scenario.rows_by_table)} tables, "
+            f"{scenario.questions_answerable}/{scenario.questions_total} questions "
+            f"answerable after {scenario.iterations_run} iteration(s))"
+        )
+    return 0
+
+
+def _cmd_data_scenarios(args: argparse.Namespace) -> int:
+    """List the registered data scenarios."""
+    from enterprise_sim.data_products.scenarios import discover_scenarios
+
+    registry = discover_scenarios()
+    for name in registry.names():
+        plugin = registry.get(name)
+        print(f"{name}: {plugin.title}")
+    return 0
+
+
+def _add_data_parser(
+    subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
+    """Wire the ``data`` subcommand group (structured data products)."""
+    data_parser = subparsers.add_parser(
+        "data",
+        help="generate structured data products (causal tables, views, questions)",
+        description="Causal-graph-driven synthetic tables, materialized views, and "
+        "business-question evaluation over the simulated enterprise.",
+    )
+    data_subparsers = data_parser.add_subparsers(
+        dest="data_command",
+        required=True,
+        metavar="{run,scenarios}",
+    )
+
+    data_run_parser = data_subparsers.add_parser(
+        "run", help="run data scenarios from a data config"
+    )
+    data_run_parser.add_argument("config", help="path to a data-run config (.toml or .json)")
+    data_run_parser.add_argument(
+        "-o",
+        "--output-dir",
+        dest="output_dir",
+        type=Path,
+        default=None,
+        metavar="DIR",
+        help="override the config's output_dir",
+    )
+    data_run_parser.add_argument(
+        "--scale",
+        dest="scale",
+        type=float,
+        default=None,
+        metavar="X",
+        help="override scale.factor (multiplies every population's base size)",
+    )
+    data_run_parser.add_argument(
+        "--iterations",
+        dest="iterations",
+        type=int,
+        default=None,
+        metavar="N",
+        help="override loop.iterations (question-loop passes, 1-5)",
+    )
+    data_run_parser.set_defaults(func=_cmd_data_run)
+
+    data_scenarios_parser = data_subparsers.add_parser(
+        "scenarios", help="list registered data scenarios"
+    )
+    data_scenarios_parser.set_defaults(func=_cmd_data_scenarios)
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Construct the top-level argument parser and its subcommands."""
     parser = argparse.ArgumentParser(
@@ -1720,6 +1835,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     _add_bench_parser(subparsers)
     _add_reconstruct_parser(subparsers)
+    _add_data_parser(subparsers)
 
     return parser
 

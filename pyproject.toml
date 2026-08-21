@@ -31,6 +31,16 @@ bench = [
     "claude-agent-sdk>=0.1",
     "anthropic>=0.40",
 ]
+# The structured-data-products subsystem (data_products/): vectorized causal
+# sampling (numpy), parquet output (pyarrow), and SQL views + question
+# evaluation (duckdb). Imported lazily (same pattern as `bench`), so the base
+# install stays lean; `dev` includes them because the keyless test suite
+# exercises the sampler/materializer end to end.
+data = [
+    "numpy>=1.26",
+    "pyarrow>=15.0",
+    "duckdb>=1.0",
+]
 dev = [
     "mypy>=1.9",
     "pytest>=8.0",
@@ -38,6 +48,10 @@ dev = [
     # The engine layer is exercised keyless by the test suite, so it ships here.
     "kuzu>=0.11",
     "pyoxigraph>=0.5",
+    # data_products deps (see `data` extra) — keyless tests run the sampler.
+    "numpy>=1.26",
+    "pyarrow>=15.0",
+    "duckdb>=1.0",
 ]
 
 [build-system]
@@ -86,3 +100,9 @@ disallow_untyped_decorators = false
 minversion = "8.0"
 testpaths = ["tests"]
 addopts = "-ra"
+
+[[tool.mypy.overrides]]
+# pyarrow ships no py.typed marker; the data_products sampler is the only
+# consumer and keeps its own arrays typed via numpy.
+module = "pyarrow.*"
+ignore_missing_imports = true
