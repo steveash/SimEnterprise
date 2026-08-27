@@ -1,0 +1,49 @@
+# Structured data products — the full-scale run (~100M rows / ~10GB parquet).
+#
+# A full year of panel data with every population scaled 48x. The sampler
+# streams day-by-day and flushes sized parquet partitions, so memory stays
+# bounded regardless of volume; expect the run to be CPU/disk-bound.
+#
+#   enterprise-sim data run examples/data_full_scale.toml
+#
+# Switch [authoring] mode to "llm" (and [model] to a real backend) to have the
+# configured model elaborate each scenario's causal graph, propose extra
+# business questions, and drive gap analysis; the deterministic template is the
+# validated fallback either way.
+
+scenarios = [
+    "product_growth",
+    "sales_pipeline",
+    "support_ops",
+    "subscription_finance",
+    "marketing_attribution",
+]
+seed = 11
+output_dir = "runs/data-full"
+
+[world.company]
+name = "Northwind Tools"
+vertical = "software"
+size = "enterprise"
+description = "A B2B SaaS company building developer productivity tooling."
+
+[window]
+start = 2025-07-01
+end = 2026-06-30
+
+[authoring]
+mode = "template"
+# mode = "llm"
+
+[scale]
+factor = 48.0
+rows_per_partition = 4000000
+
+[loop]
+iterations = 3
+
+[model]
+backend = "fake"
+# backend = "anthropic_api"
+# name = "claude-opus-4-8"
+# cost_ceiling_usd = 50.0

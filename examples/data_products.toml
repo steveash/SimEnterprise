@@ -1,0 +1,43 @@
+# Structured data products — the keyless demo run (docs/DATA_PRODUCTS.md).
+#
+# Runs all five built-in data scenarios over a deterministically-built company
+# (no network, no keys): LLM-free template authoring, causal sampling into
+# partitioned parquet, materialized DuckDB views, and up to three question-loop
+# iterations that patch the spec to close answerability gaps.
+#
+#   enterprise-sim data run examples/data_products.toml
+#
+# Scale up with `--scale N` (multiplies every population) or point [world] at a
+# completed enterprise-sim run to link dimensions against its exported KG:
+#   [world]
+#   run_dir = "runs/golden/golden-slice-co-40644d551158"
+
+scenarios = [
+    "product_growth",
+    "sales_pipeline",
+    "support_ops",
+    "subscription_finance",
+    "marketing_attribution",
+]
+seed = 11
+output_dir = "runs/data"
+
+[world.company]
+name = "Northwind Tools"
+vertical = "software"
+size = "medium"
+description = "A B2B SaaS company building developer productivity tooling."
+
+[window]
+start = 2026-01-01
+end = 2026-03-31
+
+[authoring]
+mode = "template"
+
+[scale]
+factor = 1.0
+rows_per_partition = 2000000
+
+[loop]
+iterations = 3
