@@ -153,16 +153,22 @@ def _spec(start: date, end: date) -> ScenarioSpec:
             variable(
                 "active",
                 VariableKind.BINARY,
+                # Near-absorbing hazard: an active account retains with
+                # sigmoid(6.2 - 0.9*risk + ...) ≈ 99.4-99.9% per day (so churn
+                # accumulates over the window), while a churned account
+                # reactivates with sigmoid(-6.2 - ...) ≈ 0.2% per day.
+                # lag_init=1.0 starts day 0 with an active book.
                 eq=logit(
-                    2.0,
+                    -6.2,
                     (
-                        term("active", 4.5, lagged=True),
-                        term("churn_risk", -0.6),
+                        term("active", 12.4, lagged=True),
+                        term("churn_risk", -0.9),
                         term("macro_conditions", 0.4),
-                        term("price_increase", -0.35),
+                        term("price_increase", -0.6),
                     ),
                 ),
                 description="Is the subscription active today? (churn is near-absorbing)",
+                lag_init=1.0,
             ),
             variable(
                 "mrr",

@@ -460,11 +460,26 @@ def _lint_views_and_questions(spec: ScenarioSpec, issues: list[LintIssue]) -> No
                     )
 
 
-def projected_rows(spec: ScenarioSpec, *, scale: float = 1.0) -> int:
-    """Total physical rows the spec would sample at ``scale``."""
+def projected_rows(
+    spec: ScenarioSpec,
+    *,
+    scale: float = 1.0,
+    sizes: Mapping[str, int] | None = None,
+) -> int:
+    """Total physical rows the spec would sample at ``scale``.
+
+    Sizing matches the sampler exactly (``max(1, round(size * scale))``).
+    ``sizes`` overrides per-population counts with *actual* sampled sizes —
+    identity-bound populations' sizes are only known once the world is
+    resolved, so the pre-sample estimate uses their declared base size.
+    """
     total = 0
     for tbl in spec.tables:
-        size = int(spec.population(tbl.population).size * scale) or 1
+        pop = spec.population(tbl.population)
+        if sizes is not None and pop.name in sizes:
+            size = sizes[pop.name]
+        else:
+            size = max(1, round(pop.size * scale))
         total += size if tbl.grain is TableGrain.ENTITY else size * spec.n_days
     return total
 

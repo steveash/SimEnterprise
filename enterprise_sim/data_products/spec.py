@@ -248,6 +248,11 @@ class Variable(_FrozenSpec):
     distribution: Distribution | None = None
     equation: NumericEquation | None = None
     categorical_equation: CategoricalEquation | None = None
+    lag_init: float = Field(
+        default=0.0,
+        description="Day-0 value seen by lagged reads of this panel variable "
+        "(e.g. 1.0 so a subscription's `active` starts with an active book).",
+    )
 
     @model_validator(mode="after")
     def _check(self) -> Variable:
@@ -554,12 +559,20 @@ def apply_deltas(spec: ScenarioSpec, deltas: tuple[SpecDelta, ...]) -> ScenarioS
 
     Additions that already exist (same name in the same scope) are skipped
     rather than duplicated, so re-applying a gap fix across loop iterations is
-    harmless. The result still needs a lint pass — deltas can reference parents
-    or populations that don't exist.
+    harmless. A delta targeting a population or table that does not exist
+    raises ``KeyError`` — a silently-dropped fix would leave the question loop
+    resampling identical data. The result still needs a lint pass — deltas can
+    still reference unknown parents.
     """
     data = spec.model_dump(mode="python")
+    pop_names = {pop["name"] for pop in data["populations"]}
+    table_names = {tbl["name"] for tbl in data["tables"]}
     for delta in deltas:
         if delta.kind in ("add_attribute", "add_panel_variable", "add_kg_dimension"):
+            if delta.population not in pop_names:
+                raise KeyError(
+                    f"delta {delta.kind!r} targets unknown population {delta.population!r}"
+                )
             for pop in data["populations"]:
                 if pop["name"] != delta.population:
                     continue
@@ -583,10 +596,13 @@ def apply_deltas(spec: ScenarioSpec, deltas: tuple[SpecDelta, ...]) -> ScenarioS
                 data["factors"] = [*data["factors"], delta.factor.model_dump(mode="python")]
         elif delta.kind == "add_table":
             assert delta.table_spec is not None
-            if delta.table_spec.name not in {t["name"] for t in data["tables"]}:
+            if delta.table_spec.name not in table_names:
                 data["tables"] = [*data["tables"], delta.table_spec.model_dump(mode="python")]
+                table_names.add(delta.table_spec.name)
         elif delta.kind == "add_table_column":
             assert delta.column is not None
+            if delta.table not in table_names:
+                raise KeyError(f"delta add_table_column targets unknown table {delta.table!r}")
             for tbl in data["tables"]:
                 if tbl["name"] != delta.table:
                     continue

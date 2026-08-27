@@ -15,9 +15,20 @@ from pathlib import Path
 
 import duckdb
 
-from enterprise_sim.data_products.spec import ScenarioSpec
+from enterprise_sim.data_products.spec import (
+    ColumnSource,
+    ScenarioSpec,
+    TableSpec,
+    VariableKind,
+)
 
-__all__ = ["MaterializeError", "ViewResult", "connect_scenario", "materialize_views"]
+__all__ = [
+    "MaterializeError",
+    "ViewResult",
+    "connect_scenario",
+    "materialize_views",
+    "validate_view_sql",
+]
 
 
 class MaterializeError(Exception):
@@ -83,7 +94,7 @@ def materialize_views(spec: ScenarioSpec, data_dir: Path) -> list[ViewResult]:
             escaped = out_path.as_posix().replace("'", "''")
             try:
                 conn.execute(
-                    f"COPY (SELECT * FROM ({view.sql}) __v ORDER BY ALL) "
+                    f"COPY (SELECT * FROM ({_view_body(view.sql)}) __v ORDER BY ALL) "
                     f"TO '{escaped}' (FORMAT PARQUET)"
                 )
             except duckdb.Error as exc:
@@ -98,3 +109,65 @@ def materialize_views(spec: ScenarioSpec, data_dir: Path) -> list[ViewResult]:
     finally:
         conn.close()
     return results
+
+
+def _view_body(sql: str) -> str:
+    """A view's SQL normalized for subquery wrapping (no trailing semicolons)."""
+    return sql.strip().rstrip(";").strip()
+
+
+def _empty_column_type(table: TableSpec, kind_of: dict[str, VariableKind]) -> dict[str, str]:
+    types: dict[str, str] = {}
+    for col in table.columns:
+        if col.source in (ColumnSource.ENTITY_ID, ColumnSource.KG_ID, ColumnSource.KG_NAME):
+            types[col.name] = "VARCHAR"
+        elif col.source is ColumnSource.DATE:
+            types[col.name] = "DATE"
+        elif col.source is ColumnSource.FACTOR:
+            types[col.name] = "DOUBLE"
+        else:
+            kind = kind_of.get(col.ref)
+            if kind is VariableKind.CATEGORICAL:
+                types[col.name] = "VARCHAR"
+            elif kind is VariableKind.COUNT:
+                types[col.name] = "BIGINT"
+            elif kind is VariableKind.BINARY:
+                types[col.name] = "BOOLEAN"
+            else:
+                types[col.name] = "DOUBLE"
+    return types
+
+
+def validate_view_sql(spec: ScenarioSpec) -> list[str]:
+    """Dry-run every view's SQL against empty schema-shaped tables.
+
+    Catches what the static lint cannot — parse errors, unknown columns/tables,
+    type mismatches — *before* any sampling cost, which is what makes
+    LLM-authored views safe to accept. Views are created in declaration order
+    so later views may reference earlier ones. Returns one message per failing
+    view (empty list = all valid).
+    """
+    errors: list[str] = []
+    conn = duckdb.connect(":memory:")
+    try:
+        for table in spec.tables:
+            kind_of = {
+                var.name: var.kind
+                for pop in spec.populations
+                if pop.name == table.population
+                for var in (*pop.attributes, *pop.panel)
+            }
+            columns = ", ".join(
+                f'"{name}" {dtype}' for name, dtype in _empty_column_type(table, kind_of).items()
+            )
+            conn.execute(f'CREATE TABLE "{table.name}" ({columns})')
+        for view in spec.views:
+            body = _view_body(view.sql)
+            try:
+                conn.execute(f"EXPLAIN SELECT * FROM ({body}) __v")
+                conn.execute(f'CREATE VIEW "{view.name}" AS {body}')
+            except duckdb.Error as exc:
+                errors.append(f"view {view.name!r}: {exc}")
+    finally:
+        conn.close()
+    return errors

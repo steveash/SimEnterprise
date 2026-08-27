@@ -461,37 +461,69 @@ def _entity_table_batch(table: TableSpec, entities: _Entities) -> pa.Table:
     return pa.table(dict(zip(names, arrays, strict=True)))
 
 
+def _panel_static_arrays(
+    table: TableSpec, entities: _Entities
+) -> dict[str, pa.Array | pa.ChunkedArray]:
+    """The per-population constant columns of a panel table, built once.
+
+    Entity ids, KG ids/names, and attribute columns are identical on every day,
+    so they are converted (and dictionary-encoded) a single time and reused by
+    every day's batch instead of being rebuilt tens of millions of times over a
+    long window.
+    """
+    pop = entities.population
+    kinds = {var.name: var.kind for var in pop.attributes}
+    static: dict[str, pa.Array | pa.ChunkedArray] = {}
+    for col in table.columns:
+        if col.source is ColumnSource.ENTITY_ID:
+            static[col.name] = pa.array(entities.entity_ids, type=pa.string()).dictionary_encode()
+        elif col.source is ColumnSource.KG_ID:
+            static[col.name] = pa.array(list(entities.kg_ids or ()), type=pa.string())
+        elif col.source is ColumnSource.KG_NAME:
+            static[col.name] = pa.array(list(entities.kg_names or ()), type=pa.string())
+        elif col.source is ColumnSource.ATTRIBUTE:
+            static[col.name] = _column_arrow(
+                entities.columns[col.ref], kinds.get(col.ref), dictionary=True
+            )
+    return static
+
+
 def _panel_day_batch(
     table: TableSpec,
     entities: _Entities,
     day: date,
     env: _Env,
     factor_values: Mapping[str, float],
+    static: Mapping[str, pa.Array | pa.ChunkedArray],
 ) -> pa.Table:
     pop = entities.population
-    kinds = {var.name: var.kind for var in (*pop.attributes, *pop.panel)}
+    kinds = {var.name: var.kind for var in pop.panel}
     n = entities.size
     arrays: list[pa.Array | pa.ChunkedArray] = []
     names: list[str] = []
     for col in table.columns:
         names.append(col.name)
-        if col.source is ColumnSource.ENTITY_ID:
-            arrays.append(pa.array(entities.entity_ids, type=pa.string()).dictionary_encode())
+        if col.name in static:
+            arrays.append(static[col.name])
         elif col.source is ColumnSource.DATE:
             arrays.append(pa.array(np.full(n, day), type=pa.date32()))
-        elif col.source is ColumnSource.KG_ID:
-            arrays.append(pa.array(list(entities.kg_ids or ()), type=pa.string()))
-        elif col.source is ColumnSource.KG_NAME:
-            arrays.append(pa.array(list(entities.kg_names or ()), type=pa.string()))
         elif col.source is ColumnSource.FACTOR:
             arrays.append(pa.array(np.full(n, factor_values[col.ref], dtype=np.float64)))
-        elif col.source is ColumnSource.ATTRIBUTE:
-            arrays.append(
-                _column_arrow(entities.columns[col.ref], kinds.get(col.ref), dictionary=True)
-            )
         else:  # PANEL
             arrays.append(_column_arrow(env[col.ref], kinds.get(col.ref), dictionary=True))
     return pa.table(dict(zip(names, arrays, strict=True)))
+
+
+def _initial_lag(var: Variable, n: int) -> FloatArray | _CatColumn:
+    """The day-0 lag value for a panel variable.
+
+    Numeric/count/binary variables start at ``var.lag_init`` (default 0.0) —
+    e.g. a subscription's ``active`` starts its lag at 1.0 so day 0 sees an
+    active book. Categorical variables start at their first declared level.
+    """
+    if var.kind is VariableKind.CATEGORICAL:
+        return _CatColumn(codes=np.zeros(n, dtype=np.int64), levels=var.levels())
+    return np.full(n, var.lag_init, dtype=np.float64)
 
 
 # -- the top-level sample --------------------------------------------------- #
@@ -564,9 +596,10 @@ def sample_scenario(
                 # A panel-grain table over a population with no panel variables
                 # still gets its id/date/attribute columns, one row per entity-day.
                 writer = _PartitionWriter(out_dir, table, rows_per_partition=rows_per_partition)
+                static = _panel_static_arrays(table, entities)
                 for index, day in enumerate(days):
                     factor_values = {name: series[index] for name, series in factor_series.items()}
-                    writer.append(_panel_day_batch(table, entities, day, {}, factor_values))
+                    writer.append(_panel_day_batch(table, entities, day, {}, factor_values, static))
                 writer.flush()
                 report.rows_by_table[table.name] = writer.rows_written
             continue
@@ -575,11 +608,12 @@ def sample_scenario(
             table.name: _PartitionWriter(out_dir, table, rows_per_partition=rows_per_partition)
             for table in panel_tables
         }
+        statics = {table.name: _panel_static_arrays(table, entities) for table in panel_tables}
         evaluator = _PredictorEvaluator(seed_root=seeds.root, population=pop.name)
         panel_by_name = {var.name: var for var in pop.panel}
         order = panel_order(pop)
         gen = np.random.default_rng(derive_subseed(seeds.root, "panel", pop.name))
-        lags: _Env = {name: np.zeros(entities.size, dtype=np.float64) for name in panel_by_name}
+        lags: _Env = {name: _initial_lag(var, entities.size) for name, var in panel_by_name.items()}
 
         for index, day in enumerate(days):
             factor_values = {name: float(series[index]) for name, series in factor_series.items()}
@@ -595,14 +629,13 @@ def sample_scenario(
                 env[name] = merged[name]
             for table in panel_tables:
                 writers[table.name].append(
-                    _panel_day_batch(table, entities, day, env, factor_values)
+                    _panel_day_batch(table, entities, day, env, factor_values, statics[table.name])
                 )
-            # Next day's lag view: today's realized values as plain numerics.
+            # Next day's lag view: today's realized values. Categorical columns
+            # keep their _CatColumn structure so a lagged categorical parent's
+            # level_effects still apply (never raw integer codes).
             for name in panel_by_name:
-                value = env[name]
-                lags[name] = (
-                    value.codes.astype(np.float64) if isinstance(value, _CatColumn) else value
-                )
+                lags[name] = env[name]
 
         for table in panel_tables:
             writers[table.name].flush()

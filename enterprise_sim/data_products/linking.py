@@ -84,6 +84,23 @@ def _display_name(node: Node) -> str:
     return str(name) if name else node.id
 
 
+def _unique_names(nodes: list[Node]) -> list[str]:
+    """Display names, disambiguated so two same-named nodes never collapse.
+
+    Lineage maps a level/name back to exactly one KG node id, so duplicate
+    display names (nothing prevents two Teams both called "Platform") get a
+    node-id suffix appended to stay distinct.
+    """
+    seen: dict[str, int] = {}
+    names: list[str] = []
+    for node in nodes:
+        name = _display_name(node)
+        count = seen.get(name, 0)
+        seen[name] = count + 1
+        names.append(name if count == 0 else f"{name} [{node.id}]")
+    return names
+
+
 @dataclass(frozen=True, slots=True)
 class IdentityBinding:
     """A population bound 1:1 to KG nodes: parallel ids and display names."""
@@ -105,7 +122,7 @@ def bind_identity(identity: KgIdentity, world: World) -> IdentityBinding:
         )
     return IdentityBinding(
         kg_ids=tuple(node.id for node in nodes),
-        kg_names=tuple(_display_name(node) for node in nodes),
+        kg_names=tuple(_unique_names(nodes)),
     )
 
 
@@ -146,10 +163,10 @@ def assign_dimension(
         weights = [1.0 / (rank + 1) for rank in range(len(ranked))]
     else:
         weights = [1.0] * len(ranked)
-    names = [_display_name(node) for node in ranked]
+    names = _unique_names(ranked)
     values = rng.choices(names, weights=weights, k=size)
     return DimensionBinding(
         attribute=dim.attribute,
         values=tuple(values),
-        level_to_id={_display_name(node): node.id for node in ranked},
+        level_to_id={name: node.id for name, node in zip(names, ranked, strict=True)},
     )

@@ -227,3 +227,18 @@ class TestDeltas:
             ),
         )
         assert "view-collision" in codes_of(lint_spec(patched))
+
+    def test_delta_unknown_population_raises(self) -> None:
+        spec = tiny_spec()
+        delta = SpecDelta(
+            kind="add_attribute",
+            population="users",  # typo: the population is 'user'
+            variable=variable("x", VariableKind.NUMERIC, dist=normal(0.0, 1.0)),
+        )
+        with pytest.raises(KeyError, match="unknown population"):
+            apply_deltas(spec, (delta,))
+
+    def test_delta_unknown_table_raises(self) -> None:
+        spec = tiny_spec()
+        with pytest.raises(KeyError, match="unknown table"):
+            apply_deltas(spec, (gap_add_col("dim_userz", attr_col("segment")),))

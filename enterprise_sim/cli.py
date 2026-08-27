@@ -1658,9 +1658,11 @@ def _cmd_data_run(args: argparse.Namespace) -> int:
             "extra: uv sync --extra data (or pip install 'enterprise-sim[data]')"
         )
         return 2
+    from enterprise_sim.core.registry import RegistryError
     from enterprise_sim.data_products.config import DataConfigError
     from enterprise_sim.data_products.linking import LinkageError
     from enterprise_sim.data_products.lint import SpecLintError
+    from enterprise_sim.data_products.views import MaterializeError
 
     try:
         config = load_data_config(args.config)
@@ -1684,7 +1686,7 @@ def _cmd_data_run(args: argparse.Namespace) -> int:
 
     try:
         result = execute_data_run(config)
-    except (SpecLintError, LinkageError) as exc:
+    except (SpecLintError, LinkageError, RegistryError, MaterializeError) as exc:
         print(f"enterprise-sim data run: {exc}")
         return 1
 

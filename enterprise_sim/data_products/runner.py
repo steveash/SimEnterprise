@@ -48,7 +48,11 @@ from enterprise_sim.data_products.questions import QuestionState
 from enterprise_sim.data_products.sampler import sample_scenario
 from enterprise_sim.data_products.scenarios import DATA_SCENARIOS, discover_scenarios
 from enterprise_sim.data_products.spec import GapFix, ScenarioSpec, apply_deltas
-from enterprise_sim.data_products.views import materialize_views
+from enterprise_sim.data_products.views import (
+    MaterializeError,
+    materialize_views,
+    validate_view_sql,
+)
 from enterprise_sim.world_builders import build_world
 
 __all__ = ["DataRunResult", "ScenarioRunResult", "execute_data_run"]
@@ -180,7 +184,13 @@ def _run_scenario(
             rows_per_partition=config.scale.rows_per_partition,
         )
         view_results = materialize_views(spec, data_dir)
-        questions_mod.evaluate_questions(spec, data_dir, states, iteration=iteration)
+        # Evaluate EVERY question each iteration: the data is wiped and
+        # resampled per pass (and a patched spec shifts the panel RNG stream),
+        # so a previously-passing answer must be re-proven against the data
+        # actually shipped.
+        questions_mod.evaluate_questions(
+            spec, data_dir, states, iteration=iteration, only_unanswered=False
+        )
 
         unanswered = [state for state in states if not state.answerable]
         iteration_stats.append(
@@ -212,18 +222,36 @@ def _run_scenario(
                 question_reports.append(gap_report.to_dict())
                 llm_fixes.update(proposed)
 
-        deltas = list(questions_mod.collect_gap_deltas(states))
+        # Template gap fixes are pre-tested with their scenarios: a failure
+        # there is a real bug worth stopping on. LLM-proposed fixes are applied
+        # one at a time so a single bad proposal (typo'd target, invalid view
+        # SQL) is dropped instead of abandoning the whole patch round.
+        template_deltas = questions_mod.collect_gap_deltas(states)
+        patched = spec
+        try:
+            if template_deltas:
+                patched = apply_deltas(patched, template_deltas)
+            require_clean(patched, scale=config.scale.factor)
+            _require_valid_views(patched)
+        except Exception as exc:
+            iteration_stats[-1]["patch_error"] = str(exc)[:2000]
+            break
         for state in unanswered:
             fix = llm_fixes.get(state.question.id)
-            if fix is not None:
-                deltas.extend(fix.deltas)
-        if not deltas:
-            break
-        try:
-            patched = apply_deltas(spec, tuple(deltas))
-            require_clean(patched, scale=config.scale.factor)
-        except Exception as exc:  # lint or validation failure: keep the old spec
-            iteration_stats[-1]["patch_error"] = str(exc)[:2000]
+            if fix is None:
+                continue
+            try:
+                candidate = apply_deltas(patched, fix.deltas)
+                require_clean(candidate, scale=config.scale.factor)
+                _require_valid_views(candidate)
+            except Exception as exc:
+                iteration_stats[-1].setdefault("dropped_fixes", {})[state.question.id] = str(exc)[
+                    :500
+                ]
+                continue
+            patched = candidate
+        if patched == spec:
+            # No fix changed anything — resampling identical data is pointless.
             break
         spec = patched
         states = _carry_states(states, spec)
@@ -257,7 +285,9 @@ def _run_scenario(
         },
         "config": config.model_dump(mode="json"),
         "authoring": question_reports,
-        "projected_rows": projected_rows(spec, scale=config.scale.factor),
+        "projected_rows": projected_rows(
+            spec, scale=config.scale.factor, sizes=report.population_sizes
+        ),
         "population_sizes": report.population_sizes,
         "iterations": iteration_stats,
         "questions": {"total": len(states), "answerable": answerable},
@@ -286,9 +316,21 @@ def _carry_states(states: list[QuestionState], spec: ScenarioSpec) -> list[Quest
     return carried
 
 
+def _require_valid_views(spec: ScenarioSpec) -> None:
+    """Raise if any view's SQL fails to plan against the spec's schema."""
+    errors = validate_view_sql(spec)
+    if errors:
+        raise MaterializeError("; ".join(errors))
+
+
 def execute_data_run(config: DataRunConfig) -> DataRunResult:
     """Run every configured scenario; returns per-scenario results."""
-    discover_scenarios()
+    registry = discover_scenarios()
+    unknown = [name for name in config.scenarios if name not in set(registry.names())]
+    if unknown:
+        # Fail before any world-build or sampling cost, with the registry's
+        # clean known-names message.
+        registry.get(unknown[0])
     world = _resolve_world(config)
     client = _build_llm_client(config)
     results = tuple(_run_scenario(name, config, world, client) for name in config.scenarios)

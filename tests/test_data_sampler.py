@@ -269,3 +269,120 @@ class TestKgLinking:
     def test_load_world_requires_kg_export(self, tmp_path: Path) -> None:
         with pytest.raises(LinkageError, match="no exported KG"):
             load_world_from_run(tmp_path)
+
+
+class TestLagSemantics:
+    def test_lagged_categorical_parent_keeps_level_effects(
+        self, tmp_path: Path, world: World
+    ) -> None:
+        """A lagged categorical parent must apply level effects, not raw codes."""
+        spec = ScenarioSpec(
+            name="catlag",
+            title="Categorical lag",
+            start=START,
+            end=START + timedelta(days=9),
+            populations=(
+                PopulationSpec(
+                    name="u",
+                    size=300,
+                    attributes=(),
+                    panel=(
+                        variable(
+                            "mode",
+                            VariableKind.CATEGORICAL,
+                            dist=categorical({"calm": 1.0, "storm": 1.0}),
+                        ),
+                        variable(
+                            "load",
+                            VariableKind.NUMERIC,
+                            eq=eqn(
+                                0.0,
+                                (
+                                    term(
+                                        "mode",
+                                        lagged=True,
+                                        levels={"calm": -5.0, "storm": 5.0},
+                                    ),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+            tables=(
+                table(
+                    "fact",
+                    "u",
+                    TableGrain.ENTITY_DAY,
+                    (entity_col(), date_col(), panel_col("mode"), panel_col("load")),
+                ),
+            ),
+        )
+        require_clean(spec)
+        sample_scenario(spec, tmp_path, seeds=SeedContext(5).child("cl"), world=world)
+        conn = duckdb.connect(":memory:")
+        try:
+            conn.execute(
+                "CREATE VIEW fact AS SELECT * FROM read_parquet('"
+                + (tmp_path / "tables" / "fact" / "*.parquet").as_posix()
+                + "')"
+            )
+            # load(t) must equal ±5 exactly, driven by yesterday's mode — with
+            # raw integer codes it would be 0/1 valued instead.
+            rows = conn.execute(
+                """
+                SELECT b.mode, avg(a.load), min(a.load), max(a.load)
+                FROM fact a JOIN fact b
+                  ON b.entity_id = a.entity_id AND b.date = a.date - 1
+                GROUP BY b.mode
+                """
+            ).fetchall()
+        finally:
+            conn.close()
+        effects = {str(mode): (float(lo), float(hi)) for mode, _avg, lo, hi in rows}
+        assert effects["storm"] == (5.0, 5.0)
+        assert effects["calm"] == (-5.0, -5.0)
+
+    def test_lag_init_seeds_day_zero(self, tmp_path: Path, world: World) -> None:
+        spec = ScenarioSpec(
+            name="laginit",
+            title="Lag init",
+            start=START,
+            end=START,
+            populations=(
+                PopulationSpec(
+                    name="u",
+                    size=500,
+                    panel=(
+                        variable(
+                            "on",
+                            VariableKind.BINARY,
+                            eq=logit(-6.0, (term("on", 12.0, lagged=True),)),
+                            lag_init=1.0,
+                        ),
+                    ),
+                ),
+            ),
+            tables=(
+                table(
+                    "fact",
+                    "u",
+                    TableGrain.ENTITY_DAY,
+                    (entity_col(), date_col(), panel_col("on")),
+                ),
+            ),
+        )
+        require_clean(spec)
+        sample_scenario(spec, tmp_path, seeds=SeedContext(6).child("li"), world=world)
+        conn = duckdb.connect(":memory:")
+        try:
+            row = conn.execute(
+                'SELECT avg(CASE WHEN "on" THEN 1.0 ELSE 0.0 END) FROM read_parquet(\''
+                + (tmp_path / "tables" / "fact" / "*.parquet").as_posix()
+                + "')"
+            ).fetchone()
+        finally:
+            conn.close()
+        assert row is not None
+        # sigmoid(-6 + 12) ≈ 0.9975: day 0 sees the initialized lag, not 0.
+        assert float(row[0]) > 0.98

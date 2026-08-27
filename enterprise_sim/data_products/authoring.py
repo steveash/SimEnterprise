@@ -40,6 +40,7 @@ from enterprise_sim.data_products.spec import (
     QuestionSpec,
     ScenarioSpec,
 )
+from enterprise_sim.data_products.views import validate_view_sql
 
 __all__ = [
     "AuthoringReport",
@@ -169,7 +170,10 @@ def author_spec(
             result = client.generate_structured(prompt, schema)
             spec = ScenarioSpec.model_validate(result.data)
             require_clean(spec, scale=scale)
-        except (ValidationError, SpecLintError, LLMError) as exc:
+            sql_errors = validate_view_sql(spec)
+            if sql_errors:
+                raise SpecAuthoringError("; ".join(sql_errors))
+        except (ValidationError, SpecLintError, SpecAuthoringError, LLMError) as exc:
             errors = [str(exc)[:2000]]
             report.errors.append(errors[0])
             continue
@@ -184,6 +188,10 @@ def author_spec(
 
     report.fell_back = True
     return template, report
+
+
+class SpecAuthoringError(Exception):
+    """An authored spec failed a dynamic check (e.g. view SQL does not plan)."""
 
 
 class _QuestionBatch(BaseModel):
@@ -236,8 +244,14 @@ def generate_questions(
             report.errors.append(errors[0])
             continue
         taken = set(existing_ids)
-        fresh = tuple(q for q in batch.questions if q.id not in taken)
-        return fresh, report
+        fresh: list[QuestionSpec] = []
+        for question in batch.questions:
+            # Skip collisions with existing ids AND within this batch — a
+            # duplicate id would poison the spec's lint at the next gap patch.
+            if question.id not in taken:
+                taken.add(question.id)
+                fresh.append(question)
+        return tuple(fresh), report
 
     report.fell_back = True
     return (), report

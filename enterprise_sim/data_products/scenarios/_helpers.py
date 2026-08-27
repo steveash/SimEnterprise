@@ -170,6 +170,7 @@ def variable(
     eq: NumericEquation | None = None,
     utilities: dict[str, LinearPredictor] | None = None,
     description: str = "",
+    lag_init: float = 0.0,
 ) -> Variable:
     return Variable(
         name=name,
@@ -180,6 +181,7 @@ def variable(
         categorical_equation=(
             CategoricalEquation(utilities=utilities) if utilities is not None else None
         ),
+        lag_init=lag_init,
     )
 
 

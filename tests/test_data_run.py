@@ -160,7 +160,57 @@ class TestAuthoring:
         assert "Person" in world_context(world)
 
 
+class TestChurnStory:
+    def test_subscription_churn_accumulates(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """The near-absorbing hazard must actually accumulate churn over time."""
+        import duckdb
+
+        config = run_config(tmp_path, ("subscription_finance",))
+        config = config.model_copy(
+            update={"loop": config.loop.model_copy(update={"iterations": 1})}
+        )
+        result = execute_data_run(config)
+        data_dir = result.scenarios[0].run_dir / "data"
+        conn = duckdb.connect(":memory:")
+        try:
+            row = conn.execute(
+                "SELECT avg(CASE WHEN active THEN 1.0 ELSE 0.0 END) "
+                "FILTER (WHERE date < DATE '2026-01-08'), "
+                "avg(CASE WHEN active THEN 1.0 ELSE 0.0 END) "
+                "FILTER (WHERE date > DATE '2026-01-22') "
+                "FROM read_parquet('"
+                + (data_dir / "tables" / "fact_account_day" / "*.parquet").as_posix()
+                + "')"
+            ).fetchone()
+        finally:
+            conn.close()
+        assert row is not None
+        early, late = float(row[0]), float(row[1])
+        assert early > 0.95, "the book must start active (lag_init)"
+        assert late < early, "churn must accumulate (near-absorbing hazard)"
+
+
 class TestViews:
+    def test_validate_view_sql_catches_bad_views(self, growth_run: DataRunResult) -> None:
+        from enterprise_sim.data_products.views import validate_view_sql
+
+        spec = growth_run.scenarios[0].spec
+        assert validate_view_sql(spec) == []
+        broken = spec.model_copy(
+            update={
+                "views": (
+                    *spec.views,
+                    spec.views[0].model_copy(
+                        update={"name": "broken", "sql": "SELECT nope FROM fact_user_day;"}
+                    ),
+                )
+            }
+        )
+        errors = validate_view_sql(broken)
+        assert len(errors) == 1 and "broken" in errors[0]
+
     def test_bad_view_sql_raises(self, growth_run: DataRunResult) -> None:
         scenario = growth_run.scenarios[0]
         spec = scenario.spec.model_copy(
