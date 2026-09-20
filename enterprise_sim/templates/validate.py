@@ -214,28 +214,26 @@ def _dry_run_step(templates_dir: Path, provides: dict[str, list[str]]) -> dict[s
     from datetime import date
 
     from enterprise_sim.assembly import estimate_run
-    from enterprise_sim.core.config import CompanyConfig, CompanySize, RunConfig, SimulationConfig
+    from enterprise_sim.core.config import (
+        CompanyConfig,
+        CompanySize,
+        DepartmentConfig,
+        RunConfig,
+        SimulationConfig,
+    )
 
-    # NOTE: `RunConfig.departments` (the [[departments]] archetype = <name>
-    # field EXPLORER_TEMPLATES.md §2.2 step 6 describes) is being added by a
-    # sibling agent and is not yet available here. Until it lands there is no
-    # way to *force* Layer A to pick this template's specific archetype, so
-    # this dry run proves the weaker (but still real) claim the doc allows as
-    # an interim: with the template directory wired onto `plugins` — the same
-    # mechanism `build_world`/`build_corpus` use in production — Layer A/B
-    # accept a config that has this archetype registered and render a normal
-    # estimate without crashing. `hasattr` guards a future retrofit once
-    # `departments` exists.
+    # Force Layer A to pick this template's archetype as the (only) department
+    # via `RunConfig.departments` (docs/EXPLORER_RUNS.md §3.6), with the
+    # templates dir on `plugins` so it is discovered exactly as in production.
+    primary = provides["archetypes"][0]
     config = RunConfig(
         company=CompanyConfig(
             name="Template Dry Run", vertical="template-dry-run", size=CompanySize.STARTUP
         ),
         simulation=SimulationConfig(period_start=date(2026, 1, 5), period_end=date(2026, 1, 9)),
+        departments=(DepartmentConfig(archetype=primary),),
         plugins=(str(templates_dir),),
     )
-    if hasattr(config, "departments"):
-        primary = provides["archetypes"][0]
-        config = config.model_copy(update={"departments": ({"archetype": primary},)})
 
     try:
         estimate = estimate_run(config)
@@ -248,12 +246,7 @@ def _dry_run_step(templates_dir: Path, provides: dict[str, list[str]]) -> dict[s
             "artifacts": estimate.num_artifacts,
             "estimated_cost_usd": estimate.estimated_cost_usd,
             "model": estimate.model,
-            "note": (
-                "generic dry run (RunConfig.departments not yet available; "
-                "does not force-select this specific archetype)"
-                if not hasattr(config, "departments")
-                else "selected this template's archetype via RunConfig.departments"
-            ),
+            "note": "selected this template's archetype via RunConfig.departments",
         },
     }
 

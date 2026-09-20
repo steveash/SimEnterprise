@@ -255,6 +255,15 @@ class _JobProgressSink:
         with self._lock:
             self._apply(event)
             write_state(self._job_dir, self._state)
+            if event.kind == "artifact":
+                # The pipeline only knows this segment's spend; add the closed
+                # segments' so a consumer never has to sum across files (§3.4).
+                prior = sum(s.cost_usd for s in self._state.segments)
+                event = ProgressEvent(
+                    kind=event.kind,
+                    ts=event.ts,
+                    data={**event.data, "cost_usd_total": prior + self._state.cost_usd_segment},
+                )
         self._inner.emit(event)
 
     def _apply(self, event: ProgressEvent) -> None:
