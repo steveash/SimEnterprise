@@ -41,7 +41,22 @@ growing the dispatcher switch. The shared design lives in
 
 ### Runs
 
-<!-- RUNS-SECTION -->
+The **Runs** view ([`docs/EXPLORER_RUNS.md`](../../docs/EXPLORER_RUNS.md))
+launches and drives `enterprise-sim` jobs from the UI instead of the CLI: fill in
+a company / window / departments / scenario-instances / model form, hit
+**Estimate** to see the D13 dry-run cost, then **Start**. A job runs as a
+supervised child process (`src/sidecar/jobs/manager.ts`); its `state.json` /
+`progress.jsonl` on disk (under `runs/.jobs/<job-id>/`) are the source of truth,
+so the UI survives an app restart mid-run. Live progress (phase, done / total with
+a cached / new split, elapsed, ETA, cost so far / projected total) comes from a
+pure event-stream reducer (`src/renderer/jobs/projection.ts`, EWMA-smoothed,
+unit-tested) fed by `watchJob`'s replay-then-live stream. **Pause** is cooperative
+(finishes the in-flight artifact); **Resume** re-runs the same config and every
+already-rendered artifact comes back as a free cache hit. **Extend run** derives a
+child run from a finished one (more time and/or more scenario instances) with its
+own `lineage.json`. A `CostCeilingExceeded` failure shows a *Raise ceiling &
+resume* action that patches the job's config and restarts it. Departments and
+playbooks in the form include valid templates from the Templates view.
 
 ### Templates
 

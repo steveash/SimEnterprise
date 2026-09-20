@@ -16,7 +16,7 @@ build/
 dist/
 
 # Generated run output (corpus + gold KG); regenerate with `enterprise-sim run`.
-runs/
+/runs/
 
 CLAUDE.md
 CLAUDE.local.md
