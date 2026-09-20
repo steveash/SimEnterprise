@@ -1851,6 +1851,12 @@ def build_parser() -> argparse.ArgumentParser:
     _add_reconstruct_parser(subparsers)
     _add_data_parser(subparsers)
 
+    from enterprise_sim.evals.cli import add_evals_parser
+    from enterprise_sim.templates.cli import add_templates_parser
+
+    add_templates_parser(subparsers)
+    add_evals_parser(subparsers)
+
     return parser
 
 

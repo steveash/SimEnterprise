@@ -1,0 +1,263 @@
+{
+  "cases": [
+    {
+      "expected_ids": [
+        "a",
+        "c"
+      ],
+      "fraction": 0.5,
+      "ids": [
+        "c",
+        "a",
+        "b"
+      ],
+      "name": "small_half",
+      "reasoning_types": null,
+      "seed": 1,
+      "stratify": false
+    },
+    {
+      "expected_ids": [
+        "x",
+        "y",
+        "z"
+      ],
+      "fraction": 1.0,
+      "ids": [
+        "z",
+        "y",
+        "x"
+      ],
+      "name": "all_fraction_ge_1",
+      "reasoning_types": null,
+      "seed": 7,
+      "stratify": false
+    },
+    {
+      "expected_ids": [],
+      "fraction": 0.0,
+      "ids": [
+        "a",
+        "b"
+      ],
+      "name": "zero_fraction",
+      "reasoning_types": null,
+      "seed": 5,
+      "stratify": false
+    },
+    {
+      "expected_ids": [
+        "id0",
+        "id7"
+      ],
+      "fraction": 0.2,
+      "ids": [
+        "id0",
+        "id1",
+        "id2",
+        "id3",
+        "id4",
+        "id5",
+        "id6",
+        "id7",
+        "id8",
+        "id9"
+      ],
+      "name": "ten_items_20pct_seed42",
+      "reasoning_types": null,
+      "seed": 42,
+      "stratify": false
+    },
+    {
+      "expected_ids": [
+        "q-00",
+        "q-05",
+        "q-06"
+      ],
+      "fraction": 0.3,
+      "ids": [
+        "q-00",
+        "q-01",
+        "q-02",
+        "q-03",
+        "q-04",
+        "q-05",
+        "q-06",
+        "q-07",
+        "q-08",
+        "q-09"
+      ],
+      "name": "ten_items_20pct_seed42_dup_seed_diff_ids",
+      "reasoning_types": null,
+      "seed": 123,
+      "stratify": false
+    },
+    {
+      "expected_ids": [
+        "only"
+      ],
+      "fraction": 0.5,
+      "ids": [
+        "only"
+      ],
+      "name": "single_item",
+      "reasoning_types": null,
+      "seed": 9,
+      "stratify": false
+    },
+    {
+      "expected_ids": [],
+      "fraction": 0.5,
+      "ids": [],
+      "name": "empty",
+      "reasoning_types": null,
+      "seed": 1,
+      "stratify": false
+    },
+    {
+      "expected_ids": [
+        "a2",
+        "a4",
+        "b1",
+        "b2",
+        "c1",
+        "d1",
+        "e1"
+      ],
+      "fraction": 0.5,
+      "ids": [
+        "a1",
+        "a2",
+        "a3",
+        "a4",
+        "b1",
+        "b2",
+        "b3",
+        "c1",
+        "c2",
+        "d1",
+        "e1",
+        "e2"
+      ],
+      "name": "mixed_types_50pct_seed3",
+      "reasoning_types": {
+        "a1": "direct_relation",
+        "a2": "direct_relation",
+        "a3": "direct_relation",
+        "a4": "direct_relation",
+        "b1": "transitive",
+        "b2": "transitive",
+        "b3": "transitive",
+        "c1": "provenance",
+        "c2": "provenance",
+        "d1": "aggregation",
+        "e1": "goal_tree",
+        "e2": "goal_tree"
+      },
+      "seed": 3,
+      "stratify": true
+    },
+    {
+      "expected_ids": [
+        "a1",
+        "a4",
+        "b2",
+        "b3",
+        "c2",
+        "d1",
+        "e2"
+      ],
+      "fraction": 0.34,
+      "ids": [
+        "a1",
+        "a2",
+        "a3",
+        "a4",
+        "b1",
+        "b2",
+        "b3",
+        "c1",
+        "c2",
+        "d1",
+        "e1",
+        "e2"
+      ],
+      "name": "mixed_types_34pct_seed99",
+      "reasoning_types": {
+        "a1": "direct_relation",
+        "a2": "direct_relation",
+        "a3": "direct_relation",
+        "a4": "direct_relation",
+        "b1": "transitive",
+        "b2": "transitive",
+        "b3": "transitive",
+        "c1": "provenance",
+        "c2": "provenance",
+        "d1": "aggregation",
+        "e1": "goal_tree",
+        "e2": "goal_tree"
+      },
+      "seed": 99,
+      "stratify": true
+    },
+    {
+      "expected_ids": [
+        "q18",
+        "q19",
+        "q2",
+        "q3",
+        "q6",
+        "q7"
+      ],
+      "fraction": 0.25,
+      "ids": [
+        "q0",
+        "q1",
+        "q2",
+        "q3",
+        "q4",
+        "q5",
+        "q6",
+        "q7",
+        "q8",
+        "q9",
+        "q10",
+        "q11",
+        "q12",
+        "q13",
+        "q14",
+        "q15",
+        "q16",
+        "q17",
+        "q18",
+        "q19"
+      ],
+      "name": "twenty_two_types_25pct_seed7",
+      "reasoning_types": {
+        "q0": "direct_relation",
+        "q1": "transitive",
+        "q10": "direct_relation",
+        "q11": "transitive",
+        "q12": "direct_relation",
+        "q13": "transitive",
+        "q14": "direct_relation",
+        "q15": "transitive",
+        "q16": "direct_relation",
+        "q17": "transitive",
+        "q18": "direct_relation",
+        "q19": "transitive",
+        "q2": "direct_relation",
+        "q3": "transitive",
+        "q4": "direct_relation",
+        "q5": "transitive",
+        "q6": "direct_relation",
+        "q7": "transitive",
+        "q8": "direct_relation",
+        "q9": "transitive"
+      },
+      "seed": 7,
+      "stratify": true
+    }
+  ],
+  "description": "Parity fixture for enterprise_sim.evals.sample: (ids, fraction, seed, stratify[, reasoning_types]) -> expected_ids. A TypeScript port of the Mulberry32 PRNG + seeded Fisher-Yates sampling (see enterprise_sim/evals/sample.py docstring for the exact algorithm) must reproduce expected_ids exactly for every case."
+}

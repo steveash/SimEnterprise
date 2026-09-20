@@ -1,0 +1,160 @@
+{
+  "cases": [
+    {
+      "exact_match": true,
+      "expected_ids": [
+        "a"
+      ],
+      "f1": 1.0,
+      "name": "exact_match_single",
+      "precision": 1.0,
+      "predicted_ids": [
+        "a"
+      ],
+      "recall": 1.0
+    },
+    {
+      "exact_match": true,
+      "expected_ids": [
+        "a",
+        "b",
+        "c"
+      ],
+      "f1": 1.0,
+      "name": "exact_match_set",
+      "precision": 1.0,
+      "predicted_ids": [
+        "c",
+        "b",
+        "a"
+      ],
+      "recall": 1.0
+    },
+    {
+      "exact_match": false,
+      "expected_ids": [
+        "a",
+        "b"
+      ],
+      "f1": 0.0,
+      "name": "no_overlap",
+      "precision": 0.0,
+      "predicted_ids": [
+        "c",
+        "d"
+      ],
+      "recall": 0.0
+    },
+    {
+      "exact_match": false,
+      "expected_ids": [
+        "a",
+        "b",
+        "c"
+      ],
+      "f1": 0.6666666666666666,
+      "name": "partial_overlap",
+      "precision": 0.6666666666666666,
+      "predicted_ids": [
+        "b",
+        "c",
+        "d"
+      ],
+      "recall": 0.6666666666666666
+    },
+    {
+      "exact_match": false,
+      "expected_ids": [
+        "a",
+        "b"
+      ],
+      "f1": 0.0,
+      "name": "empty_predicted_nonempty_expected",
+      "precision": 0.0,
+      "predicted_ids": [],
+      "recall": 0.0
+    },
+    {
+      "exact_match": false,
+      "expected_ids": [],
+      "f1": 0.0,
+      "name": "nonempty_predicted_empty_expected",
+      "precision": 0.0,
+      "predicted_ids": [
+        "a"
+      ],
+      "recall": 0.0
+    },
+    {
+      "exact_match": true,
+      "expected_ids": [],
+      "f1": 1.0,
+      "name": "both_empty",
+      "precision": 1.0,
+      "predicted_ids": [],
+      "recall": 1.0
+    },
+    {
+      "exact_match": false,
+      "expected_ids": [
+        "a"
+      ],
+      "f1": 0.5,
+      "name": "predicted_superset",
+      "precision": 0.3333333333333333,
+      "predicted_ids": [
+        "a",
+        "b",
+        "c"
+      ],
+      "recall": 1.0
+    },
+    {
+      "exact_match": false,
+      "expected_ids": [
+        "a",
+        "b",
+        "c"
+      ],
+      "f1": 0.5,
+      "name": "predicted_subset",
+      "precision": 1.0,
+      "predicted_ids": [
+        "a"
+      ],
+      "recall": 0.3333333333333333
+    },
+    {
+      "exact_match": false,
+      "expected_ids": [
+        "a",
+        "b"
+      ],
+      "f1": 0.5,
+      "name": "single_extra_and_single_missing",
+      "precision": 0.5,
+      "predicted_ids": [
+        "a",
+        "c"
+      ],
+      "recall": 0.5
+    },
+    {
+      "exact_match": true,
+      "expected_ids": [
+        "a",
+        "b"
+      ],
+      "f1": 1.0,
+      "name": "duplicates_in_predicted_ignored",
+      "precision": 1.0,
+      "predicted_ids": [
+        "a",
+        "a",
+        "b"
+      ],
+      "recall": 1.0
+    }
+  ],
+  "description": "Parity fixture for enterprise_sim.benchmark.score.score_item: (expected_ids, predicted_ids) -> (precision, recall, f1, exact_match). Pure set math (frozenset intersection); a TypeScript port must reproduce these exactly."
+}

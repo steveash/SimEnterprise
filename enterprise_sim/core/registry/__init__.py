@@ -13,10 +13,13 @@ from enterprise_sim.core.registry.discovery import (
     ARCHETYPES,
     DEFAULT_PLUGIN_PACKAGES,
     PLAYBOOKS,
+    PLUGIN_PATH_ENV_VAR,
     PROCESSES,
     PRODUCERS,
     discover,
     discover_all,
+    discover_paths,
+    plugin_paths,
 )
 from enterprise_sim.core.registry.plugins import (
     DepartmentArchetype,
@@ -39,6 +42,7 @@ __all__ = [
     "PROCESSES",
     "PRODUCERS",
     "DEFAULT_PLUGIN_PACKAGES",
+    "PLUGIN_PATH_ENV_VAR",
     # registry machinery
     "Registry",
     "NamedPlugin",
@@ -48,6 +52,8 @@ __all__ = [
     # discovery
     "discover",
     "discover_all",
+    "discover_paths",
+    "plugin_paths",
     # plugin protocols
     "DepartmentArchetype",
     "Playbook",

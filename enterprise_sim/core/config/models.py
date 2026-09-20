@@ -174,3 +174,14 @@ class RunConfig(_Frozen):
     )
     model: ModelConfig = Field(default_factory=ModelConfig)
     scale: ScaleConfig = Field(default_factory=ScaleConfig)
+    plugins: tuple[str, ...] = Field(
+        default=(),
+        description=(
+            "Extra external plugin directories to discover (EXPLORER_TEMPLATES.md "
+            "§2.1), each holding <slug>/plugin.py (and/or bare <name>.py) modules "
+            "registering archetypes/playbooks/processes. Operational, like `scale`: "
+            "excluded from the config digest so pointing a run at a template dir "
+            "never changes its run id. Merged with the "
+            "ENTERPRISE_SIM_PLUGIN_PATH env var by core.registry.plugin_paths()."
+        ),
+    )

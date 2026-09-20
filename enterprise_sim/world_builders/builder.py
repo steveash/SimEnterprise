@@ -36,7 +36,7 @@ from enterprise_sim.archetypes._base import DepartmentArchetypeSpec, TeamShape
 from enterprise_sim.core.config import RunConfig
 from enterprise_sim.core.config.models import CompanySize, ProjectConfig
 from enterprise_sim.core.config.seed import SeedContext
-from enterprise_sim.core.registry import ARCHETYPES, discover
+from enterprise_sim.core.registry import ARCHETYPES, discover, discover_paths, plugin_paths
 from enterprise_sim.core.world import Edge, Node, World
 from enterprise_sim.world_builders.names import (
     FIRST_NAMES,
@@ -229,6 +229,7 @@ class _WorldBuilder:
         capped by how many archetypes are registered.
         """
         discover("enterprise_sim.archetypes")  # idempotent; fires registrations.
+        discover_paths(plugin_paths(self._config.plugins))  # external templates.
         registered = {spec.name: spec for spec in ARCHETYPES}
         if not registered:
             raise RuntimeError("no department archetypes registered; cannot build a world")
