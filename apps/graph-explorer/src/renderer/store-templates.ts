@@ -104,7 +104,9 @@ export const useTemplatesStore = create<TemplatesState>((set, get) => ({
       const entries = await rpc().call<TemplateListEntry[]>('templatesList')
       const validationBySlug = { ...get().validationBySlug }
       for (const e of entries) {
-        if (e.loadable && !(e.slug in validationBySlug)) {
+        // Seed the card from the persisted status; an unvalidated template stays
+        // `null` so the card says "not validated yet" rather than "invalid".
+        if (e.loadable && !(e.slug in validationBySlug) && e.validation.status !== 'unvalidated') {
           validationBySlug[e.slug] = {
             slug: e.slug,
             ok: e.validation.status === 'valid',

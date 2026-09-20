@@ -24,3 +24,7 @@ GEMINI.md
 
 # Gas Town local beads redirect (environment-specific)
 .beads/
+
+# User-authored explorer templates (docs/EXPLORER_TEMPLATES.md). Local by default;
+# commit one deliberately with `git add -f templates/<slug>`.
+templates/
