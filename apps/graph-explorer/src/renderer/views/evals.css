@@ -1,0 +1,65 @@
+/* The Evals view (docs/EXPLORER_EVALS.md §5). Reuses styles.css's tokens
+   (--bg/--bg2/--bg3/--line/--text/--muted/--accent/--accent2/--warn/--err/--radius)
+   and vocabulary (.btn, .panel-section, .tabs, .chat, .trace, .final-query, …)
+   so the view reads as part of the same app, without touching styles.css. */
+
+.view-evals { flex-direction: column; }
+.evals { display: flex; flex-direction: column; min-height: 0; }
+.evals-tabs { padding: 8px 12px 0; background: var(--bg2); border-bottom: 1px solid var(--line); }
+.evals-tab-body { flex: 1; min-height: 0; display: flex; }
+
+/* Questions tab: browser | center (run controls) | detail */
+.evals-questions { flex: 1; display: flex; min-height: 0; width: 100%; }
+.evals-browser {
+  width: 320px; flex: none; background: var(--bg2); border-right: 1px solid var(--line);
+  display: flex; flex-direction: column; min-height: 0;
+}
+.evals-question-list { flex: 1; overflow-y: auto; }
+.evals-center { flex: 1; min-width: 0; overflow-y: auto; }
+.evals-detail { width: 380px; flex: none; overflow-y: auto; border-left: 1px solid var(--line); }
+
+.evals-check-all { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+
+.evals-group-head {
+  display: flex; justify-content: space-between; align-items: baseline;
+  padding: 6px 10px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); font-size: 10px;
+}
+.evals-row {
+  display: flex; align-items: flex-start; gap: 8px; padding: 6px 10px;
+  border-bottom: 1px solid var(--line); cursor: pointer;
+}
+.evals-row:hover { background: var(--bg3); }
+.evals-row.active { background: var(--bg3); box-shadow: inset 2px 0 0 var(--accent); }
+.evals-row-body { flex: 1; min-width: 0; }
+.evals-row-text { font-size: 12px; margin-bottom: 4px; }
+.evals-row-badges { display: flex; flex-wrap: wrap; gap: 4px; }
+
+.evals-id-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
+.evals-hit { border-color: #16604a; color: var(--accent2); }
+.evals-miss { border-color: #5a2030; color: var(--err); }
+
+/* run controls */
+.evals-run-controls .btn-row { flex-wrap: wrap; }
+.evals-run-controls .depth-input { width: 56px; margin-left: 4px; }
+.evals-run-controls label.small { display: inline-flex; align-items: center; gap: 2px; }
+.evals-stratify { display: inline-flex; align-items: center; gap: 4px; }
+.evals-progress { margin-top: 10px; }
+.evals-progress-bar { height: 6px; border-radius: 3px; background: var(--bg3); overflow: hidden; margin-bottom: 4px; }
+.evals-progress-fill { height: 100%; background: var(--accent); transition: width 0.2s ease; }
+
+/* executions tab */
+.evals-executions { flex: 1; display: flex; min-height: 0; width: 100%; overflow: hidden; }
+.evals-exec-list { flex: 1; overflow-y: auto; }
+.evals-exec-list tr.diff-row { cursor: pointer; }
+.evals-exec-detail { width: 420px; flex: none; border-left: 1px solid var(--line); overflow-y: auto; }
+
+/* propose tab */
+.evals-propose { flex: 1; display: flex; min-height: 0; width: 100%; }
+.evals-propose-chat { flex: 1; min-width: 0; }
+.evals-propose-review {
+  width: 380px; flex: none; border-left: 1px solid var(--line);
+  display: flex; flex-direction: column; min-height: 0;
+}
+.evals-review-list { flex: 1; overflow-y: auto; margin: 8px 0; }
+.evals-review-row { display: flex; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--line); }
+.evals-review-invalid { opacity: 0.55; }
