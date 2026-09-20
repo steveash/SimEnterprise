@@ -12,6 +12,7 @@ artifacts encode, as a labeled answer key for KG/RAG/search eval.
 - [`ARCHITECTURE.md`](./ARCHITECTURE.md) — detailed component & plugin design.
 - [`docs/GOLDEN_RUN.md`](./docs/GOLDEN_RUN.md) — the v1 end-to-end **golden run** and how its gold KG acts as an answer key.
 - [`docs/DATA_PRODUCTS.md`](./docs/DATA_PRODUCTS.md) — **structured data products**: causal-graph-sampled parquet tables, materialized views, and the business-question loop (`enterprise-sim data run`).
+- [`docs/EXPLORER.md`](./docs/EXPLORER.md) — the **graph explorer as the one-stop UI**: launch/extend runs with live progress, cost and pause/resume ([`EXPLORER_RUNS.md`](./docs/EXPLORER_RUNS.md)), author department/scenario templates with the `author-playbook` skill ([`EXPLORER_TEMPLATES.md`](./docs/EXPLORER_TEMPLATES.md)), and browse/run/propose eval questions ([`EXPLORER_EVALS.md`](./docs/EXPLORER_EVALS.md)).
 
 ## Quickstart
 
