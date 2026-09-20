@@ -4,5 +4,4 @@
 //
 // import './jobs/index.js'
 // import './templates/index.js'
-// import './evals/index.js'
-export {}
+import './evals/index.js'
