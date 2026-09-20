@@ -163,19 +163,27 @@ derives the child config from the parent's `config.snapshot.json`:
   same org. The child's `run_id` differs (the digest covers projects + window),
   so the parent is never overwritten.
 
-**Reuse guarantee.** Anchored projects draw from their own seeded sub-stream
-(`SeedContext.rng("project", project_id)`), and the scheduler seeds per
-`(scenario, activation)` (`core/sim/scheduler.py`), so adding projects does not
-perturb existing people/scenarios, and extending the window keeps the earlier
-events' prompts identical → the parent's cache serves them. The child job's
-`llm-cache/` is a **copy-on-start** of the parent's cache dir (the parent job's
-`llm-cache/` if the parent was a job, else the parent config's `scale.cache_dir`
-if any). Tests lock this: `world(child) ⊇ world(parent)` node/edge ids, and the
-artifact count rendered *non-cached* in a fake-backend extension equals the count
-of new deliverables. Where a producer's prompt legitimately changes (e.g. the
-`organization/` reference block lists a new project), the artifact is re-rendered
-and reported as such — the UI shows `cached` vs `new` counts, so the reuse is
-visible, not assumed.
+**Reuse guarantee (measured, not assumed).** Anchored projects draw from their
+own seeded sub-stream (`SeedContext.rng("project", project_id)`) and the
+scheduler seeds per `(scenario, activation)`, so:
+
+- **More time only** (later `period_end`, nothing added): the child's world is a
+  superset of the parent's (node *and* edge ids), the earlier events' prompts are
+  identical, and every parent artifact comes back as a cache hit — the number of
+  *non-cached* renders equals `child total − parent total`. Locked by
+  `tests/test_jobs_extend.py`.
+- **Added scenario instances** (new `[[projects]]`): node ids and structural edges
+  (`authored`, `reviewed`, `expresses`, `under`, …) still superset cleanly, but the
+  grounding roster every prompt carries (D30 layer 1) lists *all* projects in the
+  company, so every prompt changes by one line and the parent's artifacts are
+  **re-rendered** (and their LLM-chosen `references` edges may differ). The UI
+  therefore shows the estimate for an extension honestly: "more time" is priced at
+  the new deliverables only; "more instances" is priced as a full re-render, with
+  the cached/new split visible while it runs.
+
+The child job's `llm-cache/` is a **copy-on-start** of the parent's cache dir (the
+parent job's `llm-cache/` if the parent was a job, else the parent config's
+`scale.cache_dir` if any), so whatever prompts *are* identical are free.
 
 `lineage.json` (in the child run dir): `{"parent_run_id", "parent_run_dir", "changes": {"period_end": [old, new], "added_projects": [...], "departments": [...]}}`.
 The Explore view shows a *derived from …* badge and the diff panel pre-selects the parent.
@@ -222,6 +230,8 @@ digest includes both fields (they change *what* the run is).
 
 The manager tails the worker's stdout into per-job subscriber sets; when the
 process exits it reads `state.json` and emits a final `state` event.
+`artifact` events carry both `cost_usd_segment` (this process) and
+`cost_usd_total` (all segments; the worker adds the closed segments' spend).
 **Estimates are computed in the renderer** from the event stream (`src/renderer/jobs/projection.ts`, unit-tested):
 
 - `remainingSeconds = (total - done) × meanSecondsPerNonCachedArtifact` (EWMA over the current segment; cached artifacts count as 0 s);
