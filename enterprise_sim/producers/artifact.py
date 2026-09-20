@@ -139,6 +139,11 @@ class ProducedArtifact:
             is binary (e.g. the ``pptx``/``docx`` producers). When present it — not
             ``body`` — is what the runner writes to ``path``; ``body`` then holds a
             plain-text rendering the tagger and grounding layers reason over.
+        cache_hit: Whether every LLM call this artifact's render made was served
+            from the on-disk response cache (D31) rather than the backend. A
+            producer that made no calls at all reports ``True`` (vacuously). Read
+            by the jobs progress pipeline (``EXPLORER_RUNS.md`` §3.1) to report a
+            rendered artifact as ``cached`` vs. newly billed.
     """
 
     artifact_id: str
@@ -151,6 +156,7 @@ class ProducedArtifact:
     issues: list[ValidationIssue] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
     binary_body: bytes | None = None
+    cache_hit: bool = True
 
     @property
     def is_binary(self) -> bool:

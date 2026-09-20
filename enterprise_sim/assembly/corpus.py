@@ -33,6 +33,7 @@ a byte-identical corpus.
 from __future__ import annotations
 
 import re
+import threading
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import datetime
@@ -49,6 +50,8 @@ from enterprise_sim.core.sim.calendar import WorkingCalendar
 from enterprise_sim.core.sim.scheduler import Scheduler, ValidationIssue
 from enterprise_sim.core.sim.spec import Activation, Scenario
 from enterprise_sim.core.world import Node, World
+from enterprise_sim.jobs.control import RunControl, RunPaused
+from enterprise_sim.jobs.progress import NullSink, ProgressEvent, ProgressSink
 from enterprise_sim.producers.artifact import ProducedArtifact, apply_to_world
 from enterprise_sim.producers.jira import JiraProducer
 from enterprise_sim.producers.markdown import MarkdownProducer, ProducerContext
@@ -135,6 +138,26 @@ class _ScenarioPlan:
     ctx: ProducerContext
 
 
+class _ProgressCounter:
+    """A thread-safe ``done``/``total`` counter shared across concurrent renders.
+
+    The render phase fans scenarios out across a bounded thread pool (§16.1,
+    D26); ``artifact`` progress events report a *run-wide* ``done``/``total``
+    (not per-scenario), so every renderer increments the same counter.
+    """
+
+    def __init__(self, total: int) -> None:
+        self._total = total
+        self._done = 0
+        self._lock = threading.Lock()
+
+    def increment(self) -> tuple[int, int]:
+        """Record one more rendered artifact; return the new ``(done, total)``."""
+        with self._lock:
+            self._done += 1
+            return self._done, self._total
+
+
 def build_corpus(
     world: World,
     config: RunConfig,
@@ -142,6 +165,8 @@ def build_corpus(
     *,
     calendar: WorkingCalendar | None = None,
     dry_run: bool = False,
+    progress: ProgressSink | None = None,
+    control: RunControl | None = None,
 ) -> CorpusResult:
     """Simulate every scenario in ``world`` and render its full markdown corpus.
 
@@ -173,7 +198,16 @@ def build_corpus(
         calendar: Working calendar for all placement arithmetic; a default
             business-hours weekday calendar is used when omitted.
         dry_run: When true, schedule and estimate only — render nothing.
+        progress: Optional sink for :class:`~enterprise_sim.jobs.progress.ProgressEvent`\\ s
+            (``docs/EXPLORER_RUNS.md`` §3.1); defaults to a no-op sink, so passing
+            nothing keeps this function byte-identical to before this parameter
+            existed.
+        control: Optional cooperative-pause control (§3.2); when given, the render
+            phase checks it before each deliverable event and raises
+            :class:`~enterprise_sim.jobs.control.RunPaused` if a pause was
+            requested. ``None`` (the default) never pauses.
     """
+    progress = progress or NullSink()
     calendar = calendar or WorkingCalendar()
     start = datetime.combine(config.simulation.period_start, calendar.day_start)
     end = datetime.combine(config.simulation.period_end, calendar.day_end)
@@ -183,6 +217,7 @@ def build_corpus(
     company_profile = _company_profile(world)
 
     # -- Phase 1: schedule every scenario (sequential, deterministic). --------
+    progress.emit(ProgressEvent.now("phase", phase="schedule"))
     journal = EventJournal()
     issues: list[ValidationIssue] = []
     plans: list[_ScenarioPlan] = []
@@ -211,9 +246,32 @@ def build_corpus(
             )
         )
 
-    # -- Phase 2: estimate cost and enforce the ceiling before any call (D13). -
     num_artifacts = sum(_deliverable_count(plan.journal) for plan in plans)
+    progress.emit(
+        ProgressEvent.now(
+            "scheduled",
+            events=len(journal),
+            artifacts_total=num_artifacts,
+            scenarios=[
+                {"id": plan.initiative_id, "artifacts": _deliverable_count(plan.journal)}
+                for plan in plans
+            ],
+        )
+    )
+
+    # -- Phase 2: estimate cost and enforce the ceiling before any call (D13). -
+    progress.emit(ProgressEvent.now("phase", phase="estimate"))
     estimate = _estimate_render(client, config, num_artifacts)
+    progress.emit(
+        ProgressEvent.now(
+            "estimate",
+            artifacts_total=estimate.num_artifacts,
+            estimated_cost_usd=estimate.estimated_cost_usd,
+            model=estimate.model,
+            input_tokens_each=estimate.input_tokens_each,
+            output_tokens_each=estimate.output_tokens_each,
+        )
+    )
 
     if dry_run:
         return CorpusResult(
@@ -224,7 +282,14 @@ def build_corpus(
         )
 
     # -- Phase 3: render scenarios under bounded concurrency, then merge. ------
-    rendered = client.generate_many([_render_task(world, plan) for plan in plans])
+    progress.emit(ProgressEvent.now("phase", phase="render"))
+    counter = _ProgressCounter(num_artifacts)
+    rendered = client.generate_many(
+        [
+            _render_task(world, plan, progress=progress, control=control, counter=counter)
+            for plan in plans
+        ]
+    )
 
     artifacts: list[ProducedArtifact] = []
     for scenario_artifacts in rendered:
@@ -274,7 +339,12 @@ def _estimate_render(client: LLMClient, config: RunConfig, num_artifacts: int) -
 
 
 def _render_task(
-    world: World, plan: _ScenarioPlan
+    world: World,
+    plan: _ScenarioPlan,
+    *,
+    progress: ProgressSink,
+    control: RunControl | None,
+    counter: _ProgressCounter,
 ) -> Callable[[LLMClient], list[ProducedArtifact]]:
     """Build the closure that renders one scenario in isolation (§16.1, D26).
 
@@ -285,7 +355,16 @@ def _render_task(
     """
 
     def task(client: LLMClient) -> list[ProducedArtifact]:
-        return _render_scenario(world.copy(), plan.journal, client, plan.ctx)
+        return _render_scenario(
+            world.copy(),
+            plan.journal,
+            client,
+            plan.ctx,
+            progress=progress,
+            control=control,
+            counter=counter,
+            scenario_id=plan.initiative_id,
+        )
 
     return task
 
@@ -397,6 +476,11 @@ def _render_scenario(
     journal: EventJournal,
     client: LLMClient,
     ctx: ProducerContext,
+    *,
+    progress: ProgressSink,
+    control: RunControl | None,
+    counter: _ProgressCounter,
+    scenario_id: str,
 ) -> list[ProducedArtifact]:
     """Render one scenario's deliverable events, applying each back to the world.
 
@@ -409,18 +493,46 @@ def _render_scenario(
     siblings, not a chain. Events render in ``(timestamp, id)`` order and each
     event's artifacts are applied to the world before the next renders, so a later
     artifact can cite an earlier one (D16/D32).
+
+    Before each deliverable event, ``control.should_pause()`` (if a control was
+    given) is checked and :class:`~enterprise_sim.jobs.control.RunPaused` raised
+    if a pause was requested (§3.2) — cooperative: whatever this scenario already
+    rendered stays applied and cached, only the *remaining* events are skipped.
+    After each rendered artifact, an ``artifact`` progress event is emitted
+    (§3.1), reading the client's live, thread-safe
+    :class:`~enterprise_sim.core.llm.client.CostTracker` for the running segment
+    totals.
     """
     rendered: list[ProducedArtifact] = []
     for event in journal.ordered():
         if event.deliverable is None:
             continue
+        if control is not None and control.should_pause():
+            raise RunPaused()
         view = world.projection(at=event.timestamp)
-        produced = [
-            producer.produce(event, view, client, ctx)
-            for producer in _producers_for(event.deliverable.kind)
-        ]
+        producers = _producers_for(event.deliverable.kind)
+        produced = [producer.produce(event, view, client, ctx) for producer in producers]
         apply_to_world(world, produced)
         rendered.extend(produced)
+        cost = client.cost
+        for producer, artifact in zip(producers, produced, strict=True):
+            done, total = counter.increment()
+            progress.emit(
+                ProgressEvent.now(
+                    "artifact",
+                    scenario_id=scenario_id,
+                    event_id=event.id,
+                    producer=producer.name,
+                    path=artifact.path,
+                    cached=artifact.cache_hit,
+                    done=done,
+                    total=total,
+                    cost_usd_segment=cost.total_cost_usd,
+                    calls=cost.calls,
+                    cache_hits=cost.cache_hits,
+                    usage=cost.total_usage.to_dict(),
+                )
+            )
     return rendered
 
 

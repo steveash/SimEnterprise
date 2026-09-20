@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING
 from pydantic import ValidationError
 
 from enterprise_sim import __version__
+from enterprise_sim.jobs.cli import add_job_parser
 
 if TYPE_CHECKING:
     from enterprise_sim.authoring.sdk import Playbook
@@ -1850,6 +1851,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_bench_parser(subparsers)
     _add_reconstruct_parser(subparsers)
     _add_data_parser(subparsers)
+    add_job_parser(subparsers)
 
     return parser
 

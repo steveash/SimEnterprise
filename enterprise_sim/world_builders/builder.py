@@ -36,7 +36,7 @@ from enterprise_sim.archetypes._base import DepartmentArchetypeSpec, TeamShape
 from enterprise_sim.core.config import RunConfig
 from enterprise_sim.core.config.models import CompanySize, ProjectConfig
 from enterprise_sim.core.config.seed import SeedContext
-from enterprise_sim.core.registry import ARCHETYPES, discover
+from enterprise_sim.core.registry import ARCHETYPES, PLAYBOOKS, discover
 from enterprise_sim.core.world import Edge, Node, World
 from enterprise_sim.world_builders.names import (
     FIRST_NAMES,
@@ -202,6 +202,10 @@ class _WorldBuilder:
         self._t0 = datetime.combine(config.simulation.period_start, time(9, 0))
         self._company_id = ""
         self._goal_ids: list[str] = []
+        #: name of the primary department (§3.6 config additions): the first
+        #: entry of ``config.departments`` when given, else the vertical-matched
+        #: (or first-registered) archetype — set once by :meth:`_select_archetypes`.
+        self._primary_department: str = ""
         # Affinity weights keyed by an unordered person-pair (seeded then written
         # once as canonical ``collaborates_with`` edges).
         self._affinity: dict[frozenset[str], float] = {}
@@ -211,6 +215,8 @@ class _WorldBuilder:
     def build(self) -> World:
         """Run the full top-down pipeline and return the populated KG."""
         archetypes = self._select_archetypes()
+        self._primary_department = archetypes[0].name if archetypes else ""
+        self._validate_project_departments(archetypes)
         self._build_company()
         self._build_goals()
         for index, spec in enumerate(archetypes):
@@ -221,17 +227,34 @@ class _WorldBuilder:
     # -- archetype selection ------------------------------------------------
 
     def _select_archetypes(self) -> list[DepartmentArchetypeSpec]:
-        """Choose departments: the vertical-matched archetype first, then more.
+        """Choose departments: explicit config, else the vertical-matched default.
 
-        The primary archetype is the one the company's vertical maps onto (or the
-        first registered archetype if the vertical is unknown). Larger size bands
-        add further archetypes (name-sorted) up to ``max_departments``, itself
-        capped by how many archetypes are registered.
+        When ``config.departments`` is given (§3.6), it *is* the selection,
+        ordered exactly as declared (first = primary); an archetype name it
+        names that is not registered raises a clear :class:`ValueError` naming
+        the registered ones, rather than silently dropping a department.
+
+        Otherwise, the primary archetype is the one the company's vertical maps
+        onto (or the first registered archetype if the vertical is unknown), and
+        larger size bands add further archetypes (name-sorted) up to
+        ``max_departments``, itself capped by how many archetypes are registered
+        — the selection this project always made before §3.6.
         """
         discover("enterprise_sim.archetypes")  # idempotent; fires registrations.
         registered = {spec.name: spec for spec in ARCHETYPES}
         if not registered:
             raise RuntimeError("no department archetypes registered; cannot build a world")
+
+        if self._config.departments:
+            names: list[str] = []
+            for dept in self._config.departments:
+                if dept.archetype not in registered:
+                    raise ValueError(
+                        f"unknown department archetype {dept.archetype!r} "
+                        f"(registered: {sorted(registered)})"
+                    )
+                names.append(dept.archetype)
+            return [_as_spec(registered[name]) for name in names]
 
         vertical = self._config.company.vertical.strip().lower()
         primary = _VERTICAL_ALIASES.get(vertical)
@@ -241,6 +264,21 @@ class _WorldBuilder:
         ordered = [primary] + [name for name in sorted(registered) if name != primary]
         limit = min(self._profile().max_departments, len(ordered))
         return [_as_spec(registered[name]) for name in ordered[:limit]]
+
+    def _validate_project_departments(self, archetypes: list[DepartmentArchetypeSpec]) -> None:
+        """Reject a config project naming a department that was not built (§3.6).
+
+        Without this check a project whose ``department`` is not among the run's
+        selected archetypes would simply never match one in
+        :meth:`_build_config_projects` and silently vanish from the world.
+        """
+        available = {spec.name for spec in archetypes}
+        for project in self._config.projects:
+            if project.department is not None and project.department not in available:
+                raise ValueError(
+                    f"project {project.name!r} names department {project.department!r}, "
+                    f"which is not among this run's departments ({sorted(available)})"
+                )
 
     def _profile(self) -> _SizeProfile:
         return _SIZE_PROFILES[self._config.company.size]
@@ -328,7 +366,7 @@ class _WorldBuilder:
             if lead_id != dept_head:
                 self._add_edge(E_REPORTS_TO, lead_id, dept_head)
 
-        self._build_initiatives(index, spec, dept_id, dept_head, goal_ids, people_by_team)
+        self._build_initiatives(spec, dept_id, dept_head, goal_ids, people_by_team)
         self._seed_team_affinities(people_by_team)
 
     def _build_team(
@@ -425,7 +463,6 @@ class _WorldBuilder:
 
     def _build_initiatives(
         self,
-        index: int,
         spec: DepartmentArchetypeSpec,
         dept_id: str,
         dept_head: str,
@@ -471,7 +508,7 @@ class _WorldBuilder:
                 self._add_edge(E_ADVANCES_GOAL, scenario_id, goal_id)
             self._build_project(spec, scenario_id, playbook, dept_head, roster)
 
-        self._build_config_projects(index, spec, program_id, dept_head, roster)
+        self._build_config_projects(spec, program_id, dept_head, roster)
 
     def _build_project(
         self,
@@ -523,23 +560,49 @@ class _WorldBuilder:
 
     def _build_config_projects(
         self,
-        index: int,
         spec: DepartmentArchetypeSpec,
         program_id: str,
         dept_head: str,
         roster: list[str],
     ) -> None:
-        """Anchor any user-supplied projects under the primary department (D: config).
+        """Anchor the user-supplied projects named for this department (§3.6).
 
-        Config projects are only attached to the first (primary) department so
-        each anchor appears exactly once; each becomes its own scenario bound to
-        the archetype's first playbook plus a concrete project.
+        Each config project attaches under its named ``department`` (default: the
+        primary department) — so, unlike the pre-§3.6 behavior of attaching every
+        config project under the first department only, a project can now target
+        any department this run built. Each becomes its own scenario bound to its
+        named ``playbook`` (default: the department archetype's first playbook;
+        an explicitly named playbook is validated against the ``PLAYBOOKS``
+        registry, with a clear error for an unregistered one).
         """
-        if index != 0 or not self._config.projects:
+        if not self._config.projects:
             return
-        playbook = spec.playbooks[0] if spec.playbooks else "build_software"
+        discover("enterprise_sim.playbooks")  # idempotent; populates PLAYBOOKS for validation.
         for project in self._config.projects:
+            target_department = project.department or self._primary_department
+            if target_department != spec.name:
+                continue
+            playbook = self._resolve_project_playbook(project, spec)
             self._build_config_project(spec, program_id, playbook, dept_head, roster, project)
+
+    def _resolve_project_playbook(
+        self, project: ProjectConfig, spec: DepartmentArchetypeSpec
+    ) -> str:
+        """The playbook a config project's scenario binds to (§3.6).
+
+        Defaults to the department archetype's first playbook (unvalidated — an
+        archetype's own declared playbooks are trusted); an explicitly named
+        playbook is checked against the registered ``PLAYBOOKS`` catalog so a typo
+        surfaces as a clear config error rather than a silently unrendered scenario.
+        """
+        if project.playbook is None:
+            return spec.playbooks[0] if spec.playbooks else "build_software"
+        if project.playbook not in PLAYBOOKS:
+            raise ValueError(
+                f"project {project.name!r} names unknown playbook {project.playbook!r} "
+                f"(registered: {PLAYBOOKS.names()})"
+            )
+        return project.playbook
 
     def _build_config_project(
         self,

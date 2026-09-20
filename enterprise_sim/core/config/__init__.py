@@ -15,6 +15,7 @@ from enterprise_sim.core.config.loader import (
 from enterprise_sim.core.config.models import (
     CompanyConfig,
     CompanySize,
+    DepartmentConfig,
     LLMBackend,
     ModelConfig,
     ProjectConfig,
@@ -32,6 +33,7 @@ __all__ = [
     "CompanyConfig",
     "CompanySize",
     "ConfigError",
+    "DepartmentConfig",
     "LLMBackend",
     "ModelConfig",
     "ProjectConfig",

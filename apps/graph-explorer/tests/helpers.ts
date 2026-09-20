@@ -25,7 +25,7 @@ export const GOLDEN_RUN = join(
   '..',
   'runs',
   'golden',
-  'golden-slice-co-40644d551158'
+  'golden-slice-co-5b1e84522235'
 )
 
 /**
