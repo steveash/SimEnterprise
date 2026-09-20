@@ -10,7 +10,7 @@ type Pending = { resolve: (v: unknown) => void; reject: (e: Error) => void }
 export class Rpc {
   private ws: WebSocket | null = null
   private pending = new Map<string, Pending>()
-  private streams = new Map<string, (e: AgentEvent) => void>()
+  private streams = new Map<string, (e: unknown) => void>()
   private ready: Promise<void>
   private queue: string[] = []
 
@@ -37,7 +37,7 @@ export class Rpc {
       else p.reject(new Error(msg.error ?? 'rpc error'))
     } else if (msg.type === 'stream') {
       const cb = this.streams.get(msg.id)
-      if (cb) cb(msg.event as AgentEvent)
+      if (cb) cb(msg.event)
     }
   }
 
@@ -56,18 +56,45 @@ export class Rpc {
     })
   }
 
-  /** Start a streaming chat turn; returns the request id and a cancel fn. */
-  chat(params: unknown, onEvent: (e: AgentEvent) => void): { id: string; cancel: () => void } {
+  /**
+   * Start a streaming op: every `{type:'stream', id, event}` the sidecar pushes
+   * for this request reaches `onEvent`; `done` settles with the final reply (or
+   * rejects). `cancelOp` (if given) is called with `{ id }` on `cancel()`.
+   */
+  stream<E = unknown, T = unknown>(
+    op: string,
+    params: unknown,
+    onEvent: (e: E) => void,
+    cancelOp?: string
+  ): { id: string; cancel: () => void; done: Promise<T> } {
     const id = nextId()
-    this.streams.set(id, onEvent)
-    this.pending.set(id, {
-      resolve: () => this.streams.delete(id),
-      reject: () => this.streams.delete(id)
+    this.streams.set(id, onEvent as (e: unknown) => void)
+    const done = new Promise<T>((resolve, reject) => {
+      this.pending.set(id, {
+        resolve: (v) => {
+          this.streams.delete(id)
+          resolve(v as T)
+        },
+        reject: (e) => {
+          this.streams.delete(id)
+          reject(e)
+        }
+      })
     })
-    void this.ready.then(() => this.raw({ type: 'rpc', id, op: 'chat', params }))
+    done.catch(() => {}) // callers may ignore `done`; never surface as unhandled
+    void this.ready.then(() => this.raw({ type: 'rpc', id, op, params }))
     return {
       id,
-      cancel: () => void this.call('cancelChat', { id })
+      cancel: () => {
+        if (cancelOp) void this.call(cancelOp, { id })
+      },
+      done
     }
+  }
+
+  /** Start a streaming chat turn; returns the request id and a cancel fn. */
+  chat(params: unknown, onEvent: (e: AgentEvent) => void): { id: string; cancel: () => void } {
+    const { id, cancel } = this.stream<AgentEvent>('chat', params, onEvent, 'cancelChat')
+    return { id, cancel }
   }
 }
