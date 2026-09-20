@@ -3,7 +3,7 @@
 // shapes and the on-disk eval.json/predictions.jsonl/items.jsonl layout. Also
 // the end-to-end sidecar ops (evalsGenerate/evalsList/evalsSample/evalsRun)
 // against the golden run, skipped when it isn't present.
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeAll, beforeEach, afterEach } from 'vitest'
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -159,6 +159,23 @@ describe('runEvalExplorer persistence with a stubbed answerer', () => {
 })
 
 describe.skipIf(!goldenRunExists())('evals ops end-to-end against the golden run', () => {
+  // The golden run's question set is derived (not checked in); generate it once
+  // through the real Python CLI if this checkout hasn't yet.
+  beforeAll(async () => {
+    if (existsSync(join(GOLDEN_RUN, 'evals', 'questions.jsonl'))) return
+    const generate = getOp('evalsGenerate')!
+    await generate({
+      requestId: 'r0',
+      params: { runPath: GOLDEN_RUN },
+      ensureLoaded: async () => {
+        throw new Error('not needed')
+      },
+      stream: () => {},
+      runsRoot: '',
+      repoRoot: join(GOLDEN_RUN, '..', '..', '..')
+    })
+  }, 120_000)
+
   it('evalsList reflects the golden run\'s generated question set with resolved labels', async () => {
     const handler = getOp('evalsList')
     expect(handler).toBeDefined()
