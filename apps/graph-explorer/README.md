@@ -28,6 +28,69 @@ queries — highlighting the answer right on the graph.
 - **Run diff** — compare two runs to see structural drift, with a **typed breakdown**
   (per node/edge type added/removed counts) and click-through to each changed element.
 
+## The one-stop UI: Runs · Templates · Evals
+
+The topbar's **Explore · Runs · Templates · Evals** switcher turns the explorer
+into the place you *do* SimEnterprise, not just browse its output. Explore is the
+graph explorer described above. The other three drive the Python package through
+the sidecar's **Python bridge** (`src/sidecar/python.ts`: `enterprise-sim`
+subcommands that speak JSON / JSON Lines) and register their RPC ops through the
+feature-op registry (`src/sidecar/ops.ts` + `src/sidecar/features.ts`) instead of
+growing the dispatcher switch. The shared design lives in
+[`docs/EXPLORER.md`](../../docs/EXPLORER.md).
+
+### Runs
+
+<!-- RUNS-SECTION -->
+
+### Templates
+
+The **Templates** view ([`docs/EXPLORER_TEMPLATES.md`](../../docs/EXPLORER_TEMPLATES.md))
+authors external plugin templates — a department archetype, a scenario playbook,
+or both — without touching the Python package. It drives `enterprise-sim templates
+{list,scaffold,validate,delete,catalog}` (templates live under
+`GRAPH_EXPLORER_TEMPLATES_DIR`, default `<repo>/templates`, gitignored by default)
+and a dedicated Claude Agent SDK harness (`src/sidecar/templates/harness.ts`) that
+authors `plugin.py` + a test against the `author-playbook` skill, guarded by a
+`canUseTool` policy (`src/sidecar/templates/guard.ts`) that restricts writes to
+`templates/<slug>/` and Bash to an allow-listed validate / lint / pytest /
+`python -c` prefix set.
+
+The **library** (left) lists templates as cards with a validation pill and
+Validate / Open chat / View files / Delete actions. **New template** scaffolds from
+a name / slug / kind / description and opens the **authoring chat** (center), which
+streams the same tool-trace / thinking / text events as the Explore chat plus a
+step-by-step **validation card** (lint diagnostics as a table) that updates live
+whenever the agent runs `templates validate`. The right pane is a read-only **file
+viewer** for `plugin.py` / `test_<slug>.py` / `template.json`. Valid templates show
+up in the Runs form's department and playbook dropdowns.
+
+### Evals
+
+The **Evals** view ([`docs/EXPLORER_EVALS.md`](../../docs/EXPLORER_EVALS.md)) turns
+a loaded run's KG-QA benchmark question set into something you run and grow from
+the UI:
+
+- **Questions** tab — search / group the run's `evals/questions.jsonl` (by
+  reasoning type, question type, difficulty, source, tag), see each question's last
+  score, and run one, a checked selection, a stratified N% sample, or the whole
+  set. Pick the runner (**explorer** — in-process, using this app's own graph
+  engines + Agent SDK harness; **rag** / **graph** — the Python benchmark runners),
+  model, and concurrency (1–4); watch a live progress bar and macro-F1-so-far, and
+  cancel mid-run. The detail pane resolves expected vs. predicted ids to labels
+  (click through to Explore), shows P/R/F1/EM, and for a single-question run, the
+  chosen engine + exact query and its tool trace.
+- **Executions** tab — every past run under `evals/results/*`, with its report
+  (overall + per reasoning type) and the predictions file path.
+- **Propose** tab — a chat that proposes new questions, each one grounded in a
+  query it just ran against the graph (never guessed); review, tick the good ones,
+  and **Add to eval set**.
+
+If a run has no question set yet, the view offers to generate one
+(`enterprise-sim evals generate`). Sampling and scoring are TypeScript ports of
+`enterprise_sim.evals.sample` / `enterprise_sim.benchmark.score`, parity-tested
+against fixtures generated from the Python originals.
+
 ## Architecture
 
 ```
