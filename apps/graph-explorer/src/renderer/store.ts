@@ -36,7 +36,14 @@ interface FocusRequest {
   nonce: number
 }
 
+/** Top-level views (docs/EXPLORER.md §2). `explore` is the original graph explorer. */
+export type View = 'explore' | 'runs' | 'templates' | 'evals'
+
 interface AppState {
+  /** Top-level view (docs/EXPLORER.md §2). */
+  view: View
+  setView: (v: View) => void
+
   rpc: Rpc | null
   connecting: boolean
   connectError: string | null
@@ -117,6 +124,8 @@ export const useStore = create<AppState>((set, get) => ({
   diff: null,
   lenses: [],
 
+  view: 'explore',
+  setView: (v) => set({ view: v }),
   init: async () => {
     try {
       const info = await window.explorer.sidecarInfo()

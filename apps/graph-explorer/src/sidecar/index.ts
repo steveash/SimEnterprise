@@ -22,8 +22,13 @@ import { GraphIndex } from './graph/index.js'
 import { KuzuEngine } from './graph/kuzu.js'
 import { OxigraphEngine } from './graph/rdf.js'
 import { runChat, type ChatEngines } from './agent/harness.js'
+import { getOp, type OpContext } from './ops.js'
+// Feature modules register their ops on import (docs/EXPLORER.md §3).
+import './features.js'
 
 const RUNS_ROOT = process.env.GRAPH_EXPLORER_RUNS_ROOT ?? join(process.cwd(), '..', '..', 'runs')
+/** The repo root: pyproject.toml, templates/, skills/ live here (two levels above the app). */
+const REPO_ROOT = process.env.GRAPH_EXPLORER_REPO_ROOT ?? resolve(APP_ROOT, '..', '..')
 const PORT = Number(process.env.GRAPH_EXPLORER_PORT ?? 0)
 
 /** One fully-loaded run: model + index + both query engines. */
@@ -202,8 +207,19 @@ async function handle(ws: WebSocket, req: RpcRequest): Promise<void> {
         chatAborts.get(p.id as string)?.abort()
         return reply(true, { cancelled: true })
       }
-      default:
-        return reply(false, undefined, `unknown op: ${req.op}`)
+      default: {
+        const handler = getOp(req.op)
+        if (!handler) return reply(false, undefined, `unknown op: ${req.op}`)
+        const ctx: OpContext = {
+          requestId: req.id,
+          params: p,
+          ensureLoaded,
+          stream: (event) => send({ type: 'stream', id: req.id, event }),
+          runsRoot: RUNS_ROOT,
+          repoRoot: REPO_ROOT
+        }
+        return reply(true, await handler(ctx))
+      }
     }
   } catch (e) {
     return reply(false, undefined, (e as Error).message)

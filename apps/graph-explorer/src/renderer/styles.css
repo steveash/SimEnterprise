@@ -202,3 +202,16 @@ button { font-family: inherit; cursor: pointer; }
 .diff-header { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; margin: 8px 0; font-size: 12px; }
 .diff-header .diff-counts { display: flex; gap: 4px; align-items: baseline; margin-left: auto; }
 .diff-type { display: inline-block; min-width: 0; padding: 0 5px; margin-right: 4px; border-radius: 3px; background: var(--bg3); color: var(--muted); font-size: 10px; }
+
+/* top-level views (docs/EXPLORER.md §2) */
+.view-switch { display: flex; margin-left: 12px; }
+.view-switch button {
+  background: var(--bg3); color: var(--muted); border: 1px solid var(--line);
+  padding: 4px 12px; font-size: 12px;
+}
+.view-switch button:first-child { border-radius: var(--radius) 0 0 var(--radius); }
+.view-switch button:last-child { border-radius: 0 var(--radius) var(--radius) 0; }
+.view-switch button.active { color: var(--bg); background: var(--accent); border-color: var(--accent); }
+.view { flex: 1; display: flex; min-height: 0; }
+.view-empty { margin: auto; text-align: center; }
+.view-empty-title { font-size: 18px; font-weight: 600; margin-bottom: 6px; }

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useStore } from './store.js'
+import { useStore, type View } from './store.js'
 import { GraphView } from './components/GraphView.js'
 import { SearchPanel } from './components/SearchPanel.js'
 import { Legend } from './components/Legend.js'
@@ -8,8 +8,18 @@ import { DetailsPanel } from './components/DetailsPanel.js'
 import { ChatPanel } from './components/ChatPanel.js'
 import { QueryConsole } from './components/QueryConsole.js'
 import { DiffPanel } from './components/DiffPanel.js'
+import { RunsView } from './views/RunsView.js'
+import { TemplatesView } from './views/TemplatesView.js'
+import { EvalsView } from './views/EvalsView.js'
 
 type Tab = 'chat' | 'details' | 'query' | 'diff'
+
+const VIEWS: { id: View; label: string }[] = [
+  { id: 'explore', label: 'Explore' },
+  { id: 'runs', label: 'Runs' },
+  { id: 'templates', label: 'Templates' },
+  { id: 'evals', label: 'Evals' }
+]
 
 export function App(): JSX.Element {
   const init = useStore((s) => s.init)
@@ -27,6 +37,8 @@ export function App(): JSX.Element {
   const clearHighlight = useStore((s) => s.clearHighlight)
   const focusNodes = useStore((s) => s.focusNodes)
   const selectedId = useStore((s) => s.selectedId)
+  const view = useStore((s) => s.view)
+  const setView = useStore((s) => s.setView)
 
   const [tab, setTab] = useState<Tab>('chat')
 
@@ -52,6 +64,13 @@ export function App(): JSX.Element {
     <div className="app">
       <header className="topbar">
         <div className="brand">Enterprise-Sim · Graph Explorer</div>
+        <nav className="view-switch" aria-label="views">
+          {VIEWS.map((v) => (
+            <button key={v.id} className={view === v.id ? 'active' : ''} onClick={() => setView(v.id)}>
+              {v.label}
+            </button>
+          ))}
+        </nav>
         <select
           className="run-select"
           value={runPath ?? ''}
@@ -80,19 +99,26 @@ export function App(): JSX.Element {
             </span>
           </div>
         )}
-        <div className="layout-controls">
-          {(['fcose', 'dagre', 'concentric'] as const).map((l) => (
-            <button key={l} className={layout === l ? 'active' : ''} onClick={() => setLayout(l)}>
-              {l === 'fcose' ? 'force' : l === 'dagre' ? 'hierarchy' : 'radial'}
+        {view === 'explore' && (
+          <>
+            <div className="layout-controls">
+              {(['fcose', 'dagre', 'concentric'] as const).map((l) => (
+                <button key={l} className={layout === l ? 'active' : ''} onClick={() => setLayout(l)}>
+                  {l === 'fcose' ? 'force' : l === 'dagre' ? 'hierarchy' : 'radial'}
+                </button>
+              ))}
+            </div>
+            <button className="btn ghost" onClick={() => { clearHighlight(); focusNodes([], true) }}>
+              Reset view
             </button>
-          ))}
-        </div>
-        <button className="btn ghost" onClick={() => { clearHighlight(); focusNodes([], true) }}>
-          Reset view
-        </button>
+          </>
+        )}
       </header>
 
-      <div className="body">
+      {view === 'runs' && <RunsView />}
+      {view === 'templates' && <TemplatesView />}
+      {view === 'evals' && <EvalsView />}
+      <div className="body" style={view === 'explore' ? undefined : { display: 'none' }}>
         <aside className="sidebar">
           <SearchPanel />
           <Legend />
