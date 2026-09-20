@@ -139,7 +139,7 @@ export const useEvalsStore = create<EvalsState>((set, get) => ({
   runner: 'explorer',
   model: 'sonnet',
   concurrency: 2,
-  sampleFraction: 0.2,
+  sampleFraction: 20,
   sampleSeed: 0,
   sampleStratify: true,
   activeRun: null,
