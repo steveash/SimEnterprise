@@ -82,3 +82,6 @@
 .runs-error { margin: 10px 0; }
 .runs-log-scroll { max-height: 320px; overflow-y: auto; }
 .runs-log-line { padding: 1px 0; white-space: pre-wrap; word-break: break-word; }
+
+/* department picker rows read left-to-right (the form default stacks label parts) */
+.runs-dept-picker label { flex-direction: row; align-items: center; gap: 6px; }

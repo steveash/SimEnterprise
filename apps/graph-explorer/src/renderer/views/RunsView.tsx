@@ -44,7 +44,7 @@ export function RunsView(): JSX.Element {
         <JobList onNewRun={openNewRun} onExtend={openExtend} />
       </aside>
       <main className="runs-main">
-        {pane === 'form' && <NewRunForm onDone={() => setPane(selectedJobDir ? 'detail' : 'empty')} />}
+        {pane === 'form' && <NewRunForm onDone={() => setPane(useRunsStore.getState().selectedJobDir ? 'detail' : 'empty')} />}
         {pane === 'detail' && selectedJobDir && <JobDetail />}
         {pane === 'empty' && (
           <div className="view-empty">
