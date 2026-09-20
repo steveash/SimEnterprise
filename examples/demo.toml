@@ -14,6 +14,8 @@ description = "A B2B SaaS company building developer productivity tooling."
 period_start = 2026-01-01
 period_end = 2026-01-31
 
+# `enterprise-sim run` only honors this backend when passed `--live`; by default
+# it renders on the deterministic `fake` backend and this block is inert.
 [model]
 backend = "anthropic_api"
 name = "claude-opus-4-8"

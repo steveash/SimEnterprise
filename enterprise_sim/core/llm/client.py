@@ -6,7 +6,9 @@ concerns the architecture demands:
 
 * **Response cache** (D31) — checked first; a hit skips the backend entirely.
 * **Retry with backoff** — retryable failures are retried up to a limit, honoring
-  a provider ``Retry-After`` when given.
+  a provider ``Retry-After`` when given. "Retryable" spans transport faults *and*
+  an unusable model sample (see :class:`TransientLLMError`), so a single
+  non-conforming response is resampled instead of failing the run.
 * **Cost accounting + ceiling** (D13) — every non-cached call's tokens are priced
   and aggregated; a call that would breach the ceiling raises *before* it runs.
 * **Bounded concurrency** — :meth:`generate_many` fans out through a thread pool
@@ -179,6 +181,7 @@ class LLMClient:
             mode="structured",
             schema=schema,
             temperature=temperature,
+            backend=self._config.backend,
         )
         completion = self._call(
             key,
@@ -218,6 +221,7 @@ class LLMClient:
             mode="content",
             candidates=candidates,
             temperature=temperature,
+            backend=self._config.backend,
         )
         completion = self._call(
             key,
@@ -310,7 +314,11 @@ class LLMClient:
         return completion
 
     def _with_retry(self, run: Callable[[], Completion]) -> Completion:
-        """Invoke ``run``, retrying transient failures with bounded backoff."""
+        """Invoke ``run``, retrying transient failures with bounded backoff.
+
+        Transient covers an unusable model sample as well as a transport fault
+        (:class:`TransientLLMError`), so re-invoking ``run`` doubles as resampling.
+        """
         attempt = 0
         while True:
             try:

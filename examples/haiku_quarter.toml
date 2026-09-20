@@ -1,0 +1,46 @@
+# A small *generative* run: one quarter of Northwind Tools, authored by Haiku.
+#
+# Unlike `golden.toml` (deterministic `fake` backend), this config calls a real
+# model, so runs are NOT byte-reproducible. It routes through the local `claude`
+# CLI on an OAuth subscription, so it needs no ANTHROPIC_API_KEY — swap
+# `backend = "anthropic_api"` if you'd rather use a key (same model id).
+#
+# `--live` is required: without it the run ignores [model] below and renders on
+# the deterministic `fake` backend instead of calling Haiku.
+#
+#   enterprise-sim run examples/haiku_quarter.toml --live
+#   enterprise-sim eval runs/haiku-quarter/<run-id>
+#
+# The window matches examples/haiku_quarter_data.toml, so the structured tables
+# and this document corpus describe the same quarter of the same company.
+
+seed = 11
+output_dir = "runs/haiku-quarter"
+
+[company]
+name = "Northwind Tools"
+vertical = "software"
+size = "small"
+description = "A B2B SaaS company building developer productivity tooling."
+
+[simulation]
+period_start = 2026-01-05
+period_end = 2026-03-31
+
+# An on-disk response cache (D31) so an interrupted or failed `--live` run
+# resumes cheaply: re-running it regenerates only the calls that never landed.
+[scale]
+cache_dir = ".runtime/llm-cache/haiku-quarter"
+
+[model]
+backend = "claude_cli"
+name = "claude-haiku-4-5"
+realism = 0.7
+
+[[projects]]
+name = "Onboarding revamp"
+description = "Rebuild the new-user onboarding flow."
+
+[[projects]]
+name = "Billing migration"
+description = "Migrate billing to the new metering service."

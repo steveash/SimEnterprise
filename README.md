@@ -22,6 +22,30 @@ enterprise-sim run examples/golden.toml
 enterprise-sim eval runs/golden/golden-slice-co-40644d551158
 ```
 
+### Generating with a real model
+
+Every command above is free, network-free and reproducible because `run` defaults
+to the deterministic `fake` backend — it renders structurally correct artifacts
+whose *prose* is placeholder text. To have a real model write the prose, name a
+provider in the config's `[model] backend` and pass `--live`:
+
+```bash
+# Unstructured: a quarter of Haiku-authored documents + the gold KG.
+# Without --live this silently renders placeholder prose instead.
+enterprise-sim run examples/haiku_quarter.toml --live
+
+# Structured: parquet tables + views for the SAME company and quarter,
+# linked against the corpus run's KG. (`data run` needs no --live.)
+enterprise-sim data run examples/haiku_quarter_data.toml
+```
+
+A `--live` run calls a provider, costs money, and is **not** byte-reproducible;
+add `--dry-run` to price it first (that estimate counts prompt tokens only, so a
+`claude_cli` run — which re-sends the agent's own system prompt per call — costs
+more than it shows). `examples/haiku_quarter.toml` uses the
+`claude_cli` backend, which routes through a local `claude` OAuth subscription
+and needs no `ANTHROPIC_API_KEY`; switch `backend` to `anthropic_api` to use a key.
+
 Status: v1 (markdown-only) end-to-end is wired — world → events → corpus → gold
 KG, with a reproducible golden run as the acceptance artifact. Office formats and
 new modalities arrive as additive producer plugins (PLAN.md M8–M10).

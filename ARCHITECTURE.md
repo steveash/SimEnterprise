@@ -229,11 +229,20 @@ A single internal interface — `complete(system, messages, model, *, cache_hint
 - **`bedrock`** — *same* official SDK via `AnthropicBedrock` (and `AnthropicVertex` available
   if GCP is ever needed). "Key vs Bedrock" is one dependency, two constructors.
 - **`claude_cli`** — shell out to `claude -p --output-format json` to route bulk fan-out
-  through the OAuth subscription (cheap). Caveat: less control over cache-control and token
-  accounting, so prompts are structured so the cacheable prefix still benefits SDK paths.
+  through the OAuth subscription (cheap). Caveats: less control over cache-control and token
+  accounting, so prompts are structured so the cacheable prefix still benefits SDK paths;
+  `claude -p` drives the interactive *agent*, so every call passes `--append-system-prompt` to
+  reframe it as a generation endpoint (without it the agent replies with clarifying questions
+  and no call parses); stdin is closed to avoid a ~3s stall per call; and a non-conforming
+  sample raises `TransientLLMError` so the client resamples rather than failing the run.
 
 All callers (world-builders and producers) see only the interface. Backend, model, and a
-realism/cost dial are config.
+realism/cost dial are config — but backend selection is two-level for `enterprise-sim run`:
+the config *names* the provider and `--live` *enables* it. Without `--live` the run renders on
+the deterministic `fake` backend and the config's `[model] backend` is deliberately ignored, so
+a run is free and network-free by default (`execute_run()` / `estimate_run()` take
+`live: bool = False`). `enterprise-sim data run` has no such gate: it honors `[model] backend`
+directly, since its default is already `fake`.
 
 ### Determinism
 Structural, not byte-identical (LLM nondeterminism). One root seed threads through; each
@@ -687,14 +696,17 @@ Three layers keep prose consistent with the KG:
 
 One `LLMClient` over api / bedrock / cli with cross-cutting concerns:
 - **Retry** w/ backoff (respect `Retry-After`); **bounded-concurrency** semaphore (the Layer C
-  parallelism); per-backend rate limits.
+  parallelism); per-backend rate limits. Retry also covers **resampling an unusable model
+  output** (e.g. the `claude_cli` agent answering in prose instead of the JSON envelope), so one
+  non-conforming draw costs a retry rather than the whole run.
 - **Cost accounting** — per-call input/cached/output tokens → per-run aggregate → $ via a
   pricing table; enforce the **ceiling** and emit a **dry-run estimate** (task count × est
   tokens) before big runs (D13).
 - **On-disk response cache** keyed by `(prompt_hash, model)` (D31) — cheap reproducible
   re-runs; only changed artifacts regenerate.
 - **`fake`/echo backend** (D31) — deterministic templated placeholder content so the §13 test
-  kit runs with **no real LLM calls** (free, fast, deterministic).
+  kit runs with **no real LLM calls** (free, fast, deterministic). It is also the *default* for
+  `enterprise-sim run`, not just a test fixture: reaching a real provider takes `--live` (§7).
 - **Determinism caveat** — we never rely on LLM determinism; the *structure* (which calls, what
   context, what order) is deterministic, content varies. Prompt + response caches aid repeatability.
 

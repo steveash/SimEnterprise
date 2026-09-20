@@ -10,6 +10,12 @@ It is the v1 acceptance artifact (bead `esim-3481176c`). The run is deterministi
 and network-free (default `fake` LLM backend), so it reproduces **byte-for-byte**
 from its seed and can be checked in CI without any API cost.
 
+> Every claim on this page assumes the default backend. Adding `--live` renders
+> against the provider named by the config's `[model] backend`, which costs money
+> and forfeits byte-reproducibility — see
+> [`examples/haiku_quarter.toml`](../examples/haiku_quarter.toml) for a run built
+> that way.
+
 - **Config:** [`examples/golden.toml`](../examples/golden.toml)
 - **Acceptance test:** [`tests/test_golden_run.py`](../tests/test_golden_run.py)
 
@@ -37,6 +43,16 @@ rendering:
 ```bash
 enterprise-sim run examples/golden.toml --dry-run
 ```
+
+The run line reports which backend it will use, so a live run is never a
+surprise: `backend=fake (deterministic; pass --live for the real provider)`.
+
+The estimate itself is backend-independent — it prices `[model] name` against the
+pricing table, so `--dry-run` and `--dry-run --live` print the same figure. Adding
+`--live` to a dry run only checks that the configured provider is constructible.
+Note also that the estimate counts *prompt* tokens only: the `claude_cli` backend
+additionally re-sends the agent's own system prompt on every call, so a real
+`claude_cli` run costs materially more than the figure shown.
 
 ## What the run produces
 
@@ -100,7 +116,9 @@ acceptance test proves four properties against the *actual* rendered corpus:
    references, scheduling conflicts, or out-of-window stamps. The KG is internally
    sound.
 4. **It reproduces.** Two runs of the config to different destinations produce a
-   byte-identical corpus, KG, and validation log (D10/D26/D31).
+   byte-identical corpus, KG, and validation log (D10/D26/D31) — on the default
+   `fake` backend. Under `--live` the structure still reproduces but the prose
+   does not (D10).
 
 ### Validation semantics (D17/D30)
 

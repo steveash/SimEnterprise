@@ -53,7 +53,9 @@ def _cmd_run(args: argparse.Namespace) -> int:
         f"enterprise-sim run: validated config for {config.company.name} "
         f"({config.company.vertical}, {config.company.size.value}); "
         f"seed={config.seed}, window={config.simulation.period_start.isoformat()}"
-        f"..{config.simulation.period_end.isoformat()}, projects={len(config.projects)}"
+        f"..{config.simulation.period_end.isoformat()}, projects={len(config.projects)}; "
+        f"backend={config.model.backend.value if args.live else 'fake'}"
+        f"{'' if args.live else ' (deterministic; pass --live for the real provider)'}"
     )
 
     from enterprise_sim.core.llm import CostCeilingExceeded
@@ -62,7 +64,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
         from enterprise_sim.assembly import estimate_run
 
         try:
-            estimate = estimate_run(config)
+            estimate = estimate_run(config, live=args.live)
         except CostCeilingExceeded as exc:
             print(f"enterprise-sim run: {exc}")
             return 1
@@ -77,7 +79,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
         return 0
 
     try:
-        result = execute_run(config)
+        result = execute_run(config, live=args.live)
     except CostCeilingExceeded as exc:
         print(f"enterprise-sim run: {exc}")
         return 1
@@ -1797,6 +1799,16 @@ def build_parser() -> argparse.ArgumentParser:
         "--dry-run",
         action="store_true",
         help="estimate artifact count + cost and exit without rendering (D13)",
+    )
+    run_parser.add_argument(
+        "--live",
+        action="store_true",
+        help=(
+            "render against the real provider named by the config's [model] backend "
+            "(anthropic_api/bedrock/claude_cli); without it the run uses the "
+            "deterministic, network-free 'fake' backend. A live run costs money "
+            "and is not byte-reproducible"
+        ),
     )
     run_parser.add_argument(
         "--max-concurrency",

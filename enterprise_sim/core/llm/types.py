@@ -132,7 +132,13 @@ class LLMError(Exception):
 
 
 class TransientLLMError(LLMError):
-    """A retryable failure (rate limit, 5xx, timeout).
+    """A retryable failure: retry the *same* request rather than giving up.
+
+    Covers transport-level faults (rate limit, 5xx, timeout) and one
+    content-level case — a model sample the backend could not use, such as the
+    ``claude_cli`` agent answering with prose instead of the JSON envelope
+    (:func:`~enterprise_sim.core.llm.backends._extract_json_object`). Both are
+    retryable for the same reason: the request is fine, the attempt was not.
 
     ``retry_after`` mirrors the HTTP ``Retry-After`` header when the provider
     supplied one; the client's backoff honors it instead of its own schedule.

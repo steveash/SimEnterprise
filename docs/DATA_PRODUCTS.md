@@ -12,9 +12,18 @@ enterprise-sim data run examples/data_products.toml
 # The ~100M-row / ~10GB profile (same code path, bigger dial).
 enterprise-sim data run examples/data_full_scale.toml
 
+# LLM-authored specs (authoring.mode = "llm") against a real backend, linked to
+# a completed corpus run so tables and documents describe the same company.
+enterprise-sim data run examples/haiku_quarter_data.toml
+
 # List registered scenarios.
 enterprise-sim data scenarios
 ```
+
+> **`data run` has no `--live` flag.** Unlike `enterprise-sim run` — where the
+> config's `[model] backend` is honored only under `--live` — `data run` honors
+> it directly, because its backend already defaults to `fake`. So the paired
+> example configs are invoked asymmetrically: `run ... --live`, `data run ...`.
 
 ---
 
@@ -68,7 +77,8 @@ Mirrors the document pipeline's contract (ARCHITECTURE.md §7):
   seed → **byte-identical parquet** (materialized views are canonicalized
   with `ORDER BY ALL` because DuckDB's parallel aggregation is unordered).
 - **The LLM elaborates, never gates.** With `authoring.mode = "llm"` the
-  configured backend (through the one `core/llm` client — api/bedrock/cli,
+  configured backend is used directly — no `--live` flag, unlike
+  `enterprise-sim run` — (through the one `core/llm` client — api/bedrock/cli,
   prompt-cached, cost-ceilinged) authors the spec from the scenario's brief +
   a KG summary via `generate_structured` against the spec's JSON schema,
   proposes extra questions, and drives gap analysis. Every proposal is

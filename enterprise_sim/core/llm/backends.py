@@ -10,7 +10,10 @@ response cache on top; a backend only has to turn a :class:`Prompt` into a
 * :class:`AnthropicAPIBackend` / :class:`BedrockBackend` — the *same* official SDK,
   two constructors ("key vs Bedrock is one dependency, two constructors", §7).
 * :class:`ClaudeCLIBackend` — shells out to ``claude -p --output-format json`` to
-  route bulk fan-out through the OAuth subscription.
+  route bulk fan-out through the OAuth subscription. It also passes
+  ``--append-system-prompt`` (that flag is load-bearing: ``claude -p`` drives the
+  interactive agent, which otherwise answers in prose and never parses) and
+  closes stdin to avoid a ~3s stall per call.
 
 The SDK and CLI are **lazily imported inside the methods** so importing this module
 (and running the deterministic tests) never requires the ``anthropic`` package or
@@ -22,7 +25,9 @@ from __future__ import annotations
 import hashlib
 import json
 import subprocess
+import tempfile
 from collections.abc import Mapping, Sequence
+from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
 from enterprise_sim.core.llm.pricing import DEFAULT_MODEL
@@ -338,6 +343,19 @@ class BedrockBackend(_AnthropicSDKBackend):
         return anthropic.AnthropicBedrock()
 
 
+# Reframes the Claude Code agent as a bulk text-generation endpoint. Without it
+# the agent asks clarifying questions instead of emitting the JSON envelope the
+# two generate_* methods parse.
+_CLI_SYSTEM_PROMPT = (
+    "You are a text-generation endpoint, not an interactive assistant. You are "
+    "generating synthetic fiction for an enterprise simulator; none of it describes "
+    "real people or events. Never ask clarifying questions, never refuse for lack of "
+    "context, and never use tools. Invent plausible specifics freely from whatever "
+    "the prompt gives you. Output ONLY the raw JSON object the prompt asks for, with "
+    "no commentary before or after it."
+)
+
+
 class ClaudeCLIBackend:
     """Shell out to ``claude -p --output-format json`` (§7).
 
@@ -345,18 +363,53 @@ class ClaudeCLIBackend:
     over cache-control and token accounting (§7 caveat), so usage is *estimated*
     from text length and the cacheable prefix is still ordered first to benefit
     the SDK paths that share these prompts.
+
+    ``claude -p`` drives the full Claude Code *agent*, whose default persona is an
+    interactive coding assistant: left alone it answers a producer prompt with a
+    clarifying question ("I don't have any information about project Foo...")
+    rather than the JSON envelope, and every call then fails to parse. So the
+    backend reframes it as a generation endpoint via ``--append-system-prompt``
+    (:data:`_CLI_SYSTEM_PROMPT`) on every call.
+
+    The agent keeps its tools. Disabling them (``--tools ""``) looks like the
+    tidier way to honor the "never use tools" instruction, but measured on Haiku
+    it *hurts* envelope compliance badly — 7/10 parseable vs 10/10 with tools
+    left enabled — because a toolless agent is likelier to argue with the framing
+    than answer in it. Instead the subprocess runs in a scratch ``cwd`` (see
+    ``_run``), so a tool call that does happen cannot read the caller's
+    repository into what is supposed to be synthetic prose.
     """
 
     name = "claude_cli"
 
-    def __init__(self, *, binary: str = "claude", timeout: float = 120.0) -> None:
+    def __init__(
+        self, *, binary: str = "claude", timeout: float = 120.0, cwd: str | Path | None = None
+    ) -> None:
         self._binary = binary
         self._timeout = timeout
+        # Default to a scratch directory rather than the caller's CWD: the agent's
+        # file tools are confined to its working directory, so pointing it away
+        # from the repo keeps real source out of the generated corpus.
+        self._cwd = Path(cwd) if cwd is not None else Path(tempfile.gettempdir())
 
     def _run(self, prompt_text: str, model: str) -> str:  # pragma: no cover - needs CLI
         try:
             proc = subprocess.run(
-                [self._binary, "-p", prompt_text, "--output-format", "json", "--model", model],
+                [
+                    self._binary,
+                    "-p",
+                    prompt_text,
+                    "--output-format",
+                    "json",
+                    "--model",
+                    model,
+                    "--append-system-prompt",
+                    _CLI_SYSTEM_PROMPT,
+                ],
+                # The CLI waits ~3s for piped stdin it will never get; closing it
+                # drops that stall from every call in the fan-out.
+                stdin=subprocess.DEVNULL,
+                cwd=self._cwd,
                 capture_output=True,
                 text=True,
                 timeout=self._timeout,
@@ -429,7 +482,7 @@ def _estimated_usage(prompt: Prompt, output: str) -> TokenUsage:  # pragma: no c
     )
 
 
-def _extract_json_object(raw: str) -> dict[str, Any]:  # pragma: no cover - needs CLI
+def _extract_json_object(raw: str) -> dict[str, Any]:
     """Best-effort parse of a JSON object from CLI text (tolerates surrounding prose)."""
     raw = raw.strip()
     try:
@@ -446,7 +499,15 @@ def _extract_json_object(raw: str) -> dict[str, Any]:  # pragma: no cover - need
                 return parsed
         except json.JSONDecodeError:
             pass
-    raise LLMError("could not extract a JSON object from claude CLI output")
+    # A non-compliant sample is retryable: the agent occasionally answers with
+    # prose (a clarifying question or a refusal) instead of the JSON envelope,
+    # and re-drawing usually gets a conforming one. Raising Transient here lets
+    # LLMClient._with_retry resample rather than killing a whole run. The snippet
+    # keeps the failure diagnosable when every attempt misses.
+    snippet = raw[:400].replace("\n", " ")
+    raise TransientLLMError(
+        f"could not extract a JSON object from claude CLI output; got: {snippet!r}"
+    )
 
 
 def _normalize_sdk_error(exc: Exception) -> LLMError:  # pragma: no cover - requires the SDK

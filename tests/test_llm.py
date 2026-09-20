@@ -11,11 +11,17 @@ in-test stub backend, so the suite is free, fast, and deterministic.
 
 from __future__ import annotations
 
+import json
+import subprocess
+import tempfile
 from collections.abc import Mapping, Sequence
+from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
 from enterprise_sim.core.llm import (
+    ClaudeCLIBackend,
     Completion,
     CostCeilingExceeded,
     FakeBackend,
@@ -32,6 +38,7 @@ from enterprise_sim.core.llm import (
     request_key,
     verify_references,
 )
+from enterprise_sim.core.llm.backends import _extract_json_object
 from enterprise_sim.core.llm.prompt import MAX_CACHE_BREAKPOINTS, PromptLayer
 
 # ---------------------------------------------------------------------------
@@ -498,3 +505,142 @@ def test_build_client_defaults_to_fake() -> None:
 def test_unknown_backend_raises() -> None:
     with pytest.raises(ValueError, match="unknown LLM backend"):
         build_client(LLMConfig(backend="nope"))
+
+
+# ---------------------------------------------------------------------------
+# claude_cli backend (§7): agent-shaped output handling
+# ---------------------------------------------------------------------------
+
+
+def test_extract_json_object_parses_bare_object() -> None:
+    assert _extract_json_object('{"content": "hi", "references_used": []}') == {
+        "content": "hi",
+        "references_used": [],
+    }
+
+
+def test_extract_json_object_tolerates_markdown_fences() -> None:
+    """The agent routinely wraps its JSON in a ```json fence."""
+    raw = '```json\n{"content": "hi", "references_used": ["a"]}\n```'
+    assert _extract_json_object(raw) == {"content": "hi", "references_used": ["a"]}
+
+
+def test_extract_json_object_tolerates_surrounding_prose() -> None:
+    raw = 'Sure! Here is the object:\n{"content": "hi"}\nLet me know if you need more.'
+    assert _extract_json_object(raw) == {"content": "hi"}
+
+
+def test_extract_json_object_raises_transient_so_the_client_resamples() -> None:
+    """A non-JSON sample must be *retryable*.
+
+    ``claude -p`` drives the Claude Code agent, which intermittently answers a
+    producer prompt with prose instead of the JSON envelope. Raising a plain
+    ``LLMError`` would abandon the whole run over one unlucky draw; Transient
+    lets :meth:`LLMClient._with_retry` take another sample.
+    """
+    with pytest.raises(TransientLLMError) as excinfo:
+        _extract_json_object("I don't have any information about project Foo.")
+    assert isinstance(excinfo.value, TransientLLMError)
+    # The offending text rides along, or the failure is undiagnosable.
+    assert "project Foo" in str(excinfo.value)
+
+
+def test_extract_json_object_snippet_is_bounded_and_single_line() -> None:
+    with pytest.raises(TransientLLMError) as excinfo:
+        _extract_json_object("no json here\n" * 500)
+    message = str(excinfo.value)
+    assert "\n" not in message  # newlines flattened so logs stay one line per failure
+    assert len(message) < 600  # snippet truncated rather than dumping the whole sample
+
+
+def test_claude_cli_backend_reframes_the_agent_and_closes_stdin(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Every call must carry the generation-endpoint system prompt.
+
+    Without it the agent answers in prose and the JSON parse fails; ``stdin`` is
+    closed because the CLI otherwise stalls ~3s per call waiting on a pipe.
+    """
+    seen: dict[str, Any] = {}
+
+    def fake_run(argv: Sequence[str], **kwargs: Any) -> Any:
+        seen["argv"] = list(argv)
+        seen["kwargs"] = kwargs
+        return SimpleNamespace(
+            returncode=0,
+            stdout=json.dumps({"result": '{"content": "body", "references_used": []}'}),
+            stderr="",
+        )
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    backend = ClaudeCLIBackend()
+    completion = backend.generate_content(
+        Prompt(layers=(PromptLayer(role="user", text="write a status report"),)),
+        candidate_references=(),
+        model="claude-haiku-4-5",
+        temperature=0.3,
+    )
+
+    assert completion.text == "body"
+    argv = seen["argv"]
+    assert "--append-system-prompt" in argv
+    system_prompt = argv[argv.index("--append-system-prompt") + 1]
+    assert "not an interactive assistant" in system_prompt
+    assert argv[argv.index("--model") + 1] == "claude-haiku-4-5"
+    assert seen["kwargs"]["stdin"] is subprocess.DEVNULL
+
+
+def test_claude_cli_backend_runs_outside_the_callers_repo(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The agent keeps its tools, so it must not be pointed at the caller's repo.
+
+    Its file tools are confined to the working directory; running in a scratch
+    dir keeps real source out of what is supposed to be synthetic prose.
+    """
+    seen: dict[str, Any] = {}
+
+    def fake_run(argv: Sequence[str], **kwargs: Any) -> Any:
+        seen["cwd"] = kwargs.get("cwd")
+        return SimpleNamespace(
+            returncode=0, stdout=json.dumps({"result": '{"content": "x"}'}), stderr=""
+        )
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    prompt = Prompt(layers=(PromptLayer(role="user", text="hi"),))
+
+    ClaudeCLIBackend().generate_content(prompt, candidate_references=(), model="m", temperature=0.0)
+    assert seen["cwd"] == Path(tempfile.gettempdir())
+    assert seen["cwd"] != Path.cwd()
+
+    ClaudeCLIBackend(cwd=tmp_path).generate_content(
+        prompt, candidate_references=(), model="m", temperature=0.0
+    )
+    assert seen["cwd"] == tmp_path
+
+
+def test_claude_cli_prose_answer_is_retried_then_succeeds(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """End to end: one prose sample is resampled rather than failing the run."""
+    replies = [
+        "I don't have any information about that project.",
+        '{"content": "second try", "references_used": []}',
+    ]
+
+    def fake_run(argv: Sequence[str], **kwargs: Any) -> Any:
+        return SimpleNamespace(
+            returncode=0, stdout=json.dumps({"result": replies.pop(0)}), stderr=""
+        )
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    client = LLMClient(
+        ClaudeCLIBackend(),
+        config=LLMConfig(backend="claude_cli", model="claude-haiku-4-5"),
+        sleep=lambda _seconds: None,
+    )
+    result = client.generate_content(
+        Prompt(layers=(PromptLayer(role="user", text="write a status report"),))
+    )
+    assert result.content == "second try"
+    assert not replies  # both samples were consumed: the first one was retried

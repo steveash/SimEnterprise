@@ -9,7 +9,9 @@
 # Switch [authoring] mode to "llm" (and [model] to a real backend) to have the
 # configured model elaborate each scenario's causal graph, propose extra
 # business questions, and drive gap analysis; the deterministic template is the
-# validated fallback either way.
+# validated fallback either way. `data run` honors [model] with no extra flag
+# (`enterprise-sim run` needs --live for the same thing); see
+# examples/haiku_quarter_data.toml for a worked llm-mode config.
 
 scenarios = [
     "product_growth",

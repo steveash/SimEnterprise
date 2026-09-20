@@ -3,8 +3,10 @@
 A run that re-executes with the same config + seed issues the *same* calls in the
 same order (determinism is structural, §7). Caching each response on disk means
 only *changed* artifacts regenerate — re-runs are cheap and reproducible. The key
-folds the prompt hash, model, generation mode, and the schema/candidate set so a
-structured call and a prose call over the same prompt never collide.
+folds the prompt hash, model, backend, generation mode, and the schema/candidate
+set so a structured call and a prose call over the same prompt never collide — and
+so a ``fake`` run and a live run can share one ``cache_dir`` without the live run
+being served placeholder prose.
 
 The cache is a plain directory of JSON files (one per key); it is safe to delete,
 share, or check the size of, and needs no server. Concurrent writers race only to
@@ -31,18 +33,27 @@ def request_key(
     schema: Mapping[str, Any] | None = None,
     candidates: tuple[str, ...] = (),
     temperature: float = 0.0,
+    backend: str = "",
 ) -> str:
     """Compute the cache key for one request.
 
     Per D31 the key is anchored on ``(prompt_hash, model)`` but also folds the
     generation ``mode`` (``"structured"`` / ``"content"``), the JSON schema, the
-    candidate reference set, and temperature — anything that changes the response
-    for an otherwise-identical prompt. Returns a hex digest used as the filename.
+    candidate reference set, temperature, and the ``backend`` — anything that
+    changes the response for an otherwise-identical prompt. Returns a hex digest
+    used as the filename.
+
+    ``backend`` matters most of all: the ``fake`` backend answers every prompt
+    with deterministic placeholder text, so a cache shared with a real provider
+    would serve that placeholder prose to a live run and skip the provider
+    entirely. Keying on it keeps the two populations disjoint in one ``cache_dir``.
     """
     h = hashlib.sha256()
     h.update(prompt.hash().encode())
     h.update(b"\x00")
     h.update(model.encode())
+    h.update(b"\x00")
+    h.update(backend.encode())
     h.update(b"\x00")
     h.update(mode.encode())
     h.update(b"\x00")

@@ -29,7 +29,8 @@ jobs:
       # The deterministic gate above runs keyless on the `fake` backend, so it
       # never loads the real-LLM runtime deps (the `anthropic` SDK and
       # `claude-agent-sdk`), which are imported lazily — a missing/undeclared one
-      # would slip past every test and only explode on a live run (esim-sr3).
+      # would slip past every test and only explode on a real-provider run
+      # (`enterprise-sim run --live`, or `data run` on a real backend) (esim-sr3).
       # Install the `bench` extra and import exactly those runtime deps so a gap
       # fails the build here. No key / network needed (client creation is lazy).
       - name: Real-LLM runtime import smoke (bench extra)

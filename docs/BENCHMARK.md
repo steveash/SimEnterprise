@@ -63,8 +63,8 @@ identified the right members, not just guessed a number.
 The generate/score path is **fully deterministic and network-free**:
 
 - The benchmark is generated from a fresh golden run on the default `fake` LLM
-  backend (no key, no network, no cost) — the gold graph and answer key are
-  produced together, so they can never disagree.
+  backend (no key, no network, no cost; i.e. without `--live`) — the gold graph
+  and answer key are produced together, so they can never disagree.
 - Every generator walks the graph in sorted order, every answer set is sorted,
   each pair's id is a content hash of its semantics, and the benchmark is sorted
   by a stable key — so the **same gold run yields a byte-identical benchmark**.

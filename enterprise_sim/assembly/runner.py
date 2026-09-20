@@ -74,8 +74,9 @@ class RunResult:
 
 
 # The default render backend. A run is network-free and reproducible out of the
-# box; selecting a real provider (api/bedrock/cli) is an explicit caller concern
-# (pass a configured ``client=`` to :func:`execute_run`).
+# box; reaching a real provider (api/bedrock/cli) always takes an explicit
+# opt-in, either ``live=True`` — which honors the config's ``[model] backend``
+# and is what ``enterprise-sim run --live`` passes — or a configured ``client=``.
 _DEFAULT_BACKEND = "fake"
 
 
@@ -86,7 +87,8 @@ def llm_config_for(config: RunConfig, *, backend: str = _DEFAULT_BACKEND) -> LLM
     the on-disk response-cache settings) onto the client so the dry-run gate and
     bounded-concurrency render honor what the config asked for. The backend
     defaults to the deterministic ``fake`` so a default run never touches the
-    network (ARCHITECTURE.md §7/§16.4).
+    network (ARCHITECTURE.md §7/§16.4); the ``live=True`` path in
+    :func:`_client_for` (``enterprise-sim run --live``) is what passes a real one.
     """
     scale = config.scale
     return LLMConfig(
@@ -99,11 +101,18 @@ def llm_config_for(config: RunConfig, *, backend: str = _DEFAULT_BACKEND) -> LLM
     )
 
 
-def _client_for(config: RunConfig, client: LLMClient | None) -> LLMClient:
-    """Return ``client`` if given, else a ``fake`` client wired from ``config``."""
+def _client_for(config: RunConfig, client: LLMClient | None, *, live: bool = False) -> LLMClient:
+    """Return ``client`` if given, else one wired from ``config``.
+
+    Defaults to the deterministic ``fake`` backend so a run stays network-free and
+    reproducible. ``live=True`` is the explicit opt-in that honors the config's
+    ``[model] backend`` (``anthropic_api`` / ``bedrock`` / ``claude_cli``) and
+    actually calls the provider.
+    """
     if client is not None:
         return client
-    return build_client(llm_config_for(config))
+    backend = config.model.backend.value if live else _DEFAULT_BACKEND
+    return build_client(llm_config_for(config, backend=backend))
 
 
 def _slugify(name: str) -> str:
@@ -117,7 +126,7 @@ def _canonical_config(config: RunConfig) -> dict[str, object]:
     return config.model_dump(mode="json")
 
 
-def compute_config_digest(config: RunConfig) -> str:
+def compute_config_digest(config: RunConfig, *, backend: str | None = None) -> str:
     """Return a stable ``sha256`` hex digest identifying the config's *content*.
 
     Operational knobs that control *where/how fast* a run is produced — not *what*
@@ -127,17 +136,32 @@ def compute_config_digest(config: RunConfig) -> str:
     * ``scale`` — concurrency, cost ceiling, and cache settings. The corpus is
       identical regardless of these (concurrency is bounded but deterministic,
       D26), so two runs that differ only in scale share an id and manifest.
+
+    ``backend`` is the *effective* render backend, which is not a config field:
+    the same config renders placeholder prose by default and model-authored prose
+    under ``--live``. Those are different corpora, so they must not share a run id
+    and overwrite each other. The default backend contributes nothing to the
+    digest, which keeps every existing run id (notably the pinned golden run)
+    byte-stable; only a real provider adds to it.
     """
     payload = _canonical_config(config)
     payload.pop("output_dir", None)
     payload.pop("scale", None)
+    if backend is not None and backend != _DEFAULT_BACKEND:
+        payload["render_backend"] = backend
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
-def compute_run_id(config: RunConfig, *, digest: str | None = None) -> str:
-    """Return the deterministic run id ``<company-slug>-<digest12>`` for ``config``."""
-    digest = digest if digest is not None else compute_config_digest(config)
+def compute_run_id(
+    config: RunConfig, *, digest: str | None = None, backend: str | None = None
+) -> str:
+    """Return the deterministic run id ``<company-slug>-<digest12>`` for ``config``.
+
+    ``backend`` is the effective render backend; see :func:`compute_config_digest`
+    for why a live render gets an id of its own.
+    """
+    digest = digest if digest is not None else compute_config_digest(config, backend=backend)
     return f"{_slugify(config.company.name)}-{digest[:12]}"
 
 
@@ -147,6 +171,7 @@ def build_manifest(
     counts: dict[str, int] | None = None,
     validation: dict[str, object] | None = None,
     generated_at: str | None = None,
+    backend: str = _DEFAULT_BACKEND,
 ) -> Manifest:
     """Build the :class:`Manifest` for ``config`` (no filesystem side effects).
 
@@ -156,13 +181,14 @@ def build_manifest(
     consistency-validator summary of ``validation/issues.jsonl`` (total + per-kind
     tally); it defaults to an empty/clean summary.
     """
-    digest = compute_config_digest(config)
+    digest = compute_config_digest(config, backend=backend)
     stamp = generated_at if generated_at is not None else datetime.now(UTC).isoformat()
     counts = counts if counts is not None else {"nodes": 0, "edges": 0, "events": 0}
     validation = validation if validation is not None else {"total": 0, "by_kind": {}}
     return Manifest(
         schema_version=SCHEMA_VERSION,
         run_id=compute_run_id(config, digest=digest),
+        render_backend=backend,
         tool_version=__version__,
         seed=config.seed,
         config_digest=digest,
@@ -202,6 +228,7 @@ def execute_run(
     *,
     generated_at: str | None = None,
     client: LLMClient | None = None,
+    live: bool = False,
 ) -> RunResult:
     """Materialize the full run directory for ``config`` and return its result.
 
@@ -223,8 +250,16 @@ def execute_run(
             deterministic, network-free ``fake`` client wired from ``config``'s
             ``scale`` controls (concurrency, cost ceiling, cache) so a run is
             reproducible and free out of the box.
+        live: Opt in to the real provider named by the config's ``[model]
+            backend``. Ignored when an explicit ``client`` is passed. A live run
+            makes network calls, costs money, and is not byte-reproducible.
     """
-    client = _client_for(config, client)
+    client = _client_for(config, client, live=live)
+    # The backend actually used — which is ``client``'s, not the config's, since a
+    # caller-supplied client overrides both ``live`` and ``[model] backend``. The
+    # run id and manifest key off this so a live render never silently overwrites
+    # a placeholder one (and vice versa).
+    backend = client.config.backend
 
     world = build_world(config)
     corpus = build_corpus(world, config, client)
@@ -250,6 +285,7 @@ def execute_run(
         counts=counts,
         validation=summarize_issue_rows(issue_rows),
         generated_at=generated_at,
+        backend=backend,
     )
     run_dir = config.output_dir / manifest.run_id
 
@@ -280,6 +316,7 @@ def estimate_run(
     config: RunConfig,
     *,
     client: LLMClient | None = None,
+    live: bool = False,
 ) -> RenderEstimate:
     """Dry-run a config: build the world, schedule, and price the render (D13).
 
@@ -289,8 +326,13 @@ def estimate_run(
     config sets a cost ceiling the estimate breaches, this raises
     :class:`~enterprise_sim.core.llm.CostCeilingExceeded` — the same up-front gate
     a full :func:`execute_run` applies before it renders.
+
+    ``live`` mirrors :func:`execute_run` for symmetry, but does **not** change the
+    figure: the estimate prices ``[model] name`` against the pricing table, which
+    is backend-independent. Passing it only asserts that the configured provider
+    is constructible. No model call is made either way.
     """
-    client = _client_for(config, client)
+    client = _client_for(config, client, live=live)
     world = build_world(config)
     corpus = build_corpus(world, config, client, dry_run=True)
     assert corpus.estimate is not None  # build_corpus always estimates
