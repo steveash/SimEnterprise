@@ -1,0 +1,69 @@
+/* Templates view (docs/EXPLORER_TEMPLATES.md §4). Reuses the design tokens
+   from ../styles.css (--bg/--bg2/--bg3/--line/--text/--muted/--accent/…) so it
+   matches the rest of the app; only Templates-specific layout/components live
+   here, per the file-ownership split (styles.css itself is not touched). */
+
+.templates-view { align-items: stretch; }
+
+.templates-sidebar {
+  width: 320px; background: var(--bg2); border-right: 1px solid var(--line);
+  overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 10px;
+}
+.templates-center { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--bg); }
+.templates-rightbar {
+  width: 380px; background: var(--bg2); border-left: 1px solid var(--line);
+  overflow-y: auto; padding: 12px; display: flex; flex-direction: column;
+}
+
+/* new-template form */
+.tpl-new { display: flex; flex-direction: column; gap: 6px; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+.tpl-kind-row { display: flex; }
+.tpl-kind-row button {
+  flex: 1; background: var(--bg3); color: var(--muted); border: 1px solid var(--line);
+  padding: 5px 6px; font-size: 11px;
+}
+.tpl-kind-row button:first-child { border-radius: var(--radius) 0 0 var(--radius); }
+.tpl-kind-row button:last-child { border-radius: 0 var(--radius) var(--radius) 0; }
+.tpl-kind-row button.active { color: var(--bg); background: var(--accent); border-color: var(--accent); }
+.tpl-desc-input {
+  width: 100%; min-height: 54px; resize: vertical; background: var(--bg3); border: 1px solid var(--line);
+  border-radius: var(--radius); color: var(--text); padding: 6px 8px; font-family: inherit; font-size: 12px;
+}
+.tpl-hint { font-size: 11px; margin-top: 2px; }
+.tpl-hint.warn { color: var(--warn); }
+.tpl-hint.err { color: var(--err); }
+
+/* library cards */
+.tpl-cards { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; }
+.tpl-card { border: 1px solid var(--line); border-radius: var(--radius); padding: 8px 10px; background: var(--bg3); }
+.tpl-card.selected { border-color: var(--accent); }
+.tpl-card.broken { border-color: #5a2030; }
+.tpl-card-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; cursor: pointer; }
+.tpl-name { font-weight: 600; }
+.tpl-provides { color: var(--accent); margin-top: 4px; overflow-wrap: anywhere; }
+.tpl-updated { margin-top: 2px; }
+.mini-btn.err { color: var(--err); border-color: #5a2030; }
+
+/* authoring chat */
+.tpl-chat { background: var(--bg); }
+.tpl-validation { border-bottom: 1px solid var(--line); padding: 10px 12px; }
+.tpl-validation.empty { padding: 8px 12px; }
+.tpl-validation-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.tpl-step summary { display: flex; align-items: center; gap: 6px; }
+.ok-dot, .bad-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.ok-dot { background: var(--accent2); }
+.bad-dot { background: var(--err); }
+.tpl-detail-list { margin: 4px 0 0; padding-left: 18px; font-size: 11px; }
+.tpl-detail-list li { margin: 2px 0; }
+.tpl-lint-table th, .tpl-lint-table td { font-size: 11px; }
+.tpl-lint-table tr.err td { color: var(--err); }
+.tpl-provides-summary { margin-top: 6px; }
+
+/* file viewer */
+.tpl-fileviewer-empty { padding: 8px 4px; }
+.tpl-file-tabs { display: flex; flex-wrap: wrap; gap: 4px; margin: 8px 0; }
+.tpl-file-tabs button {
+  background: var(--bg3); color: var(--muted); border: 1px solid var(--line); border-radius: 4px;
+  padding: 3px 8px; font-size: 11px; font-family: 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+}
+.tpl-file-tabs button.active { color: var(--bg); background: var(--accent); border-color: var(--accent); }

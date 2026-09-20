@@ -3,6 +3,6 @@
 // dispatcher. Keep this file to imports only.
 //
 // import './jobs/index.js'
-// import './templates/index.js'
+import './templates/index.js'
 // import './evals/index.js'
 export {}
