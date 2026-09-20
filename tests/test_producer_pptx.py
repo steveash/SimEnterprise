@@ -13,6 +13,7 @@ deck); a malformed package raises on open.
 from __future__ import annotations
 
 import io
+import zipfile
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from typing import Any
@@ -296,6 +297,21 @@ def test_build_kickoff_deck_opens_and_is_deterministic() -> None:
     assert a == b
     prs = Presentation(io.BytesIO(a))
     assert len(prs.slides) == len(sample_deck())
+
+
+def test_build_kickoff_deck_pins_zip_timestamps() -> None:
+    """Byte-equality above must not depend on *when* the two builds ran.
+
+    python-pptx stamps each zip entry with the current wall clock, and a DOS zip
+    timestamp has two-second resolution — so before the stamp was pinned, two
+    builds straddling a tick differed at byte 10 of the first local header and the
+    determinism assertion failed intermittently. Asserting the pin directly
+    catches a regression without a sleep in the suite.
+    """
+    raw = build_kickoff_deck(sample_deck())
+    with zipfile.ZipFile(io.BytesIO(raw)) as archive:
+        assert {info.date_time for info in archive.infolist()} == {(1980, 1, 1, 0, 0, 0)}
+        assert archive.testzip() is None  # still a valid container after rewriting
 
 
 def test_build_kickoff_deck_rejects_empty() -> None:

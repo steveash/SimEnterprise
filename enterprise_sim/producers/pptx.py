@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import io
 import re
+import zipfile
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
@@ -273,8 +274,9 @@ def build_kickoff_deck(slides: Sequence[Slide]) -> bytes:
 
     The first slide is laid out as the title slide (centre title + subtitle); every
     later slide is a "Title and Content" slide whose bullets fill the body
-    placeholder. Output is deterministic for identical input (python-pptx writes a
-    fixed package timestamp).
+    placeholder. Output is deterministic for identical input: python-pptx stamps
+    each zip entry with the *current* wall clock, so the bytes are normalized
+    through :func:`_with_fixed_zip_timestamps` before they are returned.
     """
     if not slides:
         raise ValueError("a deck needs at least one slide")
@@ -286,7 +288,37 @@ def build_kickoff_deck(slides: Sequence[Slide]) -> bytes:
             _add_content_slide(prs, slide)
     buf = io.BytesIO()
     prs.save(buf)
-    return buf.getvalue()
+    return _with_fixed_zip_timestamps(buf.getvalue())
+
+
+# Fixed zip timestamp so identical input yields byte-identical output (D10:
+# determinism) — the same convention the OOXML writers use directly. python-pptx
+# owns its own `save`, so a .pptx is normalized after the fact instead.
+_ZIP_EPOCH = (1980, 1, 1, 0, 0, 0)
+
+
+def _with_fixed_zip_timestamps(raw: bytes) -> bytes:
+    """Rewrite ``raw`` (a zip container) with every entry stamped at the epoch.
+
+    A DOS zip timestamp has two-second resolution, so two builds that straddle a
+    tick differ at byte 10 of the first local header even when every part is
+    identical. That made the determinism assertion flaky rather than false;
+    pinning the stamp makes byte-equality mean what it claims.
+
+    Entry order, compression, and attributes are preserved so the package stays a
+    valid OOXML container.
+    """
+    out = io.BytesIO()
+    with zipfile.ZipFile(io.BytesIO(raw)) as src:
+        with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as dst:
+            for info in src.infolist():
+                pinned = zipfile.ZipInfo(info.filename, date_time=_ZIP_EPOCH)
+                pinned.compress_type = info.compress_type
+                pinned.external_attr = info.external_attr
+                pinned.internal_attr = info.internal_attr
+                pinned.create_system = info.create_system
+                dst.writestr(pinned, src.read(info.filename))
+    return out.getvalue()
 
 
 def _add_title_slide(prs: PresentationObj, slide: Slide) -> None:
