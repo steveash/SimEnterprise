@@ -94,11 +94,35 @@ npm install
 npm run dev        # launches Vite + Electron
 ```
 
-Set `ANTHROPIC_API_KEY` in your environment to enable the agent, or paste a key into the
-in-app banner. The agent model is selectable (Sonnet / Opus / Haiku).
+The agent authenticates the same way Claude Code does, resolved by the Agent SDK:
+`ANTHROPIC_API_KEY`, then `ANTHROPIC_AUTH_TOKEN`, then the OAuth login on disk. So on a
+machine already logged in via `claude` (a Claude subscription), the agent works with **no
+key set** — nothing to configure. To use an explicit key instead, export
+`ANTHROPIC_API_KEY` or put it in `.env.local` (gitignored, loaded at startup). The agent
+model is selectable (Sonnet / Opus / Haiku).
 
 > **Headless / container note:** if Electron aborts with a `chrome-sandbox` SUID error,
 > launch with `--no-sandbox` (only needed where the sandbox helper isn't root-owned).
+
+### Browser mode (no Electron)
+
+To view the UI from another machine — a headless or remote dev box, where running an
+Electron window means an X server or VNC — serve the renderer over plain Vite instead:
+
+```bash
+npm run web     # sidecar on :8787 + Vite on :5173
+```
+
+Then forward **both** ports and open `http://127.0.0.1:5173`. Over VS Code Remote SSH the
+web port is auto-detected, but the sidecar port is not (nothing prints a URL for it) — add
+`8787` by hand in the PORTS panel, or the page loads and then fails to connect.
+
+The renderer only needs the sidecar's WebSocket; `src/renderer/browser-shim.ts` supplies
+the three Electron-only calls (sidecar port, directory picker, lens persistence) and
+`vite.web.config.ts` injects it ahead of `main.tsx`. Two differences from the desktop app:
+lenses persist to `localStorage` (per-browser) rather than `userData/lenses.json`, and the
+directory picker is a path prompt instead of a native dialog. Everything else — graph,
+search, provenance, both query engines, diff, agent chat — behaves identically.
 
 ## Build & test
 
@@ -142,7 +166,9 @@ tests:
 - **Gated** — tests that need real inputs skip cleanly when the input is absent. The
   end-to-end RPC test (`tests/rpc.test.ts`, including `diffRuns` over the wire) and the
   loader/engine tests run only when the **golden run** is present under `runs/`; the live
-  agent turn runs only when **`ANTHROPIC_API_KEY`** is set. Neither is required for a green
+  agent turn runs only when **`ANTHROPIC_API_KEY`** is set (the gate is the env var
+  specifically, so it skips on an OAuth-only machine even though the app itself would
+  work there). Neither is required for a green
   `npm test` on a bare checkout.
 
 ## Package an installable

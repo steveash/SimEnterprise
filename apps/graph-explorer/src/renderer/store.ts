@@ -40,7 +40,6 @@ interface AppState {
   rpc: Rpc | null
   connecting: boolean
   connectError: string | null
-  hasApiKey: boolean
 
   runs: RunSummary[]
   runPath: string | null
@@ -76,7 +75,6 @@ interface AppState {
   init: () => Promise<void>
   loadRun: (path: string) => Promise<void>
   pickRunDir: () => Promise<void>
-  setApiKey: (key: string) => Promise<void>
   select: (id: string | null) => void
   setHighlight: (nodes: string[], edges?: string[]) => void
   clearHighlight: () => void
@@ -99,7 +97,6 @@ export const useStore = create<AppState>((set, get) => ({
   rpc: null,
   connecting: true,
   connectError: null,
-  hasApiKey: false,
   runs: [],
   runPath: null,
   model: null,
@@ -129,7 +126,7 @@ export const useStore = create<AppState>((set, get) => ({
       }
       const rpc = new Rpc(info.port)
       const runs = await rpc.call<RunSummary[]>('listRuns')
-      set({ rpc, connecting: false, runs, hasApiKey: info.hasApiKey })
+      set({ rpc, connecting: false, runs })
       await get().loadLenses()
       if (runs.length) await get().loadRun(runs[0].runPath)
     } catch (e) {
@@ -165,19 +162,6 @@ export const useStore = create<AppState>((set, get) => ({
   pickRunDir: async () => {
     const dir = await window.explorer.pickRunDir()
     if (dir) await get().loadRun(dir)
-  },
-
-  setApiKey: async (key) => {
-    const res = await window.explorer.setApiKey(key)
-    if (res.ok && res.port) {
-      const rpc = new Rpc(res.port)
-      set({ rpc, hasApiKey: true })
-      const path = get().runPath
-      if (path) {
-        // re-establish loaded state on the new sidecar
-        await rpc.call('loadRun', { path })
-      }
-    }
   },
 
   select: (id) => {

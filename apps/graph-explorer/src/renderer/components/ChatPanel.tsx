@@ -17,7 +17,6 @@ export function ChatPanel(): JSX.Element {
   const cancelChat = useStore((s) => s.cancelChat)
   const modelId = useStore((s) => s.model_id)
   const setModelId = useStore((s) => s.setModelId)
-  const hasApiKey = useStore((s) => s.hasApiKey)
   const [draft, setDraft] = useState('')
   const scrollRef = useRef<HTMLDivElement>(null)
 
@@ -33,7 +32,6 @@ export function ChatPanel(): JSX.Element {
 
   return (
     <div className="chat">
-      {!hasApiKey && <ApiKeyBanner />}
       <div className="chat-scroll" ref={scrollRef}>
         {chat.length === 0 && (
           <div className="chat-empty">
@@ -172,31 +170,3 @@ function summarizeInput(name: string, input: unknown): string {
   return Object.values(o).map(String).join(' ').slice(0, 60)
 }
 
-function ApiKeyBanner(): JSX.Element {
-  const setApiKey = useStore((s) => s.setApiKey)
-  const [key, setKey] = useState('')
-  const [saving, setSaving] = useState(false)
-  return (
-    <div className="api-banner">
-      <span className="small">No ANTHROPIC_API_KEY found. Paste one to enable the agent:</span>
-      <input
-        className="search-input small"
-        type="password"
-        placeholder="sk-ant-…"
-        value={key}
-        onChange={(e) => setKey(e.target.value)}
-      />
-      <button
-        className="btn primary"
-        disabled={!key.trim() || saving}
-        onClick={async () => {
-          setSaving(true)
-          await setApiKey(key.trim())
-          setSaving(false)
-        }}
-      >
-        {saving ? 'restarting…' : 'Save'}
-      </button>
-    </div>
-  )
-}

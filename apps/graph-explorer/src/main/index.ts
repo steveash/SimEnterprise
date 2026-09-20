@@ -11,8 +11,9 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 const APP_ROOT = resolve(__dirname, '..', '..')
 const REPO_ROOT = resolve(APP_ROOT, '..', '..')
 
-// Pick up a locally-provided key (gitignored .env.local) so `hasApiKey` is
-// accurate and the spawned sidecar inherits it via env.
+// Pick up a locally-provided key (gitignored .env.local) so the spawned sidecar
+// inherits it via env. A key is optional: with none set, the Agent SDK falls back
+// to the OAuth login on disk (`claude` / Claude subscription), same as Claude Code.
 const ENV_FILE = join(APP_ROOT, '.env.local')
 if (existsSync(ENV_FILE)) {
   try {
@@ -122,8 +123,7 @@ function createWindow(): void {
 ipcMain.handle('sidecar-info', () => ({
   port: sidecarPort,
   runsRoot: DEFAULT_RUNS_ROOT,
-  error: sidecarStartError,
-  hasApiKey: Boolean(process.env.ANTHROPIC_API_KEY)
+  error: sidecarStartError
 }))
 
 ipcMain.handle('pick-run-dir', async () => {
@@ -135,14 +135,6 @@ ipcMain.handle('pick-run-dir', async () => {
   return res.canceled ? null : res.filePaths[0]
 })
 
-ipcMain.handle('set-api-key', (_e, key: string) => {
-  process.env.ANTHROPIC_API_KEY = key
-  // Restart sidecar so the SDK picks up the key.
-  if (sidecar) sidecar.kill('SIGTERM')
-  return startSidecar()
-    .then((port) => ({ ok: true, port }))
-    .catch((e: Error) => ({ ok: false, error: e.message }))
-})
 
 // Saved query lenses persist as JSON under the app's userData dir. Lazily
 // constructed so `app.getPath` is only called once the app is ready.

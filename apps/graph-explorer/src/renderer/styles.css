@@ -160,7 +160,6 @@ button { font-family: inherit; cursor: pointer; }
 .chat-textarea { flex: 1; resize: none; height: 54px; background: var(--bg3); border: 1px solid var(--line); border-radius: var(--radius); color: var(--text); padding: 7px 9px; font-family: inherit; }
 .model-select { font-size: 11px; }
 
-.api-banner { display: flex; flex-direction: column; gap: 6px; padding: 10px; background: #2a210e; border-bottom: 1px solid #5a4a16; }
 
 /* details */
 .details, .query-console, .diff-panel { padding: 12px; }
