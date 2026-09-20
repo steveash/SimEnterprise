@@ -20,7 +20,7 @@ artifacts encode, as a labeled answer key for KG/RAG/search eval.
 # Render the v1 golden run: a markdown corpus + gold knowledge graph,
 # deterministic and network-free (default `fake` backend).
 enterprise-sim run examples/golden.toml
-enterprise-sim eval runs/golden/golden-slice-co-40644d551158
+enterprise-sim eval runs/golden/golden-slice-co-5b1e84522235
 ```
 
 ### Generating with a real model

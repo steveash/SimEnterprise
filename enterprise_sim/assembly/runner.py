@@ -32,6 +32,8 @@ from enterprise_sim.core.llm import LLMClient, LLMConfig, build_client
 from enterprise_sim.core.sim.scheduler import ValidationIssue
 from enterprise_sim.core.world import World
 from enterprise_sim.exporters import EXPORTERS, KgBundle, write_jsonl
+from enterprise_sim.jobs.control import RunControl
+from enterprise_sim.jobs.progress import NullSink, ProgressEvent, ProgressSink
 from enterprise_sim.producers.artifact import issue_records
 from enterprise_sim.world_builders import build_world, write_organization
 
@@ -235,6 +237,8 @@ def execute_run(
     generated_at: str | None = None,
     client: LLMClient | None = None,
     live: bool = False,
+    progress: ProgressSink | None = None,
+    control: RunControl | None = None,
 ) -> RunResult:
     """Materialize the full run directory for ``config`` and return its result.
 
@@ -259,7 +263,15 @@ def execute_run(
         live: Opt in to the real provider named by the config's ``[model]
             backend``. Ignored when an explicit ``client`` is passed. A live run
             makes network calls, costs money, and is not byte-reproducible.
+        progress: Optional sink for :class:`~enterprise_sim.jobs.progress.ProgressEvent`\\ s
+            (``docs/EXPLORER_RUNS.md`` §3.1); defaults to a no-op sink, so passing
+            nothing keeps this function byte-identical to before this parameter
+            existed.
+        control: Optional cooperative-pause control (§3.2), forwarded to
+            :func:`~enterprise_sim.assembly.corpus.build_corpus`. ``None`` (the
+            default) never pauses.
     """
+    progress = progress or NullSink()
     client = _client_for(config, client, live=live)
     # The backend actually used — which is ``client``'s, not the config's, since a
     # caller-supplied client overrides both ``live`` and ``[model] backend``. The
@@ -267,9 +279,22 @@ def execute_run(
     # a placeholder one (and vice versa).
     backend = client.config.backend
 
+    progress.emit(ProgressEvent.now("phase", phase="world"))
     world = build_world(config)
-    corpus = build_corpus(world, config, client)
+    progress.emit(
+        ProgressEvent.now(
+            "world_built",
+            nodes=world.node_count,
+            edges=world.edge_count,
+            departments=len(world.nodes_by_type("Department")),
+            scenarios=len(
+                [n for n in world.nodes_by_type("Initiative") if n.props.get("type") == "scenario"]
+            ),
+        )
+    )
+    corpus = build_corpus(world, config, client, progress=progress, control=control)
 
+    progress.emit(ProgressEvent.now("phase", phase="assemble"))
     # The consistency validator (D17): soft cross-checks over the built run. Its
     # findings join the scheduler's and producers' issues in one issues.jsonl,
     # and the combined tally is summarised into the manifest. Report-and-continue
@@ -308,6 +333,22 @@ def execute_run(
 
     manifest_json = json.dumps(manifest.to_dict(), sort_keys=True, indent=2)
     (run_dir / _MANIFEST).write_text(manifest_json + "\n", encoding="utf-8")
+
+    # At the pipeline level there is exactly one "segment" (a job's ledger is what
+    # distinguishes cost-so-far from cost-across-segments, §3.3/§3.4), so the
+    # segment and total costs coincide here.
+    progress.emit(
+        ProgressEvent.now(
+            "done",
+            run_id=manifest.run_id,
+            run_dir=str(run_dir),
+            artifacts=len(corpus.artifacts),
+            events=len(corpus.journal),
+            cost_usd_segment=client.cost.total_cost_usd,
+            cost_usd_total=client.cost.total_cost_usd,
+        )
+    )
+    progress.emit(ProgressEvent.now("phase", phase="done"))
 
     return RunResult(
         run_id=manifest.run_id,

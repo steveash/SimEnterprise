@@ -71,6 +71,31 @@ class ProjectConfig(_Frozen):
     description: str | None = Field(
         default=None, description="Optional free-text description / goal."
     )
+    playbook: str | None = Field(
+        default=None,
+        description=(
+            "Registered playbook this project's scenario binds to. Defaults to "
+            "its department archetype's first playbook."
+        ),
+    )
+    department: str | None = Field(
+        default=None,
+        description=(
+            "Archetype name of the department this project is anchored under. "
+            "Defaults to the primary department."
+        ),
+    )
+
+
+class DepartmentConfig(_Frozen):
+    """Explicit archetype selection for one department (§3.6).
+
+    Ordered — the first entry is the *primary* department (the one a project
+    attaches to by default, and the vertical/size-driven selection's role when
+    ``RunConfig.departments`` is omitted entirely).
+    """
+
+    archetype: str = Field(min_length=1, description="A registered department archetype name.")
 
 
 class SimulationConfig(_Frozen):
@@ -171,6 +196,13 @@ class RunConfig(_Frozen):
     projects: tuple[ProjectConfig, ...] = Field(
         default=(),
         description="Optional anchor projects; empty lets Layer A invent them.",
+    )
+    departments: tuple[DepartmentConfig, ...] = Field(
+        default=(),
+        description=(
+            "Optional explicit department/archetype selection (ordered; first is "
+            "primary). Empty applies the vertical/size-driven selection, as before."
+        ),
     )
     model: ModelConfig = Field(default_factory=ModelConfig)
     scale: ScaleConfig = Field(default_factory=ScaleConfig)

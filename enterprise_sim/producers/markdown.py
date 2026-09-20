@@ -116,7 +116,7 @@ class MarkdownProducer:
         candidates = _candidate_references(view, exclude=artifact_id)
 
         # --- generate prose, then detect + (at most one) repair (§16.2.3) -----
-        prose, references_used, issues = self._generate_grounded(
+        prose, references_used, issues, cache_hit = self._generate_grounded(
             client=client,
             event=event,
             kind=kind,
@@ -182,6 +182,7 @@ class MarkdownProducer:
             mentions=mentions,
             issues=issues,
             metadata=metadata,
+            cache_hit=cache_hit,
         )
 
     # -- generation + grounding repair ------------------------------------
@@ -199,13 +200,16 @@ class MarkdownProducer:
         candidates: list[str],
         ctx: ProducerContext,
         path: str,
-    ) -> tuple[str, tuple[str, ...], list[ValidationIssue]]:
+    ) -> tuple[str, tuple[str, ...], list[ValidationIssue], bool]:
         """Generate prose, then run the detect + single-repair loop (D30.3).
 
-        Returns ``(prose, verified_references, issues)``. A repair is attempted at
-        most once: if the first draft names an out-of-scope entity, a corrective
-        instruction is appended and the draft regenerated. Whatever is still
-        unresolved after that is reported as a validation issue, never raised.
+        Returns ``(prose, verified_references, issues, cache_hit)``, where
+        ``cache_hit`` is ``True`` only when every ``generate_content`` call this
+        render made (the draft, and the repair if one fired) was served from the
+        response cache. A repair is attempted at most once: if the first draft
+        names an out-of-scope entity, a corrective instruction is appended and the
+        draft regenerated. Whatever is still unresolved after that is reported as
+        a validation issue, never raised.
         """
         system = _system_prompt(kind)
         stable = _stable_context(ctx)
@@ -222,6 +226,7 @@ class MarkdownProducer:
         result = client.generate_content(prompt, candidate_references=candidates)
         prose = result.content
         references = result.references_used
+        cache_hits = [result.cache_hit]
 
         unresolved = detect_unresolved_names(prose, roster)
         if unresolved:
@@ -229,6 +234,7 @@ class MarkdownProducer:
             repaired = client.generate_content(repair_prompt, candidate_references=candidates)
             prose = repaired.content
             references = repaired.references_used
+            cache_hits.append(repaired.cache_hit)
             unresolved = detect_unresolved_names(prose, roster)
 
         issues: list[ValidationIssue] = []
@@ -244,7 +250,7 @@ class MarkdownProducer:
                     details={"names": list(unresolved)},
                 )
             )
-        return prose, references, issues
+        return prose, references, issues, all(cache_hits)
 
 
 # -- prompt assembly --------------------------------------------------------

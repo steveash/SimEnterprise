@@ -10,7 +10,7 @@
 # Scale up with `--scale N` (multiplies every population) or point [world] at a
 # completed enterprise-sim run to link dimensions against its exported KG:
 #   [world]
-#   run_dir = "runs/golden/golden-slice-co-40644d551158"
+#   run_dir = "runs/golden/golden-slice-co-5b1e84522235"
 
 scenarios = [
     "product_growth",

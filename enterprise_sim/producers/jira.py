@@ -141,6 +141,7 @@ class JiraProducer:
         assignee = _assignee(event, view, reporter)
         commenters = _resolve_people(event, view, _COMMENTER_ROLES)
 
+        cache_hits: list[bool] = []
         description, references, issues = self._generate_grounded(
             client=client,
             event=event,
@@ -151,6 +152,7 @@ class JiraProducer:
             reporter=reporter,
             ctx=ctx,
             path=path,
+            cache_hits=cache_hits,
         )
         comments = self._build_comments(
             commenters=commenters,
@@ -160,6 +162,7 @@ class JiraProducer:
             issue_type=issue_type,
             title=title,
             event=event,
+            cache_hits=cache_hits,
         )
 
         body = _render_issue_json(
@@ -224,6 +227,7 @@ class JiraProducer:
             mentions=mentions,
             issues=issues,
             metadata=metadata,
+            cache_hit=all(cache_hits),
         )
 
     # -- generation + grounding repair ------------------------------------
@@ -240,6 +244,7 @@ class JiraProducer:
         reporter: Node | None,
         ctx: ProducerContext,
         path: str,
+        cache_hits: list[bool],
     ) -> tuple[str, tuple[str, ...], list[ValidationIssue]]:
         """Generate the issue description, then run the detect + single-repair loop (D30.3).
 
@@ -263,6 +268,7 @@ class JiraProducer:
         result = client.generate_content(prompt, candidate_references=list(event.subjects))
         description = result.content
         references = result.references_used
+        cache_hits.append(result.cache_hit)
 
         unresolved = detect_unresolved_names(description, roster)
         if unresolved:
@@ -272,6 +278,7 @@ class JiraProducer:
             )
             description = repaired.content
             references = repaired.references_used
+            cache_hits.append(repaired.cache_hit)
             unresolved = detect_unresolved_names(description, roster)
 
         issues: list[ValidationIssue] = []
@@ -301,18 +308,20 @@ class JiraProducer:
         issue_type: str,
         title: str,
         event: Event,
+        cache_hits: list[bool],
     ) -> list[dict[str, object]]:
         """Turn the issue's reviewers into grounded Jira comments with in-window stamps.
 
         Each commenter (a real in-scope person) leaves one short grounded comment,
         stamped at an in-window offset off the event instant. Deterministic given a
         deterministic backend; out-of-scope names in a comment are still caught when
-        the rendered JSON is mention-tagged.
+        the rendered JSON is mention-tagged. Each comment's cache hit is appended to
+        ``cache_hits`` so the artifact's overall ``cache_hit`` reflects every call.
         """
         comments: list[dict[str, object]] = []
         for i, person in enumerate(commenters):
             at = event.timestamp + _FIRST_COMMENT_DELAY + _COMMENT_SPACING * i
-            text = _generate_comment_text(
+            text, hit = _generate_comment_text(
                 client=client,
                 ctx=ctx,
                 roster=roster,
@@ -322,6 +331,7 @@ class JiraProducer:
                 author=person,
                 at=at,
             )
+            cache_hits.append(hit)
             comments.append(
                 {
                     "author": {"displayName": _display_name(person), "accountId": person.id},
@@ -406,8 +416,11 @@ def _generate_comment_text(
     event: Event,
     author: Node,
     at: datetime,
-) -> str:
-    """Generate one grounded, in-character Jira comment (a single constrained call)."""
+) -> tuple[str, bool]:
+    """Generate one grounded, in-character Jira comment (a single constrained call).
+
+    Returns ``(text, cache_hit)``.
+    """
     system = (
         f"You write a single brief Jira comment (one or two sentences) on a "
         f"{issue_type}. Write as the named teammate, grounded strictly in the "
@@ -426,7 +439,7 @@ def _generate_comment_text(
         system=system, stable_context=_stable_context(ctx), brief="\n".join(lines)
     )
     result = client.generate_content(prompt)
-    return " ".join(result.content.split()).strip()
+    return " ".join(result.content.split()).strip(), result.cache_hit
 
 
 # -- issue JSON rendering ---------------------------------------------------

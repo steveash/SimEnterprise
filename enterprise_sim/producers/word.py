@@ -100,6 +100,7 @@ class WordProducer:
         reviewers = _resolve_people(event, view, _REVIEWER_ROLES)
         candidates = _candidate_references(view, exclude=artifact_id)
 
+        cache_hits: list[bool] = []
         prose, references, issues = self._generate_grounded(
             client=client,
             event=event,
@@ -111,6 +112,7 @@ class WordProducer:
             candidates=candidates,
             ctx=ctx,
             path=path,
+            cache_hits=cache_hits,
         )
 
         paragraphs, anchor_idx = _body_paragraphs(
@@ -131,6 +133,7 @@ class WordProducer:
             kind=kind,
             title=title,
             event=event,
+            cache_hits=cache_hits,
         )
         docx = DocxDocument(
             body=paragraphs,
@@ -188,6 +191,7 @@ class WordProducer:
             mentions=mentions,
             issues=issues,
             metadata=metadata,
+            cache_hit=all(cache_hits),
         )
 
     # -- generation + grounding repair ------------------------------------
@@ -205,6 +209,7 @@ class WordProducer:
         candidates: Sequence[str],
         ctx: ProducerContext,
         path: str,
+        cache_hits: list[bool],
     ) -> tuple[str, tuple[str, ...], list[ValidationIssue]]:
         """Generate the body prose, then run the detect + single-repair loop (D30.3).
 
@@ -228,6 +233,7 @@ class WordProducer:
         result = client.generate_content(prompt, candidate_references=candidates)
         prose = result.content
         references = result.references_used
+        cache_hits.append(result.cache_hit)
 
         unresolved = detect_unresolved_names(prose, roster)
         if unresolved:
@@ -235,6 +241,7 @@ class WordProducer:
             repaired = client.generate_content(repair, candidate_references=candidates)
             prose = repaired.content
             references = repaired.references_used
+            cache_hits.append(repaired.cache_hit)
             unresolved = detect_unresolved_names(prose, roster)
 
         issues: list[ValidationIssue] = []
@@ -264,18 +271,21 @@ class WordProducer:
         kind: str,
         title: str,
         event: Event,
+        cache_hits: list[bool],
     ) -> list[DocxComment]:
         """Turn the document's reviewers into a native, threaded review chain.
 
         Each reviewer (a real in-scope person) leaves one grounded comment; the
         comments form a reply chain (the first is top-level, each later one replies
         to its predecessor) with in-window timestamps spaced off the draft instant.
-        Deterministic given a deterministic backend.
+        Deterministic given a deterministic backend. Each comment's cache hit is
+        appended to ``cache_hits`` so the artifact's overall ``cache_hit`` reflects
+        every call this render made, not just the body draft.
         """
         thread: list[DocxComment] = []
         for i, person in enumerate(reviewers):
             at = event.timestamp + _FIRST_COMMENT_DELAY + _COMMENT_SPACING * i
-            text = _generate_comment_text(
+            text, hit = _generate_comment_text(
                 client=client,
                 ctx=ctx,
                 roster=roster,
@@ -286,6 +296,7 @@ class WordProducer:
                 at=at,
                 replying=i > 0,
             )
+            cache_hits.append(hit)
             name = _display_name(person)
             thread.append(
                 DocxComment(
@@ -379,13 +390,13 @@ def _generate_comment_text(
     author: Node,
     at: datetime,
     replying: bool,
-) -> str:
+) -> tuple[str, bool]:
     """Generate one grounded, in-character review comment (a single constrained call).
 
-    The comment is short and roster-grounded; unlike the body it gets no repair
-    pass — a comment is low-stakes, and any out-of-scope name in it is still caught
-    when the projection is mention-tagged. Deterministic given a deterministic
-    backend.
+    Returns ``(text, cache_hit)``. The comment is short and roster-grounded;
+    unlike the body it gets no repair pass — a comment is low-stakes, and any
+    out-of-scope name in it is still caught when the projection is mention-tagged.
+    Deterministic given a deterministic backend.
     """
     human = kind.replace("_", " ")
     system = (
@@ -411,7 +422,7 @@ def _generate_comment_text(
         system=system, stable_context=_stable_context(ctx), brief="\n".join(lines)
     )
     result = client.generate_content(prompt)
-    return " ".join(result.content.split()).strip()
+    return " ".join(result.content.split()).strip(), result.cache_hit
 
 
 # -- body + projection rendering --------------------------------------------

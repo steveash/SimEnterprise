@@ -29,11 +29,11 @@ from its seed and can be checked in CI without any API cost.
 enterprise-sim run examples/golden.toml
 
 # Evaluate the completed run (structural realism metrics).
-enterprise-sim eval runs/golden/golden-slice-co-40644d551158
+enterprise-sim eval runs/golden/golden-slice-co-5b1e84522235
 ```
 
 Both commands are also runnable as `python -m enterprise_sim.cli ...`. The run id
-`golden-slice-co-40644d551158` is a pure function of `(config, seed)`; it is
+`golden-slice-co-5b1e84522235` is a pure function of `(config, seed)`; it is
 pinned by the acceptance test, so any change to the config that would alter the
 run surfaces as a loud test failure.
 
@@ -57,7 +57,7 @@ additionally re-sends the agent's own system prompt on every call, so a real
 ## What the run produces
 
 ```
-runs/golden/golden-slice-co-40644d551158/
+runs/golden/golden-slice-co-5b1e84522235/
 ├── manifest.json              # run index: ids, counts, validation summary
 ├── config.snapshot.json       # the validated config, frozen for reproducibility
 ├── organization/              # Layer A reference data (markdown)
