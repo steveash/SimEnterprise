@@ -52,6 +52,14 @@ class QAPair:
             the canonical name) for reports; ``None`` when not applicable.
         difficulty: A coarse difficulty tag (generator-defined, e.g.
             ``easy``/``medium``/``hard``).
+        source: Where the pair came from: ``"generated"`` (the deterministic
+            generators in this module, the default) or ``"proposed"`` (added by
+            the explorer's eval-proposal chat, ``docs/EXPLORER_EVALS.md`` §1).
+            Not part of the pair's identity (:func:`_qid`-equivalent hashing
+            excludes it) so re-generating a benchmark never rewrites a proposed
+            pair's id.
+        tags: Free-form labels (e.g. the proposal chat's theme). Also excluded
+            from identity for the same reason.
     """
 
     id: str
@@ -61,18 +69,22 @@ class QAPair:
     expected_ids: tuple[str, ...]
     expected_label: str | None = None
     difficulty: str = "medium"
+    source: str = "generated"
+    tags: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if self.reasoning_type not in REASONING_TYPES:
             allowed = ", ".join(sorted(REASONING_TYPES))
             raise ValueError(f"reasoning_type {self.reasoning_type!r} is not one of: {allowed}")
-        # Normalize expected_ids to a tuple even when constructed from a list, so
-        # callers that pass a list still get a hashable, immutable pair.
+        # Normalize expected_ids/tags to tuples even when constructed from a
+        # list, so callers that pass a list still get a hashable, immutable pair.
         if not isinstance(self.expected_ids, tuple):
             object.__setattr__(self, "expected_ids", tuple(self.expected_ids))
+        if not isinstance(self.tags, tuple):
+            object.__setattr__(self, "tags", tuple(self.tags))
 
     def to_dict(self) -> dict[str, Any]:
-        """Return a JSON-serializable dict (``expected_ids`` as a list)."""
+        """Return a JSON-serializable dict (``expected_ids``/``tags`` as lists)."""
         return {
             "id": self.id,
             "question": self.question,
@@ -81,11 +93,17 @@ class QAPair:
             "expected_ids": list(self.expected_ids),
             "expected_label": self.expected_label,
             "difficulty": self.difficulty,
+            "source": self.source,
+            "tags": list(self.tags),
         }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> QAPair:
-        """Reconstruct a :class:`QAPair` from :meth:`to_dict` output."""
+        """Reconstruct a :class:`QAPair` from :meth:`to_dict` output.
+
+        ``source`` and ``tags`` are read with defaults so a JSONL line written
+        before either field existed still round-trips.
+        """
         return cls(
             id=data["id"],
             question=data["question"],
@@ -94,6 +112,8 @@ class QAPair:
             expected_ids=tuple(data["expected_ids"]),
             expected_label=data.get("expected_label"),
             difficulty=data.get("difficulty", "medium"),
+            source=data.get("source", "generated"),
+            tags=tuple(data.get("tags", ())),
         )
 
     def to_jsonl(self) -> str:

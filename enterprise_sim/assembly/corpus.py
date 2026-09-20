@@ -43,7 +43,13 @@ from enterprise_sim.authoring.sdk import Playbook as SdkPlaybook
 from enterprise_sim.core.config import RunConfig
 from enterprise_sim.core.events import EventJournal
 from enterprise_sim.core.llm import LLMClient
-from enterprise_sim.core.registry import PLAYBOOKS, UnknownPluginError, discover
+from enterprise_sim.core.registry import (
+    PLAYBOOKS,
+    UnknownPluginError,
+    discover,
+    discover_paths,
+    plugin_paths,
+)
 from enterprise_sim.core.registry.binding import BindingMap
 from enterprise_sim.core.sim.calendar import WorkingCalendar
 from enterprise_sim.core.sim.scheduler import Scheduler, ValidationIssue
@@ -179,6 +185,7 @@ def build_corpus(
     end = datetime.combine(config.simulation.period_end, calendar.day_end)
 
     discover("enterprise_sim.playbooks")  # idempotent; populates the PLAYBOOKS catalog.
+    discover_paths(plugin_paths(config.plugins))  # external templates.
 
     company_profile = _company_profile(world)
 

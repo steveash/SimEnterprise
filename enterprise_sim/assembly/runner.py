@@ -136,6 +136,11 @@ def compute_config_digest(config: RunConfig, *, backend: str | None = None) -> s
     * ``scale`` — concurrency, cost ceiling, and cache settings. The corpus is
       identical regardless of these (concurrency is bounded but deterministic,
       D26), so two runs that differ only in scale share an id and manifest.
+    * ``plugins`` — extra external plugin directories to discover
+      (EXPLORER_TEMPLATES.md §2.1). Like ``scale``, this is about *how* the run
+      finds its registrations, not what the run is: two configs that resolve to
+      the same registered archetype/playbook should share an id whether that
+      registration came from the package or a template directory.
 
     ``backend`` is the *effective* render backend, which is not a config field:
     the same config renders placeholder prose by default and model-authored prose
@@ -147,6 +152,7 @@ def compute_config_digest(config: RunConfig, *, backend: str | None = None) -> s
     payload = _canonical_config(config)
     payload.pop("output_dir", None)
     payload.pop("scale", None)
+    payload.pop("plugins", None)
     if backend is not None and backend != _DEFAULT_BACKEND:
         payload["render_backend"] = backend
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"))
