@@ -1,6 +1,6 @@
 """Config schema, validation, seed/determinism.
 
-Public surface for run configuration (:class:`RunConfig` and friends), file
+Public surface for run configuration (:class:`WorldConfig` and friends), file
 loading (:func:`load_config`), and the deterministic seed/sub-stream helpers
 (:func:`derive_subseed`, :func:`substream`, :class:`SeedContext`).
 """
@@ -15,13 +15,15 @@ from enterprise_sim.core.config.loader import (
 from enterprise_sim.core.config.models import (
     CompanyConfig,
     CompanySize,
+    DataAuthoring,
+    DataPlanConfig,
     DepartmentConfig,
     LLMBackend,
     ModelConfig,
     ProjectConfig,
-    RunConfig,
     ScaleConfig,
     SimulationConfig,
+    WorldConfig,
 )
 from enterprise_sim.core.config.seed import (
     SeedContext,
@@ -33,11 +35,13 @@ __all__ = [
     "CompanyConfig",
     "CompanySize",
     "ConfigError",
+    "DataAuthoring",
+    "DataPlanConfig",
     "DepartmentConfig",
     "LLMBackend",
     "ModelConfig",
     "ProjectConfig",
-    "RunConfig",
+    "WorldConfig",
     "ScaleConfig",
     "SeedContext",
     "SimulationConfig",

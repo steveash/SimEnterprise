@@ -1,4 +1,4 @@
-# Explorer: authoring templates (departments & scenario playbooks)
+# Explorer: authoring templates (departments, playbooks & data scenarios)
 
 > Part of [`EXPLORER.md`](./EXPLORER.md). The **Templates** view lets you create
 > every kind of simulation customization — a new **department archetype**, a new
@@ -26,7 +26,7 @@ templates/                      # GRAPH_EXPLORER_TEMPLATES_DIR, default <repo>/t
   <slug>/
     template.json               # metadata (below)
     plugin.py                   # registers ARCHETYPES / PLAYBOOKS / PROCESSES on import — same shape as
-                                # enterprise_sim/playbooks/build_software.py & archetypes/engineering.py
+                                # templates/build_software/plugin.py & templates/engineering/plugin.py
     test_<slug>.py              # pytest: run_playbook + assert_conforms + check_playbook (+ golden snapshot)
     <slug>.golden.jsonl         # optional testkit snapshot
 ```
@@ -36,13 +36,35 @@ templates/                      # GRAPH_EXPLORER_TEMPLATES_DIR, default <repo>/t
 {
   "slug": "clinical_trials",
   "name": "Clinical trials",
-  "kind": "bundle",                    // "department" | "playbook" | "bundle"
+  "kind": "bundle",                    // "department" | "playbook" | "bundle" | "data_scenario"
   "description": "A biotech clinical-operations department running study playbooks.",
   "provides": {"archetypes": ["clinical_ops"], "playbooks": ["run_clinical_study"], "processes": ["…"]},
   "created_at": "…", "updated_at": "…",
   "validation": {"status": "valid" | "invalid" | "unvalidated", "checked_at": "…", "summary": "lint 0 errors / conformance ok / 3 tests passed"}
 }
 ```
+
+### 1.1 What each kind is for
+
+A world has two halves, and templates cover both:
+
+| kind | registers | becomes |
+|------|-----------|---------|
+| `department` | an org-unit archetype (charter, team shapes, the playbooks it runs) | who works at the company |
+| `playbook` | a scenario script (ordered events + deliverables) and its processes | the document corpus + graph edges |
+| `bundle` | a department and a playbook it runs | both of the above |
+| `data_scenario` | a structured-data scenario in `DATA_SCENARIOS` (a causal spec: populations, variables, tables, views, business questions) | parquet tables + views in `<world>/data/<scenario>/` (docs/DATA_PRODUCTS.md) |
+
+A scaffolded `data_scenario` is a small lint-clean spec (one demand factor, an
+`account` population, a dimension and a daily fact table, a weekly view, two
+questions — one with a gap fix). `templates validate` adds a seventh step,
+**`data_spec`**: it lints the spec and samples a tiny copy end to end against a
+small deterministic world, reporting rows per table and how many questions were
+answerable before gap fixes (lint errors or a crashing sample fail it). Valid data
+scenarios appear in `world catalog` / `templates catalog` under `data_scenarios`
+and in the Worlds form's **Structured data** section. The authoring agent gets a
+data-scenario prompt (docs/DATA_PRODUCTS.md + the built-in scenarios to copy)
+instead of the playbook skill.
 
 ## 2. Python: external plugin discovery + `enterprise_sim.templates`
 
@@ -77,7 +99,7 @@ enterprise-sim templates scaffold  --dir DIR --slug S --kind K --name N [--descr
 enterprise-sim templates validate  --dir DIR --slug S     # JSON report (below); also rewrites template.json.validation
 enterprise-sim templates delete    --dir DIR --slug S
 enterprise-sim templates catalog   [--dir DIR]            # JSON: built-in + template archetypes/playbooks/processes
-                                                          #   (what `job catalog` embeds; the run form's dropdowns)
+                                                          #   (what `world catalog` embeds; the run form's dropdowns)
 ```
 
 `validate` runs, in order, and reports each as `{"step", "ok", "detail"}`:

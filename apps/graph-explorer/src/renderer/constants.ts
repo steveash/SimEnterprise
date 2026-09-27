@@ -31,6 +31,7 @@ export const HIERARCHY_EDGES = new Set([
 
 export const MODELS = [
   { id: 'sonnet', label: 'Sonnet 4.6 (fast)' },
+  { id: 'claude-opus-5-5', label: 'Opus 5.5 (newest)' },
   { id: 'opus', label: 'Opus 4.8 (powerful)' },
   { id: 'haiku', label: 'Haiku 4.5 (cheap)' }
 ]

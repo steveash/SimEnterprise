@@ -9,10 +9,15 @@ from __future__ import annotations
 
 import pytest
 from enterprise_sim.archetypes._base import DepartmentArchetypeSpec, TeamShape
-from enterprise_sim.archetypes.engineering import ENGINEERING
-from enterprise_sim.archetypes.retail import RETAIL
 from enterprise_sim.authoring.patterns import REFERENCE_PLAYBOOKS
-from enterprise_sim.core.registry import ARCHETYPES, DepartmentArchetype, discover
+from enterprise_sim.core.registry import ARCHETYPES, DepartmentArchetype, load_templates
+
+from tests._templates import template_module
+
+# The departments are templates (``templates/engineering``, ``templates/retail``);
+# resolve their module constants via the registry.
+ENGINEERING: DepartmentArchetypeSpec = template_module(ARCHETYPES, "engineering").ENGINEERING
+RETAIL: DepartmentArchetypeSpec = template_module(ARCHETYPES, "retail").RETAIL
 
 ARCHETYPE_SPECS = [ENGINEERING, RETAIL]
 
@@ -21,15 +26,15 @@ ARCHETYPE_SPECS = [ENGINEERING, RETAIL]
 
 
 def test_discovery_registers_both_archetypes() -> None:
-    # Importing the package's submodules (what discovery does) is what fires the
-    # registration side effects; idempotent because Python caches the modules.
-    discover("enterprise_sim.archetypes")
+    # Loading the templates (what discovery does) fires the registration side
+    # effects; idempotent because the loaded modules are cached.
+    load_templates()
     assert "engineering" in ARCHETYPES
     assert "retail" in ARCHETYPES
 
 
 def test_registered_objects_are_the_module_constants() -> None:
-    discover("enterprise_sim.archetypes")
+    load_templates()
     assert ARCHETYPES.get("engineering") is ENGINEERING
     assert ARCHETYPES.get("retail") is RETAIL
 

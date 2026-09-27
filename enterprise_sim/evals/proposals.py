@@ -47,9 +47,9 @@ class Rejection:
         return {"question": self.question, "reason": self.reason}
 
 
-def load_node_ids(run_dir: str | Path) -> frozenset[str]:
+def load_node_ids(world_dir: str | Path) -> frozenset[str]:
     """Every node id in ``<run>/kg/nodes.jsonl`` — what ``expected_ids`` must be a subset of."""
-    path = Path(run_dir) / "kg" / "nodes.jsonl"
+    path = Path(world_dir) / "kg" / "nodes.jsonl"
     ids: set[str] = set()
     for line in path.read_text(encoding="utf-8").splitlines():
         if line.strip():
@@ -58,7 +58,7 @@ def load_node_ids(run_dir: str | Path) -> frozenset[str]:
 
 
 def validate_proposals(
-    run_dir: str | Path,
+    world_dir: str | Path,
     raw_proposals: Iterable[dict[str, Any]],
     *,
     node_ids: frozenset[str] | None = None,
@@ -73,8 +73,8 @@ def validate_proposals(
     question already in the run's set or earlier in this same batch. Accepted
     pairs get ``source="proposed"``.
     """
-    ids = node_ids if node_ids is not None else load_node_ids(run_dir)
-    existing_ids = {p.id for p in read_questions(run_dir)}
+    ids = node_ids if node_ids is not None else load_node_ids(world_dir)
+    existing_ids = {p.id for p in read_questions(world_dir)}
     accepted: list[QAPair] = []
     rejected: list[Rejection] = []
     seen_in_batch: set[str] = set()

@@ -63,3 +63,73 @@
 .evals-review-list { flex: 1; overflow-y: auto; margin: 8px 0; }
 .evals-review-row { display: flex; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--line); }
 .evals-review-invalid { opacity: 0.55; }
+
+/* ---- answer confidence (enterprise_sim.evals.critic) ---- */
+.conf { display: inline-flex; align-items: center; gap: 5px; flex: none; }
+.conf-meter { width: 28px; height: 6px; border-radius: 3px; background: var(--bg3); border: 1px solid var(--line); overflow: hidden; display: inline-block; }
+.conf-fill { display: block; height: 100%; }
+.conf-high .conf-fill { background: var(--accent2); }
+.conf-medium .conf-fill { background: var(--warn); }
+.conf-low .conf-fill { background: var(--err); }
+.conf-unreviewed .conf-meter { border-style: dashed; }
+.conf-check {
+  width: 16px; height: 16px; border-radius: 50%; display: inline-grid; place-items: center; font-size: 10px;
+  color: var(--bg); background: var(--accent);
+}
+.conf-label { font-size: 11px; }
+.conf-verified .conf-label { color: var(--accent); }
+.conf-low .conf-label { color: var(--err); }
+.conf-medium .conf-label { color: var(--warn); }
+.conf-high .conf-label { color: var(--accent2); }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.conf-summary { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0; }
+.conf-pill { padding: 1px 7px; border-radius: 10px; border: 1px solid var(--line); }
+.conf-pill.conf-low { color: var(--err); border-color: #5a2030; }
+.conf-pill.conf-medium { color: var(--warn); }
+.conf-pill.conf-high { color: var(--accent2); border-color: #16604a; }
+.conf-pill.conf-verified { color: var(--accent); border-color: var(--accent); }
+.review-answers { margin: 4px 0 6px; }
+.review-answers summary { cursor: pointer; color: var(--text); }
+.review-answers > div { margin-top: 6px; line-height: 1.4; }
+.evals-row { align-items: center; }
+
+.answer-confidence { display: flex; flex-direction: column; gap: 4px; margin: 4px 0 8px; }
+.answer-critique { line-height: 1.4; }
+.answer-editor { display: flex; flex-direction: column; gap: 6px; }
+.answer-chip { display: inline-flex; align-items: center; gap: 4px; cursor: default; }
+.answer-chip-x { background: none; border: none; color: var(--muted); cursor: pointer; padding: 0 2px; font-size: 13px; line-height: 1; }
+.answer-chip-x:hover { color: var(--err); }
+.answer-hits { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: var(--radius); max-height: 180px; overflow-y: auto; }
+.answer-hit {
+  display: flex; justify-content: space-between; gap: 8px; text-align: left; padding: 4px 8px;
+  background: var(--bg3); color: var(--text); border: none; border-bottom: 1px solid var(--line); cursor: pointer;
+}
+.answer-hit:hover { background: var(--bg2); color: var(--accent); }
+
+/* ---- per-question transcript (TraceView) ---- */
+.eval-trace { display: flex; flex-direction: column; gap: 6px; }
+.eval-trace-summary { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; color: var(--muted); }
+.eval-trace-error {
+  border: 1px solid #5a2030; background: #2a0e15; color: var(--err); border-radius: var(--radius);
+  padding: 6px 8px; line-height: 1.45; margin: 4px 0;
+}
+.eval-trace-error code { color: var(--text); }
+.eval-trace-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.eval-trace-step { border-left: 2px solid var(--line); padding: 3px 0 3px 8px; }
+.eval-trace-step.user { border-left-color: var(--accent); }
+.eval-trace-step.text { border-left-color: var(--accent2); }
+.eval-trace-step.thinking { border-left-color: var(--muted); }
+.eval-trace-step.tool.err, .eval-trace-step.error { border-left-color: var(--err); }
+.eval-trace-step.outcome { border-left-color: var(--accent); }
+.eval-trace-role { font-size: 10px; text-transform: uppercase; letter-spacing: 0.4px; color: var(--muted); }
+.eval-trace-step summary { cursor: pointer; }
+.eval-trace-text { white-space: pre-wrap; line-height: 1.4; }
+.eval-trace-step pre { white-space: pre-wrap; word-break: break-word; margin: 2px 0 4px; max-height: 320px; overflow: auto; background: var(--bg3); padding: 4px 6px; border-radius: var(--radius); }
+.eval-trace-io { margin-top: 3px; }
+
+/* ---- executions drill-down: list | execution | question ---- */
+.evals-executions.drilled .evals-exec-list { flex: none; width: 340px; }
+.evals-executions.drilled .evals-exec-detail { flex: 1; width: auto; min-width: 360px; }
+.evals-exec-item { width: 460px; flex: none; border-left: 1px solid var(--line); overflow-y: auto; }
+.result-table tr.diff-row.active td { background: var(--bg3); }
+.exec-items td:first-child { max-width: 420px; }

@@ -22,6 +22,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from enterprise_sim.templates._data_scaffold import data_scenario_plugin, data_scenario_test
 from enterprise_sim.templates.store import (
     Template,
     TemplateKind,
@@ -451,6 +452,9 @@ def scaffold(
     elif kind is TemplateKind.PLAYBOOK:
         plugin_source = _playbook_plugin(slug, description)
         test_source = _playbook_test(slug)
+    elif kind is TemplateKind.DATA_SCENARIO:
+        plugin_source = data_scenario_plugin(slug, name or _title(slug), description)
+        test_source = data_scenario_test(slug)
     else:
         plugin_source = _bundle_plugin(slug, description)
         test_source = _bundle_test(slug)

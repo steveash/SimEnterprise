@@ -12,7 +12,7 @@ fidelity into a mean/spread report.
 The design reuses the whole stack unchanged:
 
 * :func:`~enterprise_sim.assembly.execute_run` builds each varied gold run from a
-  seeded :class:`~enterprise_sim.core.config.RunConfig` (the same entry point
+  seeded :class:`~enterprise_sim.core.config.WorldConfig` (the same entry point
   ``tests/test_golden_run.py`` drives), so the gold graph is always deterministic
   and network-free regardless of the reconstruction backend;
 * :func:`~enterprise_sim.reconstruct.build.run_pipeline` reconstructs each run's
@@ -42,8 +42,8 @@ from enterprise_sim.assembly import execute_run
 from enterprise_sim.core.config import (
     CompanyConfig,
     CompanySize,
-    RunConfig,
     SimulationConfig,
+    WorldConfig,
 )
 from enterprise_sim.core.llm import LLMClient, LLMConfig, build_client
 from enterprise_sim.reconstruct.build import (
@@ -77,7 +77,7 @@ class RunSpec:
     """A varied run to generate: an archetype (via ``vertical``), size, and seed.
 
     A spec is a deterministic recipe for one gold run. :meth:`to_config` projects
-    it onto the same :class:`~enterprise_sim.core.config.RunConfig` a hand-written
+    it onto the same :class:`~enterprise_sim.core.config.WorldConfig` a hand-written
     ``.toml`` would produce, so the harness drives
     :func:`~enterprise_sim.assembly.execute_run` exactly as a normal run does.
 
@@ -102,9 +102,9 @@ class RunSpec:
     period_start: date = _WINDOW_START
     period_end: date = _WINDOW_END
 
-    def to_config(self, output_dir: str | Path) -> RunConfig:
-        """Project the spec onto a :class:`RunConfig` landing in ``output_dir``."""
-        return RunConfig(
+    def to_config(self, worlds_root: str | Path) -> WorldConfig:
+        """Project the spec onto a :class:`WorldConfig` landing in ``worlds_root``."""
+        return WorldConfig(
             company=CompanyConfig(
                 name=self.company_name,
                 vertical=self.vertical,
@@ -116,7 +116,7 @@ class RunSpec:
                 period_end=self.period_end,
             ),
             seed=self.seed,
-            output_dir=Path(output_dir),
+            worlds_root=Path(worlds_root),
         )
 
 
@@ -167,7 +167,7 @@ class RunFidelity:
     label: str
     vertical: str
     size: str
-    run_id: str
+    world_id: str
     report: FidelityReport
 
     def to_dict(self) -> dict[str, Any]:
@@ -176,7 +176,7 @@ class RunFidelity:
             "label": self.label,
             "vertical": self.vertical,
             "size": self.size,
-            "run_id": self.run_id,
+            "world_id": self.world_id,
             "fidelity": self.report.to_dict(),
         }
 
@@ -304,13 +304,13 @@ def reconstruct_and_score(
     own gold world. Returns the labelled :class:`RunFidelity`.
     """
     result = execute_run(spec.to_config(work_dir))
-    kg = run_pipeline(str(result.run_dir), client, model=model, config=build_config)
+    kg = run_pipeline(str(result.world_dir), client, model=model, config=build_config)
     report = score_fidelity(kg, result.world)
     return RunFidelity(
         label=spec.label,
         vertical=spec.vertical,
         size=spec.size.value,
-        run_id=result.run_id,
+        world_id=result.world_id,
         report=report,
     )
 

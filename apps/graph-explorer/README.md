@@ -7,8 +7,9 @@ queries — highlighting the answer right on the graph.
 
 ## What it does
 
-- **Load a run** — point at any `runs/.../` directory (the one containing `kg/`). Runs
-  under the repo's `runs/` are auto-discovered.
+- **Load a world** — a world is one folder with a `.world` file (`enterprise_sim.worlds`);
+  every world under the repo's `worlds/` is auto-discovered, and the same list backs the
+  Worlds tab. A world without an exported graph yet is listed but not selectable here.
 - **Interactive graph** — Cytoscape canvas with force / hierarchy / radial layouts,
   per-type colors, a legend that toggles node & edge types, and a **time scrubber** that
   dims entities created after a cursor (watch the week assemble).
@@ -25,12 +26,12 @@ queries — highlighting the answer right on the graph.
   and **save any query as a lens** (see below) to re-run it later in one click.
 - **Saved lenses** — promote a console query to a named, persistent **lens**; lenses
   survive app restarts and re-run with a single click.
-- **Run diff** — compare two runs to see structural drift, with a **typed breakdown**
+- **World diff** — compare two worlds to see structural drift, with a **typed breakdown**
   (per node/edge type added/removed counts) and click-through to each changed element.
 
-## The one-stop UI: Runs · Templates · Evals
+## The one-stop UI: Worlds · Templates · Evals
 
-The topbar's **Explore · Runs · Templates · Evals** switcher turns the explorer
+The topbar's **Explore · Worlds · Templates · Evals** switcher turns the explorer
 into the place you *do* SimEnterprise, not just browse its output. Explore is the
 graph explorer described above. The other three drive the Python package through
 the sidecar's **Python bridge** (`src/sidecar/python.ts`: `enterprise-sim`
@@ -39,24 +40,30 @@ feature-op registry (`src/sidecar/ops.ts` + `src/sidecar/features.ts`) instead o
 growing the dispatcher switch. The shared design lives in
 [`docs/EXPLORER.md`](../../docs/EXPLORER.md).
 
-### Runs
+### Worlds
 
-The **Runs** view ([`docs/EXPLORER_RUNS.md`](../../docs/EXPLORER_RUNS.md))
-launches and drives `enterprise-sim` jobs from the UI instead of the CLI: fill in
-a company / window / departments / scenario-instances / model form, hit
-**Estimate** to see the D13 dry-run cost, then **Start**. A job runs as a
-supervised child process (`src/sidecar/jobs/manager.ts`); its `state.json` /
-`progress.jsonl` on disk (under `runs/.jobs/<job-id>/`) are the source of truth,
-so the UI survives an app restart mid-run. Live progress (phase, done / total with
-a cached / new split, elapsed, ETA, cost so far / projected total) comes from a
-pure event-stream reducer (`src/renderer/jobs/projection.ts`, EWMA-smoothed,
-unit-tested) fed by `watchJob`'s replay-then-live stream. **Pause** is cooperative
-(finishes the in-flight artifact); **Resume** re-runs the same config and every
-already-rendered artifact comes back as a free cache hit. **Extend run** derives a
-child run from a finished one (more time and/or more scenario instances) with its
-own `lineage.json`. A `CostCeilingExceeded` failure shows a *Raise ceiling &
-resume* action that patches the job's config and restarts it. Departments and
-playbooks in the form include valid templates from the Templates view.
+The **Worlds** view ([`docs/EXPLORER_RUNS.md`](../../docs/EXPLORER_RUNS.md)) lists
+**every** world under the worlds root — built from this app or from the command
+line — and creates, extends and drives them without the CLI: fill in a company /
+window / departments / scenario-instances / model form (each section says what it
+is for), hit **Estimate** to see the D13 dry-run cost, then **Create & build**. A
+build runs as a supervised child process (`src/sidecar/worlds/manager.ts`) of
+`enterprise-sim world run`; the world's `.world` file (its job ledger, progress,
+cost, segments) and `.jobs/progress.jsonl` on disk are the source of truth, so the
+UI survives an app restart mid-build, and a world folder can be zipped and moved
+with everything — including pause/resume, which lives on the world-local response
+cache — intact. Live progress (phase, done / total with a cached / new split,
+elapsed, ETA, cost so far / projected total) comes from a pure event-stream reducer
+(`src/renderer/worlds/projection.ts`, EWMA-smoothed, unit-tested) fed by
+`watchWorld`'s replay-then-live stream. **Pause** is cooperative (finishes the
+in-flight artifact); **Resume** re-runs the same config and every already-rendered
+artifact comes back as a free cache hit. **Extend** grows the *same* world in
+place (more time and/or more scenario instances; the `.world` records the change in
+its history and the id never changes). A `CostCeilingExceeded` failure shows a
+*Raise ceiling & resume* action that patches the world's config and rebuilds.
+Departments and playbooks in the form include valid templates from the Templates
+view. Each world row shows what it holds: the graph, any structured-data scenarios
+(`enterprise-sim world data`), and its eval question set.
 
 ### Templates
 
@@ -83,7 +90,7 @@ up in the Runs form's department and playbook dropdowns.
 ### Evals
 
 The **Evals** view ([`docs/EXPLORER_EVALS.md`](../../docs/EXPLORER_EVALS.md)) turns
-a loaded run's KG-QA benchmark question set into something you run and grow from
+a loaded world's KG-QA benchmark question set into something you run and grow from
 the UI:
 
 - **Questions** tab — search / group the run's `evals/questions.jsonl` (by
@@ -101,7 +108,7 @@ the UI:
   query it just ran against the graph (never guessed); review, tick the good ones,
   and **Add to eval set**.
 
-If a run has no question set yet, the view offers to generate one
+If a world has no question set yet, the view offers to generate one
 (`enterprise-sim evals generate`). Sampling and scoring are TypeScript ports of
 `enterprise_sim.evals.sample` / `enterprise_sim.benchmark.score`, parity-tested
 against fixtures generated from the Python originals.

@@ -17,8 +17,8 @@ import type { GraphModel } from '../src/shared/model.js'
 function tinyModel(): GraphModel {
   const now = '2026-01-01T00:00:00Z'
   return {
-    runId: 'test-run',
-    runPath: '/nonexistent/test-run',
+    worldId: 'test-run',
+    worldPath: '/nonexistent/test-run',
     nodes: [
       { id: 'person:ash', type: 'Person', label: 'Steve Ash', aliases: ['Ash'], created_at: now, props: {} },
       { id: 'team:nitro', type: 'Team', label: 'Nitro', aliases: [], created_at: now, props: {} }
@@ -29,7 +29,7 @@ function tinyModel(): GraphModel {
     provenance: [],
     aliases: [],
     validation: [],
-    manifest: null,
+    world: null,
     nodeTypes: ['Person', 'Team'],
     edgeTypes: ['member_of'],
     timeRange: null

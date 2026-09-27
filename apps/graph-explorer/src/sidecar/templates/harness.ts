@@ -19,7 +19,8 @@ export interface TemplateChatContext {
 
 const SKILL_PATH = ['skills', 'author-playbook', 'SKILL.md']
 const PATTERNS_HINT = 'enterprise_sim/authoring/patterns.py'
-const BUILD_SOFTWARE_HINT = 'enterprise_sim/playbooks/build_software.py'
+// The built-ins are ordinary templates in <repo>/templates — the exact shape to copy.
+const BUILD_SOFTWARE_HINT = 'templates/build_software/plugin.py'
 
 function readSkill(repoRoot: string): string {
   const path = join(repoRoot, ...SKILL_PATH)
@@ -33,10 +34,73 @@ function readSkill(repoRoot: string): string {
   }
 }
 
+/** The template's kind, read from its `template.json` (scaffold wrote it). */
+function templateKind(ctx: TemplateChatContext): string {
+  try {
+    const raw = JSON.parse(readFileSync(join(ctx.templatesDir, ctx.slug, 'template.json'), 'utf-8')) as { kind?: string }
+    return raw.kind ?? 'bundle'
+  } catch {
+    return 'bundle'
+  }
+}
+
+function readDoc(repoRoot: string, rel: string): string {
+  const path = join(repoRoot, rel)
+  try {
+    return readFileSync(path, 'utf-8')
+  } catch (e) {
+    return `(could not read ${rel}: ${(e as Error).message})`
+  }
+}
+
+/** The prompt for a `data_scenario` template: a causal spec -> tables, views, questions. */
+function buildDataScenarioPrompt(ctx: TemplateChatContext, relTemplatesDir: string): string {
+  const validateCmd = `uv run enterprise-sim templates validate --dir ${ctx.templatesDir} --slug ${ctx.slug}`
+  return `You are authoring a SimEnterprise DATA SCENARIO TEMPLATE: an external plugin that
+registers a structured-data scenario — a causal graph over categorical and numeric
+variables that is sampled into partitioned parquet tables, materialized into SQL
+views, and asked business questions. When a world is built with this scenario its
+tables land in <world>/data/${ctx.slug}/, over the same window as the document
+corpus, with populations/dimensions linked to the same people and projects in the
+world's knowledge graph (kg_identity / kg_dimensions).
+
+TEMPLATE LAYOUT — this template lives at \`${relTemplatesDir}/${ctx.slug}/\`:
+  template.json   metadata (do not hand-edit "slug" or "kind"; refine "description")
+  plugin.py       registers ONE data scenario into DATA_SCENARIOS on import — same
+                  shape as templates/support_ops/plugin.py:
+                  name, title, brief, build_spec(start, end) -> ScenarioSpec, and
+                  question_bank(spec). It already holds a small lint-clean scaffold.
+  test_<slug>.py  pytest: the spec lints clean and ships questions
+
+VALIDATE with:
+  ${validateCmd}
+Read its JSON report and iterate until "ok": true. For a data scenario the step that
+matters is "data_spec": it lints the spec (errors fail it) and samples a tiny copy
+end to end against a small world, reporting rows per table and how many questions
+were answerable before gap fixes. Include a few questions with a gap fix (the loop
+applies them during a real build) and make sure every other question is answerable.
+
+HARD RULE: you may only write or edit files under \`${relTemplatesDir}/${ctx.slug}/\`.
+NEVER touch \`enterprise_sim/**\`. Read these for the exact shapes to copy:
+  - templates/support_ops/plugin.py (a built-in; the other built-in data scenarios sit
+    beside it: templates/{sales_pipeline,subscription_finance,marketing_attribution,product_growth}/)
+  - enterprise_sim/data_products/scenarios/_helpers.py (variable/eqn/term/table/view/question/gap helpers)
+  - enterprise_sim/data_products/spec.py (the ScenarioSpec model and its validators)
+  - enterprise_sim/data_products/lint.py (what the linter checks)
+
+When you're done (report is "ok": true), end with a short summary of the scenario:
+its populations, tables, views, and the business questions it answers.
+
+---- docs/DATA_PRODUCTS.md (authoritative model) ----
+
+${readDoc(ctx.repoRoot, 'docs/DATA_PRODUCTS.md')}`
+}
+
 function buildSystemPrompt(ctx: TemplateChatContext): string {
   const relTemplatesDir = ctx.templatesDir.startsWith(ctx.repoRoot)
     ? ctx.templatesDir.slice(ctx.repoRoot.length).replace(/^[/\\]/, '')
     : ctx.templatesDir
+  if (templateKind(ctx) === 'data_scenario') return buildDataScenarioPrompt(ctx, relTemplatesDir)
   const validateCmd = `uv run enterprise-sim templates validate --dir ${ctx.templatesDir} --slug ${ctx.slug}`
   return `You are authoring a SimEnterprise TEMPLATE: an external plugin that adds a new
 department archetype and/or scenario playbook, living OUTSIDE the package (so it
@@ -48,14 +112,14 @@ TEMPLATE LAYOUT — this template lives at \`${relTemplatesDir}/${ctx.slug}/\`:
                         "description", is yours to refine)
   plugin.py             registers ARCHETYPES / PLAYBOOKS / PROCESSES on import —
                         same shape as ${BUILD_SOFTWARE_HINT} and
-                        enterprise_sim/archetypes/engineering.py
+                        templates/engineering/plugin.py
   test_<slug>.py        pytest: run_playbook + assert_conforms + check_playbook
                         (+ a golden snapshot once the shape is settled)
 
 VALIDATE with:
   ${validateCmd}
-Run it after every substantive change and read its JSON report: six steps
-(import, lint, conformance, archetype_sanity, tests, dry_run), each
+Run it after every substantive change and read its JSON report: seven steps
+(import, lint, conformance, archetype_sanity, tests, dry_run, data_spec), each
 {"step","ok","detail"}. Iterate until "ok": true for the whole report. A failing
 "lint" or "conformance" step's "detail" tells you exactly what to fix.
 
@@ -66,7 +130,8 @@ below; reread it rather than reaching into engine internals.
 
 Reference patterns worth reading for examples in the exact shape to copy:
   - ${PATTERNS_HINT}       three worked playbooks (build_software, sell_merchandise, run_clinical_study)
-  - ${BUILD_SOFTWARE_HINT}  a built-in playbook module in the exact shape plugin.py should follow
+  - ${BUILD_SOFTWARE_HINT}  a built-in playbook template in the exact shape plugin.py should follow
+  - templates/sell_merchandise/plugin.py  a built-in playbook with two "impl" processes registered
 
 When you're done (report is "ok": true), end with a short summary of what the
 template does and what you validated.

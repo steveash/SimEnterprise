@@ -32,11 +32,19 @@ _TEMPLATE_FILE = "template.json"
 
 
 class TemplateKind(StrEnum):
-    """What a template registers: an archetype, a playbook, or both."""
+    """What a template registers.
+
+    ``department`` — an org-unit archetype (who works there, what it runs);
+    ``playbook`` — a scenario script (the events + deliverables that become the
+    document corpus and graph); ``bundle`` — both; ``data_scenario`` — a
+    structured-data scenario (a causal spec sampled into tables, views and
+    business questions, docs/DATA_PRODUCTS.md).
+    """
 
     DEPARTMENT = "department"
     PLAYBOOK = "playbook"
     BUNDLE = "bundle"
+    DATA_SCENARIO = "data_scenario"
 
 
 class ValidationStatus(StrEnum):
@@ -55,6 +63,7 @@ class Provides(BaseModel):
     archetypes: tuple[str, ...] = ()
     playbooks: tuple[str, ...] = ()
     processes: tuple[str, ...] = ()
+    data_scenarios: tuple[str, ...] = ()
 
 
 class TemplateValidation(BaseModel):

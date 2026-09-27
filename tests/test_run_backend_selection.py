@@ -29,13 +29,13 @@ from enterprise_sim.core.config.models import (
     CompanySize,
     LLMBackend,
     ModelConfig,
-    RunConfig,
     SimulationConfig,
+    WorldConfig,
 )
 
 
-def _config(backend: LLMBackend) -> RunConfig:
-    return RunConfig(
+def _config(backend: LLMBackend) -> WorldConfig:
+    return WorldConfig(
         company=CompanyConfig(name="Acme", vertical="software", size=CompanySize.STARTUP),
         simulation=SimulationConfig(period_start=date(2026, 1, 5), period_end=date(2026, 1, 9)),
         seed=7,
@@ -70,10 +70,10 @@ def test_an_explicit_client_wins_over_live() -> None:
 
 
 def test_run_parser_defaults_live_off() -> None:
-    args = build_parser().parse_args(["run", "examples/golden.toml"])
+    args = build_parser().parse_args(["world", "create", "examples/golden.toml"])
     assert args.live is False
 
 
 def test_run_parser_accepts_live() -> None:
-    args = build_parser().parse_args(["run", "examples/golden.toml", "--live"])
+    args = build_parser().parse_args(["world", "create", "examples/golden.toml", "--live"])
     assert args.live is True

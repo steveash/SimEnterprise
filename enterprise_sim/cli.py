@@ -13,102 +13,14 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from pydantic import ValidationError
-
 from enterprise_sim import __version__
-from enterprise_sim.jobs.cli import add_job_parser
+from enterprise_sim.worlds.cli import add_world_parser
 
 if TYPE_CHECKING:
     from enterprise_sim.authoring.sdk import Playbook
     from enterprise_sim.benchmark.schema import Benchmark
     from enterprise_sim.benchmark.score import Predictions
-    from enterprise_sim.core.config import RunConfig
     from enterprise_sim.core.world import World
-
-
-def _cmd_run(args: argparse.Namespace) -> int:
-    """Load a config and materialize an (M1: empty) reproducible run directory."""
-    config_path = args.config_opt if args.config_opt is not None else args.config
-    if config_path is None:
-        print("enterprise-sim run: provide a config path (.toml or .json)")
-        return 2
-
-    from enterprise_sim.assembly import execute_run
-    from enterprise_sim.core.config import ConfigError, load_config
-
-    try:
-        config = load_config(config_path)
-    except ConfigError as exc:
-        print(f"enterprise-sim run: {exc}")
-        return 2
-    except ValidationError as exc:
-        print(f"enterprise-sim run: invalid config {config_path}:\n{exc}")
-        return 2
-
-    if args.output_dir is not None:
-        config = config.model_copy(update={"output_dir": args.output_dir})
-
-    config = _apply_scale_overrides(config, args)
-
-    print(
-        f"enterprise-sim run: validated config for {config.company.name} "
-        f"({config.company.vertical}, {config.company.size.value}); "
-        f"seed={config.seed}, window={config.simulation.period_start.isoformat()}"
-        f"..{config.simulation.period_end.isoformat()}, projects={len(config.projects)}; "
-        f"backend={config.model.backend.value if args.live else 'fake'}"
-        f"{'' if args.live else ' (deterministic; pass --live for the real provider)'}"
-    )
-
-    from enterprise_sim.core.llm import CostCeilingExceeded
-
-    if args.dry_run:
-        from enterprise_sim.assembly import estimate_run
-
-        try:
-            estimate = estimate_run(config, live=args.live)
-        except CostCeilingExceeded as exc:
-            print(f"enterprise-sim run: {exc}")
-            return 1
-        ceiling = config.scale.cost_ceiling_usd
-        print(
-            f"enterprise-sim run (dry-run): {estimate.num_artifacts} artifacts, "
-            f"estimated ${estimate.estimated_cost_usd:.4f} "
-            f"({estimate.input_tokens_each}+{estimate.output_tokens_each} tok/artifact, "
-            f"model {estimate.model})"
-            + (f"; ceiling ${ceiling:.4f}" if ceiling is not None else "")
-        )
-        return 0
-
-    try:
-        result = execute_run(config, live=args.live)
-    except CostCeilingExceeded as exc:
-        print(f"enterprise-sim run: {exc}")
-        return 1
-    rendered_estimate = result.corpus.estimate
-    estimate_note = (
-        f", est ${rendered_estimate.estimated_cost_usd:.4f}"
-        if rendered_estimate is not None
-        else ""
-    )
-    print(
-        f"enterprise-sim run: wrote {result.run_id} to {result.run_dir} "
-        f"({len(result.corpus.journal)} events, {len(result.corpus.artifacts)} artifacts"
-        f"{estimate_note})"
-    )
-    return 0
-
-
-def _apply_scale_overrides(config: RunConfig, args: argparse.Namespace) -> RunConfig:
-    """Apply ``--max-concurrency`` / ``--cost-ceiling`` CLI overrides onto ``config``."""
-    updates: dict[str, object] = {}
-    if args.max_concurrency is not None:
-        updates["max_concurrency"] = args.max_concurrency
-    if args.cost_ceiling is not None:
-        updates["cost_ceiling_usd"] = args.cost_ceiling
-    if not updates:
-        return config
-    scale = config.scale.model_copy(update=updates)
-    return config.model_copy(update={"scale": scale})
 
 
 def _cmd_lint(args: argparse.Namespace) -> int:
@@ -185,17 +97,15 @@ def _cmd_eval(args: argparse.Namespace) -> int:
     runs the LLM-as-judge through the selected backend (``fake`` by default, so it
     stays deterministic and free). Returns ``1`` if any structural metric failed.
     """
-    import json
-
     from enterprise_sim.authoring.eval import evaluate, format_report, judge_sample
     from enterprise_sim.core.events import EventJournal
 
-    if args.run is None:
+    if args.world is None:
         print("enterprise-sim eval: provide a path to a run output dir")
         return 2
 
-    run_dir = Path(args.run)
-    events_path = run_dir / "kg" / "events.jsonl"
+    world_dir = Path(args.world)
+    events_path = world_dir / "kg" / "events.jsonl"
     if not events_path.is_file():
         print(f"enterprise-sim eval: no event log at {events_path}")
         return 2
@@ -203,13 +113,10 @@ def _cmd_eval(args: argparse.Namespace) -> int:
     with events_path.open(encoding="utf-8") as stream:
         journal = EventJournal.from_jsonl(stream)
 
-    seed = 0
-    manifest_path = run_dir / "manifest.json"
-    if manifest_path.is_file():
-        try:
-            seed = int(json.loads(manifest_path.read_text(encoding="utf-8")).get("seed", 0))
-        except (ValueError, OSError):
-            seed = 0
+    from enterprise_sim.worlds import read_world
+
+    world_file = read_world(world_dir)
+    seed = world_file.seed if world_file is not None else 0
 
     report = evaluate(journal)
 
@@ -220,7 +127,7 @@ def _cmd_eval(args: argparse.Namespace) -> int:
         verdict = judge_sample(journal, client, root_seed=seed)
         report = type(report)(metrics=report.metrics, judge=verdict)
 
-    print(format_report(report, str(run_dir)))
+    print(format_report(report, str(world_dir)))
     return 0 if report.ok else 1
 
 
@@ -247,13 +154,13 @@ def _load_alignment(reconstructed_kg: Path, run: Path | None) -> dict[str, str]:
     import contextlib
     import tempfile
 
-    from enterprise_sim.benchmark.generate import load_world_from_run
+    from enterprise_sim.benchmark.generate import load_world_kg
     from enterprise_sim.reconstruct import ReconstructedKG, align_reconstructed_ids
 
     kg = ReconstructedKG.read(reconstructed_kg)
     with contextlib.ExitStack() as stack:
         if run is not None:
-            gold = load_world_from_run(run)
+            gold = load_world_kg(run)
         else:
             from enterprise_sim.benchmark.fixtures import golden_run
 
@@ -288,7 +195,7 @@ def _cmd_bench_score(args: argparse.Namespace) -> int:
                 file=sys.stderr,
             )
             return 2
-        alignment = _load_alignment(args.reconstructed_kg, args.run)
+        alignment = _load_alignment(args.reconstructed_kg, args.world)
 
     benchmark = Benchmark.read_jsonl(args.bench)
     predictions = Predictions.read_jsonl(args.pred)
@@ -316,15 +223,15 @@ def _cmd_bench_run(args: argparse.Namespace) -> int:
     from enterprise_sim.benchmark.schema import Benchmark
 
     benchmark = Benchmark.read_jsonl(args.bench)
-    run_dir = str(args.run) if args.run is not None else None
+    world_dir = str(args.world) if args.world is not None else None
 
     if args.runner == "graph":
-        predictions = _run_graph_runner(args, benchmark, run_dir)
+        predictions = _run_graph_runner(args, benchmark, world_dir)
         if predictions is None:
             return 2
         detail = f"model {args.model}"
     else:
-        predictions = _run_rag_runner(args, benchmark, run_dir)
+        predictions = _run_rag_runner(args, benchmark, world_dir)
         detail = f"backend {args.backend}"
 
     if predictions is None:
@@ -347,7 +254,7 @@ def _cmd_bench_run(args: argparse.Namespace) -> int:
 def _run_rag_runner(
     args: argparse.Namespace,
     benchmark: Benchmark,
-    run_dir: str | None,
+    world_dir: str | None,
 ) -> Predictions:
     """The RAG baseline path of ``bench run`` (esim-uzc.5)."""
     import contextlib
@@ -358,25 +265,25 @@ def _run_rag_runner(
 
     client = build_client(LLMConfig(backend=args.backend))
     with contextlib.ExitStack() as stack:
-        resolved: str | Path | None = run_dir
+        resolved: str | Path | None = world_dir
         if resolved is None:
             from enterprise_sim.benchmark.fixtures import golden_run
 
             tmp = stack.enter_context(tempfile.TemporaryDirectory(prefix="esim-bench-rag-"))
-            resolved = golden_run(tmp).run_dir
+            resolved = golden_run(tmp).world_dir
         return run_rag(resolved, benchmark, client, top_k=args.top_k)
 
 
 def _run_graph_runner(
     args: argparse.Namespace,
     benchmark: Benchmark,
-    run_dir: str | None,
+    world_dir: str | None,
 ) -> Predictions | None:
     """The graph-agent path of ``bench run`` (esim-uzc.4); ``None`` on missing key."""
     from enterprise_sim.benchmark.runners.graph_agent import run_benchmark
 
     try:
-        return run_benchmark(benchmark, run_dir=run_dir, model=args.model, limit=args.limit)
+        return run_benchmark(benchmark, world_dir=world_dir, model=args.model, limit=args.limit)
     except RuntimeError as exc:
         print(f"enterprise-sim bench run: {exc}", file=sys.stderr)
         return None
@@ -411,11 +318,11 @@ def _add_bench_run_parser(
         help="path to the gold benchmark JSONL (one QAPair per line)",
     )
     run_parser.add_argument(
-        "--run",
+        "--world",
         type=Path,
         default=None,
         metavar="DIR",
-        help="read the gold KG/corpus from an existing run dir (default: a fresh golden run)",
+        help="read the gold KG/corpus from an existing world dir (default: a fresh golden run)",
     )
     run_parser.add_argument(
         "-o",
@@ -500,11 +407,11 @@ def _add_bench_score_parser(
         help="[--align] reconstruction dir (ReconstructedKG.write output) whose ids are aligned",
     )
     score_parser.add_argument(
-        "--run",
+        "--world",
         type=Path,
         default=None,
         metavar="DIR",
-        help="[--align] gold run dir (reads DIR/kg/*.jsonl); default: a fresh golden run",
+        help="[--align] gold world dir (reads DIR/kg/*.jsonl); default: a fresh golden run",
     )
     score_parser.set_defaults(func=_cmd_bench_score)
 
@@ -608,7 +515,7 @@ def _cmd_bench_generate(args: argparse.Namespace) -> int:
     """
     from enterprise_sim.benchmark.generate import generate
 
-    benchmark = generate(args.run)
+    benchmark = generate(args.world)
 
     if args.output is None:
         print(benchmark.to_jsonl(), end="")
@@ -661,11 +568,11 @@ def _add_bench_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentPa
         ),
     )
     generate_parser.add_argument(
-        "--run",
+        "--world",
         type=Path,
         default=None,
         metavar="DIR",
-        help="read the gold KG from an existing run dir (default: a fresh golden run)",
+        help="read the gold KG from an existing world dir (default: a fresh golden run)",
     )
     generate_parser.add_argument(
         "-o",
@@ -747,15 +654,15 @@ def _cmd_reconstruct_build(args: argparse.Namespace) -> int:
     config = BuildConfig(edge_confidence_threshold=args.edge_threshold)
     client = build_client(LLMConfig(backend=args.backend, model=args.model))
     with contextlib.ExitStack() as stack:
-        if args.run is not None:
-            run_dir = str(args.run)
+        if args.world is not None:
+            world_dir = str(args.world)
         else:
             from enterprise_sim.benchmark.fixtures import golden_run
 
             tmp = stack.enter_context(tempfile.TemporaryDirectory(prefix="esim-reconstruct-"))
-            run_dir = str(golden_run(tmp).run_dir)
+            world_dir = str(golden_run(tmp).world_dir)
 
-        kg = run_pipeline(run_dir, client, model=args.model, config=config)
+        kg = run_pipeline(world_dir, client, model=args.model, config=config)
 
     kg.write(args.output)
     print(
@@ -794,11 +701,11 @@ def _add_reconstruct_build_parser(
         help="reconstruction output dir (writes nodes/edges/provenance.jsonl)",
     )
     build_parser.add_argument(
-        "--run",
+        "--world",
         type=Path,
         default=None,
         metavar="DIR",
-        help="run dir whose raw corpus is reconstructed; default: a fresh golden run",
+        help="world dir whose raw corpus is reconstructed; default: a fresh golden run",
     )
     build_parser.add_argument(
         "--backend",
@@ -823,7 +730,7 @@ def _add_reconstruct_build_parser(
     build_parser.set_defaults(func=_cmd_reconstruct_build)
 
 
-def _gold_grounding_by_path(run_dir: Path, gold: World) -> dict[str, list[str]] | None:
+def _gold_grounding_by_path(world_dir: Path, gold: World) -> dict[str, list[str]] | None:
     """Gold grounding answer key as ``{entity id → artifact paths}`` for provenance fidelity.
 
     Reuses the benchmark's own provenance key
@@ -836,7 +743,7 @@ def _gold_grounding_by_path(run_dir: Path, gold: World) -> dict[str, list[str]] 
     """
     from enterprise_sim.benchmark.generate import load_groundings
 
-    if not (Path(run_dir) / "kg" / "mentions.jsonl").is_file():
+    if not (Path(world_dir) / "kg" / "mentions.jsonl").is_file():
         return None
     path_of = {
         node.id: node.props["path"]
@@ -844,7 +751,7 @@ def _gold_grounding_by_path(run_dir: Path, gold: World) -> dict[str, list[str]] 
         if "path" in node.props
     }
     grounding: dict[str, list[str]] = {}
-    for entity_id, artifact_ids in load_groundings(run_dir, gold).items():
+    for entity_id, artifact_ids in load_groundings(world_dir, gold).items():
         paths = sorted({path_of[aid] for aid in artifact_ids if aid in path_of})
         if paths:
             grounding[entity_id] = paths
@@ -864,23 +771,23 @@ def _cmd_reconstruct_fidelity(args: argparse.Namespace) -> int:
     import contextlib
     import tempfile
 
-    from enterprise_sim.benchmark.generate import load_world_from_run
+    from enterprise_sim.benchmark.generate import load_world_kg
     from enterprise_sim.reconstruct import ReconstructedKG, score_fidelity
 
     reconstructed = ReconstructedKG.read(args.reconstructed)
     with contextlib.ExitStack() as stack:
-        if args.run is not None:
-            gold = load_world_from_run(args.run)
-            gold_run_dir = args.run
+        if args.world is not None:
+            gold = load_world_kg(args.world)
+            gold_world_dir = args.world
         else:
             from enterprise_sim.benchmark.fixtures import golden_run
 
             tmp = stack.enter_context(tempfile.TemporaryDirectory(prefix="esim-fidelity-"))
             run = golden_run(tmp)
-            gold, gold_run_dir = run.world, run.run_dir
+            gold, gold_world_dir = run.world, run.world_dir
 
         report = score_fidelity(
-            reconstructed, gold, gold_grounding=_gold_grounding_by_path(gold_run_dir, gold)
+            reconstructed, gold, gold_grounding=_gold_grounding_by_path(gold_world_dir, gold)
         )
 
     rendered = report.to_json() if args.json else report.to_markdown()
@@ -926,11 +833,11 @@ def _add_reconstruct_fidelity_parser(
         help="reconstruction dir with nodes.jsonl/edges.jsonl (ReconstructedKG.write output)",
     )
     fidelity_parser.add_argument(
-        "--run",
+        "--world",
         type=Path,
         default=None,
         metavar="DIR",
-        help="gold run dir (reads DIR/kg/*.jsonl); default: a fresh golden run",
+        help="gold world dir (reads DIR/kg/*.jsonl); default: a fresh golden run",
     )
     fidelity_parser.add_argument(
         "--json",
@@ -1000,24 +907,24 @@ def _cmd_reconstruct_sweep(args: argparse.Namespace) -> int:
     import contextlib
     import tempfile
 
-    from enterprise_sim.benchmark.generate import load_world_from_run
+    from enterprise_sim.benchmark.generate import load_world_kg
     from enterprise_sim.core.llm import LLMConfig, build_client
     from enterprise_sim.reconstruct import extract_once, sweep_thresholds
 
     client = build_client(LLMConfig(backend=args.backend, model=args.model))
     with contextlib.ExitStack() as stack:
-        if args.run is not None:
-            run_dir = str(args.run)
-            gold = load_world_from_run(args.run)
+        if args.world is not None:
+            world_dir = str(args.world)
+            gold = load_world_kg(args.world)
         else:
             from enterprise_sim.benchmark.fixtures import golden_run
 
             tmp = stack.enter_context(tempfile.TemporaryDirectory(prefix="esim-sweep-"))
             run = golden_run(tmp)
-            run_dir = str(run.run_dir)
+            world_dir = str(run.world_dir)
             gold = run.world
 
-        extraction = extract_once(run_dir, client, model=args.model)
+        extraction = extract_once(world_dir, client, model=args.model)
         report = sweep_thresholds(extraction, gold, args.thresholds)
 
     rendered = report.to_json() if args.json else report.to_markdown()
@@ -1054,7 +961,7 @@ def _cmd_reconstruct_model_sweep(args: argparse.Namespace) -> int:
     import contextlib
     import tempfile
 
-    from enterprise_sim.benchmark.generate import load_world_from_run
+    from enterprise_sim.benchmark.generate import load_world_kg
     from enterprise_sim.benchmark.schema import Benchmark
     from enterprise_sim.benchmark.score import Report, score
     from enterprise_sim.core.llm import LLMConfig, build_client
@@ -1071,15 +978,15 @@ def _cmd_reconstruct_model_sweep(args: argparse.Namespace) -> int:
     benchmark = Benchmark.read_jsonl(args.bench) if args.bench is not None else None
 
     with contextlib.ExitStack() as stack:
-        if args.run is not None:
-            run_dir = str(args.run)
-            gold = load_world_from_run(args.run)
+        if args.world is not None:
+            world_dir = str(args.world)
+            gold = load_world_kg(args.world)
         else:
             from enterprise_sim.benchmark.fixtures import golden_run
 
             tmp = stack.enter_context(tempfile.TemporaryDirectory(prefix="esim-model-sweep-"))
             run = golden_run(tmp)
-            run_dir = str(run.run_dir)
+            world_dir = str(run.world_dir)
             gold = run.world
 
         answer_scorer: AnswerScorer | None = None
@@ -1113,7 +1020,7 @@ def _cmd_reconstruct_model_sweep(args: argparse.Namespace) -> int:
 
         try:
             report = sweep_models(
-                run_dir,
+                world_dir,
                 gold,
                 args.models,
                 client,
@@ -1201,11 +1108,11 @@ def _add_reconstruct_sweep_parser(
         help="model axis: with --bench, answer only the first N questions (default: all)",
     )
     sweep_parser.add_argument(
-        "--run",
+        "--world",
         type=Path,
         default=None,
         metavar="DIR",
-        help="run dir whose raw corpus is reconstructed + whose kg/ is the gold graph; "
+        help="world dir whose raw corpus is reconstructed + whose kg/ is the gold graph; "
         "default: a fresh golden run",
     )
     sweep_parser.add_argument(
@@ -1262,10 +1169,10 @@ def _cmd_reconstruct_reason(args: argparse.Namespace) -> int:
     # map and provenance answers can match the gold key. Omitted ⇒ path-keyed ids
     # (structurally answerable, but won't match a gold key).
     gold_artifact_ids: dict[str, str] | None = None
-    if args.run is not None:
-        from enterprise_sim.benchmark.generate import load_world_from_run
+    if args.world is not None:
+        from enterprise_sim.benchmark.generate import load_world_kg
 
-        gold = load_world_from_run(args.run)
+        gold = load_world_kg(args.world)
         gold_artifact_ids = {
             node.props["path"]: node.id
             for node in gold.nodes_by_type("Artifact")
@@ -1332,12 +1239,12 @@ def _add_reconstruct_reason_parser(
         help="path to the gold benchmark JSONL (one QAPair per line)",
     )
     reason_parser.add_argument(
-        "--run",
+        "--world",
         type=Path,
         default=None,
         metavar="DIR",
         help=(
-            "golden run dir whose gold Artifact nodes name provenance answers in the "
+            "golden world dir whose gold Artifact nodes name provenance answers in the "
             "benchmark's id coordinate system (path → gold artifact id); omit for "
             "path-keyed artifact ids (provenance answerable but unscorable against a gold key)"
         ),
@@ -1402,7 +1309,7 @@ def _cmd_reconstruct_report(args: argparse.Namespace) -> int:
                 file=sys.stderr,
             )
             return 2
-        alignment = _load_alignment(args.reconstructed_kg, args.run)
+        alignment = _load_alignment(args.reconstructed_kg, args.world)
 
     benchmark = Benchmark.read_jsonl(args.bench)
     oracle = Predictions.read_jsonl(args.oracle)
@@ -1507,11 +1414,11 @@ def _add_reconstruct_report_parser(
         help="[--align] reconstruction dir (ReconstructedKG.write output) whose ids are aligned",
     )
     report_parser.add_argument(
-        "--run",
+        "--world",
         type=Path,
         default=None,
         metavar="DIR",
-        help="[--align] gold run dir (reads DIR/kg/*.jsonl); default: a fresh golden run",
+        help="[--align] gold world dir (reads DIR/kg/*.jsonl); default: a fresh golden run",
     )
     report_parser.add_argument(
         "-o",
@@ -1651,59 +1558,6 @@ def _add_reconstruct_scale_parser(
     scale_parser.set_defaults(func=_cmd_reconstruct_scale)
 
 
-def _cmd_data_run(args: argparse.Namespace) -> int:
-    """Run structured data-product scenarios from a data config (docs/DATA_PRODUCTS.md)."""
-    try:
-        from enterprise_sim.data_products import execute_data_run, load_data_config
-    except ModuleNotFoundError as exc:
-        print(
-            f"enterprise-sim data run: missing dependency {exc.name!r} — install the data "
-            "extra: uv sync --extra data (or pip install 'enterprise-sim[data]')"
-        )
-        return 2
-    from enterprise_sim.core.registry import RegistryError
-    from enterprise_sim.data_products.config import DataConfigError
-    from enterprise_sim.data_products.linking import LinkageError
-    from enterprise_sim.data_products.lint import SpecLintError
-    from enterprise_sim.data_products.views import MaterializeError
-
-    try:
-        config = load_data_config(args.config)
-    except DataConfigError as exc:
-        print(f"enterprise-sim data run: {exc}")
-        return 2
-    except ValidationError as exc:
-        print(f"enterprise-sim data run: invalid config {args.config}:\n{exc}")
-        return 2
-
-    if args.output_dir is not None:
-        config = config.model_copy(update={"output_dir": args.output_dir})
-    if args.scale is not None:
-        config = config.model_copy(
-            update={"scale": config.scale.model_copy(update={"factor": args.scale})}
-        )
-    if args.iterations is not None:
-        config = config.model_copy(
-            update={"loop": config.loop.model_copy(update={"iterations": args.iterations})}
-        )
-
-    try:
-        result = execute_data_run(config)
-    except (SpecLintError, LinkageError, RegistryError, MaterializeError) as exc:
-        print(f"enterprise-sim data run: {exc}")
-        return 1
-
-    for scenario in result.scenarios:
-        total_rows = sum(scenario.rows_by_table.values())
-        print(
-            f"enterprise-sim data run: {scenario.scenario} -> {scenario.run_dir} "
-            f"({total_rows:,} rows across {len(scenario.rows_by_table)} tables, "
-            f"{scenario.questions_answerable}/{scenario.questions_total} questions "
-            f"answerable after {scenario.iterations_run} iteration(s))"
-        )
-    return 0
-
-
 def _cmd_data_scenarios(args: argparse.Namespace) -> int:
     """List the registered data scenarios."""
     from enterprise_sim.data_products.scenarios import discover_scenarios
@@ -1721,46 +1575,15 @@ def _add_data_parser(
     """Wire the ``data`` subcommand group (structured data products)."""
     data_parser = subparsers.add_parser(
         "data",
-        help="generate structured data products (causal tables, views, questions)",
+        help="list the structured-data scenarios (`world data` runs them into a world)",
         description="Causal-graph-driven synthetic tables, materialized views, and "
         "business-question evaluation over the simulated enterprise.",
     )
     data_subparsers = data_parser.add_subparsers(
         dest="data_command",
         required=True,
-        metavar="{run,scenarios}",
+        metavar="{scenarios}",
     )
-
-    data_run_parser = data_subparsers.add_parser(
-        "run", help="run data scenarios from a data config"
-    )
-    data_run_parser.add_argument("config", help="path to a data-run config (.toml or .json)")
-    data_run_parser.add_argument(
-        "-o",
-        "--output-dir",
-        dest="output_dir",
-        type=Path,
-        default=None,
-        metavar="DIR",
-        help="override the config's output_dir",
-    )
-    data_run_parser.add_argument(
-        "--scale",
-        dest="scale",
-        type=float,
-        default=None,
-        metavar="X",
-        help="override scale.factor (multiplies every population's base size)",
-    )
-    data_run_parser.add_argument(
-        "--iterations",
-        dest="iterations",
-        type=int,
-        default=None,
-        metavar="N",
-        help="override loop.iterations (question-loop passes, 1-5)",
-    )
-    data_run_parser.set_defaults(func=_cmd_data_run)
 
     data_scenarios_parser = data_subparsers.add_parser(
         "scenarios", help="list registered data scenarios"
@@ -1777,64 +1600,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    run_parser = subparsers.add_parser("run", help="run a simulation from a config")
-    run_parser.add_argument("config", nargs="?", default=None, help="path to a run config")
-    run_parser.add_argument(
-        "-c",
-        "--config",
-        dest="config_opt",
-        default=None,
-        metavar="PATH",
-        help="path to a run config (alternative to the positional argument)",
-    )
-    run_parser.add_argument(
-        "-o",
-        "--output-dir",
-        dest="output_dir",
-        type=Path,
-        default=None,
-        metavar="DIR",
-        help="override the config's output_dir (run lands in DIR/<run-id>/)",
-    )
-    run_parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="estimate artifact count + cost and exit without rendering (D13)",
-    )
-    run_parser.add_argument(
-        "--live",
-        action="store_true",
-        help=(
-            "render against the real provider named by the config's [model] backend "
-            "(anthropic_api/bedrock/claude_cli); without it the run uses the "
-            "deterministic, network-free 'fake' backend. A live run costs money "
-            "and is not byte-reproducible"
-        ),
-    )
-    run_parser.add_argument(
-        "--max-concurrency",
-        dest="max_concurrency",
-        type=int,
-        default=None,
-        metavar="N",
-        help="override scale.max_concurrency (parallel scenario renders)",
-    )
-    run_parser.add_argument(
-        "--cost-ceiling",
-        dest="cost_ceiling",
-        type=float,
-        default=None,
-        metavar="USD",
-        help="override scale.cost_ceiling_usd (abort if the dry-run estimate exceeds it)",
-    )
-    run_parser.set_defaults(func=_cmd_run)
-
     lint_parser = subparsers.add_parser("lint", help="static-lint playbooks/processes")
     lint_parser.add_argument("target", nargs="?", default=None, help="path or plugin to lint")
     lint_parser.set_defaults(func=_cmd_lint)
 
-    eval_parser = subparsers.add_parser("eval", help="evaluate a completed run")
-    eval_parser.add_argument("run", nargs="?", default=None, help="path to a run output dir")
+    eval_parser = subparsers.add_parser("eval", help="evaluate a completed world")
+    eval_parser.add_argument("world", nargs="?", default=None, help="path to a world directory")
     eval_parser.add_argument(
         "--judge",
         action="store_true",
@@ -1851,7 +1622,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_bench_parser(subparsers)
     _add_reconstruct_parser(subparsers)
     _add_data_parser(subparsers)
-    add_job_parser(subparsers)
+    add_world_parser(subparsers)
 
     from enterprise_sim.evals.cli import add_evals_parser
     from enterprise_sim.templates.cli import add_templates_parser

@@ -65,7 +65,7 @@ def gold() -> tuple[World, dict[str, list[str]], GraphModel]:
     with tempfile.TemporaryDirectory(prefix="esim-graph-test-") as tmp:
         result = golden_run(tmp)
         world = result.world
-        groundings = load_groundings(result.run_dir, world)
+        groundings = load_groundings(result.world_dir, world)
     model = GraphModel.from_world(world, groundings)
     return world, groundings, model
 

@@ -1,12 +1,12 @@
 """Cooperative pause for a running job (``docs/EXPLORER_RUNS.md`` §3.2).
 
 ``RunControl`` is the one flag the render loop checks before starting each
-deliverable event: a file-backed request (``control.json``, so a separate
-process — the CLI's ``job pause`` — can ask a running worker to stop) or an
-in-process signal flag (``SIGTERM``/``SIGINT``, so closing the app pauses
-rather than corrupts). This module has no dependency on the rest of the
-simulator, so :mod:`enterprise_sim.assembly` can depend on it for the
-pipeline's pause hook without any import cycle back into :mod:`enterprise_sim.jobs`.
+deliverable event: a file-backed request (``<world>/.jobs/control.json``, so a
+separate process — the CLI's ``world pause`` — can ask a running worker to
+stop) or an in-process signal flag (``SIGTERM``/``SIGINT``, so closing the app
+pauses rather than corrupts). This module depends only on the world layout
+helpers, so :mod:`enterprise_sim.assembly` can depend on it for the pipeline's
+pause hook without any import cycle back into :mod:`enterprise_sim.jobs`.
 """
 
 from __future__ import annotations
@@ -18,6 +18,8 @@ from collections.abc import Callable
 from pathlib import Path
 from types import FrameType
 from typing import Any
+
+from enterprise_sim.worlds.file import control_path
 
 __all__ = ["RunControl", "RunPaused", "install_signal_handlers"]
 
@@ -35,14 +37,15 @@ class RunControl:
     received, without touching the filesystem at all).
     """
 
-    def __init__(self, job_dir: Path) -> None:
-        self._path = Path(job_dir) / "control.json"
+    def __init__(self, world_dir: Path) -> None:
+        self._path = control_path(world_dir)
         self._signalled = threading.Event()
         self._mtime: float | None = None
         self._cached_pause = False
 
     def request_pause(self) -> None:
         """Write ``control.json {"pause": true}`` (atomic; idempotent)."""
+        self._path.parent.mkdir(parents=True, exist_ok=True)
         tmp = self._path.with_suffix(".json.tmp")
         tmp.write_text(json.dumps({"pause": True}) + "\n", encoding="utf-8")
         tmp.replace(self._path)

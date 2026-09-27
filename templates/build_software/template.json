@@ -1,0 +1,26 @@
+{
+  "created_at": "2026-09-27T02:11:05.421269+00:00",
+  "description": "The reference software-delivery playbook: kickoff, sprint cycles, weekly status and design reviews.",
+  "kind": "playbook",
+  "name": "Build Software",
+  "provides": {
+    "archetypes": [],
+    "data_scenarios": [],
+    "playbooks": [
+      "build_software"
+    ],
+    "processes": [
+      "design_review",
+      "project_kickoff",
+      "sprint_cycle",
+      "weekly_status"
+    ]
+  },
+  "slug": "build_software",
+  "updated_at": "2026-09-27T02:16:56.445475+00:00",
+  "validation": {
+    "checked_at": "2026-09-27T02:16:56.445504+00:00",
+    "status": "valid",
+    "summary": "valid: import ok, lint ok, conformance ok, archetype_sanity ok, tests ok, dry_run ok, data_spec ok"
+  }
+}

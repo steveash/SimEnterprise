@@ -208,7 +208,7 @@ def sell_merchandise() -> Playbook:
         name="inventory_monitor",
         description="Stateful watcher that emits LowStock when a SKU dips below reorder point.",
         roles=(buyer,),
-        impl="enterprise_sim.processes.inventory:InventoryMonitor",
+        impl="enterprise_sim_templates.sell_merchandise:InventoryMonitor",
         declares=Declares(events=("LowStock",), effects=("mutate:stock_level",)),
     )
 
@@ -245,7 +245,7 @@ def sell_merchandise() -> Playbook:
         name="purchase_order",
         description="Stateful PO lifecycle (draft → approved → sent → received).",
         roles=(buyer, supplier),
-        impl="enterprise_sim.processes.purchase_order:PurchaseOrder",
+        impl="enterprise_sim_templates.sell_merchandise:PurchaseOrder",
         declares=Declares(
             events=("PODrafted", "POApproved", "POSent", "POReceived"),
             deliverables=("purchase_order",),

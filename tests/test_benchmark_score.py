@@ -348,13 +348,13 @@ def _write_align_fixture(tmp_path: Path) -> dict[str, Path]:
         aliases=["groom"],
     )
 
-    # Gold run dir: kg/nodes.jsonl (+ an empty edges file) is all load_world_from_run needs.
-    run_dir = tmp_path / "gold"
-    (run_dir / "kg").mkdir(parents=True)
-    (run_dir / "kg" / "nodes.jsonl").write_text(
+    # Gold run dir: kg/nodes.jsonl (+ an empty edges file) is all load_world_kg needs.
+    world_dir = tmp_path / "gold"
+    (world_dir / "kg").mkdir(parents=True)
+    (world_dir / "kg" / "nodes.jsonl").write_text(
         json.dumps(artifact.to_dict()) + "\n", encoding="utf-8"
     )
-    (run_dir / "kg" / "edges.jsonl").write_text("", encoding="utf-8")
+    (world_dir / "kg" / "edges.jsonl").write_text("", encoding="utf-8")
 
     # Reconstruction dir: the alignment loader reads it; one node is enough.
     recon_dir = tmp_path / "recon"
@@ -369,7 +369,7 @@ def _write_align_fixture(tmp_path: Path) -> dict[str, Path]:
     pred_path = tmp_path / "pred.jsonl"
     Predictions.from_mapping({"q": [_PATH]}).write_jsonl(pred_path)
 
-    return {"run": run_dir, "recon": recon_dir, "bench": bench_path, "pred": pred_path}
+    return {"run": world_dir, "recon": recon_dir, "bench": bench_path, "pred": pred_path}
 
 
 def test_bench_score_align_flag_registered() -> None:
@@ -413,7 +413,7 @@ def test_bench_score_align_credits_path_answer(tmp_path: Path, capsys: Any) -> N
             "--align",
             "--reconstructed-kg",
             str(fx["recon"]),
-            "--run",
+            "--world",
             str(fx["run"]),
         ]
     )

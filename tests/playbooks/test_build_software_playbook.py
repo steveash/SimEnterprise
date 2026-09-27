@@ -22,15 +22,18 @@ from enterprise_sim.authoring import sdk
 from enterprise_sim.authoring import testkit as tk
 from enterprise_sim.authoring.eval import Thresholds, evaluate
 from enterprise_sim.authoring.lint import lint_playbook, lint_process
-from enterprise_sim.core.registry import PLAYBOOKS, PROCESSES, discover_all
-from enterprise_sim.playbooks.build_software import (
-    BUILD_SOFTWARE,
-    build_software,
-    design_review,
-    project_kickoff,
-    sprint_cycle,
-    weekly_status,
-)
+from enterprise_sim.core.registry import PLAYBOOKS, PROCESSES
+
+from tests._templates import template_module
+
+# The playbook is a template (``templates/build_software``); resolve it via the registry.
+_MODULE = template_module(PLAYBOOKS, "build_software")
+BUILD_SOFTWARE = _MODULE.BUILD_SOFTWARE
+build_software: Callable[[], sdk.Playbook] = _MODULE.build_software
+design_review: Callable[[], sdk.Process] = _MODULE.design_review
+project_kickoff: Callable[[], sdk.Process] = _MODULE.project_kickoff
+sprint_cycle: Callable[[], sdk.Process] = _MODULE.sprint_cycle
+weekly_status: Callable[[], sdk.Process] = _MODULE.weekly_status
 
 GOLDEN_DIR = Path(__file__).parent / "golden"
 
@@ -176,11 +179,11 @@ def test_tier3_eval_holds_under_stricter_thresholds() -> None:
 
 
 def test_plugin_is_discoverable() -> None:
-    discover_all()  # idempotent; import side effects already fired
     assert "build_software" in PLAYBOOKS
     assert PLAYBOOKS.get("build_software").vertical == "technology"
     # The registered plugin rebuilds a fresh, correctly-named playbook on demand.
     assert BUILD_SOFTWARE.build().name == "build_software"
+    assert PLAYBOOKS.get("build_software") is BUILD_SOFTWARE
     for name in _PROCESS_FACTORIES:
         assert name in PROCESSES
 

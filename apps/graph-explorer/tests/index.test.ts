@@ -27,8 +27,8 @@ function edge(id: string, type: string, src: string, dst: string): KGEdge {
 /** Build a minimal-but-complete GraphModel from nodes/edges/mentions. */
 function model(parts: Partial<GraphModel> & { nodes: KGNode[] }): GraphModel {
   return {
-    runId: 'synthetic',
-    runPath: '/nonexistent-run-root',
+    worldId: 'synthetic',
+    worldPath: '/nonexistent-run-root',
     nodes: parts.nodes,
     edges: parts.edges ?? [],
     mentions: parts.mentions ?? [],
@@ -36,7 +36,7 @@ function model(parts: Partial<GraphModel> & { nodes: KGNode[] }): GraphModel {
     provenance: parts.provenance ?? [],
     aliases: [],
     validation: [],
-    manifest: null,
+    world: null,
     nodeTypes: [...new Set(parts.nodes.map((n) => n.type))],
     edgeTypes: [...new Set((parts.edges ?? []).map((e) => e.type))],
     timeRange: null
@@ -248,7 +248,7 @@ describe('GraphIndex.provenance (synthetic)', () => {
     const prov = ix.provenance('n:x')
     expect(prov.label).toBe('Node X')
     expect(prov.mentions).toHaveLength(1)
-    // runPath is bogus, so the artifact can't be read.
+    // worldPath is bogus, so the artifact can't be read.
     expect(prov.mentions[0].snippet).toBeNull()
     // 'nope.md' appears in both sources but only once; 'extra.md' from provenance.
     expect(new Set(prov.artifacts)).toEqual(new Set(['nope.md', 'extra.md']))

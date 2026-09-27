@@ -120,8 +120,8 @@ def test_chunk_ids_are_stable_and_locally_unique() -> None:
 
 def test_chunk_run_over_golden_produces_located_deterministic_chunks() -> None:
     with tempfile.TemporaryDirectory(prefix="esim-chunk-test-") as tmp:
-        run_dir = Path(golden_run(tmp).run_dir)
-        chunks = chunk_run(run_dir)
+        world_dir = Path(golden_run(tmp).world_dir)
+        chunks = chunk_run(world_dir)
 
         assert chunks, "golden run should yield chunks from md + jira"
         media = {"jira" if c.source_path.endswith(".jira.json") else "md" for c in chunks}
@@ -129,20 +129,20 @@ def test_chunk_run_over_golden_produces_located_deterministic_chunks() -> None:
 
         # Every chunk carries a resolvable source locator...
         for chunk in chunks:
-            assert (run_dir / chunk.source_path).is_file()
+            assert (world_dir / chunk.source_path).is_file()
             assert chunk.text.strip() == chunk.text and chunk.text
             # ...and the gold KG answer key is never chunked.
             assert not chunk.source_path.startswith("kg/")
 
         # Deterministic across runs of the same directory.
-        assert [c.id for c in chunks] == [c.id for c in chunk_run(run_dir)]
+        assert [c.id for c in chunks] == [c.id for c in chunk_run(world_dir)]
 
 
 def test_iter_corpus_files_excludes_gold_kg() -> None:
     with tempfile.TemporaryDirectory(prefix="esim-chunk-test-") as tmp:
-        run_dir = Path(golden_run(tmp).run_dir)
-        files = iter_corpus_files(run_dir)
-        rels = [f.relative_to(run_dir).as_posix() for f in files]
+        world_dir = Path(golden_run(tmp).world_dir)
+        files = iter_corpus_files(world_dir)
+        rels = [f.relative_to(world_dir).as_posix() for f in files]
         assert rels == sorted(rels), "files are returned in stable sorted order"
         assert all(not r.startswith("kg/") for r in rels)
         assert all(r.endswith(".md") or r.endswith(".jira.json") for r in rels)

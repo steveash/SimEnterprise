@@ -33,10 +33,10 @@ const writeLenses = (lenses: Lens[]): Lens[] => {
 }
 
 window.explorer = {
-  sidecarInfo: async () => ({ port: window.__SIDECAR_PORT__, runsRoot: '', error: null }),
-  // No native dialog in a browser. Runs under the runs root are auto-discovered
-  // and listed in the sidebar, so this is only for a path outside that root.
-  pickRunDir: async () => window.prompt('Absolute path to a run directory (contains kg/)') || null,
+  sidecarInfo: async () => ({ port: window.__SIDECAR_PORT__, worldsRoot: '', error: null }),
+  // No native dialog in a browser. Worlds under the worlds root are auto-discovered
+  // and listed in the topbar, so this is only for a world outside that root.
+  pickWorldDir: async () => window.prompt('Absolute path to a world directory (contains a .world file)') || null,
   lenses: {
     list: async () => readLenses(),
     save: async (input: LensInput) => {

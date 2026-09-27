@@ -7,13 +7,13 @@
 # this config reproduce byte-for-byte.
 #
 # Reproduce:
-#   enterprise-sim run examples/golden.toml -o runs
-#   enterprise-sim eval runs/<run-id>
+#   enterprise-sim world create examples/golden.toml --worlds-root worlds
+#   enterprise-sim eval worlds/<world-id>
 #
 # See docs/GOLDEN_RUN.md for the full walkthrough and acceptance criteria.
 
 seed = 7
-output_dir = "runs/golden"
+worlds_root = "worlds"
 
 [company]
 name = "Golden Slice Co"

@@ -119,7 +119,7 @@ All commands are also runnable as `python -m enterprise_sim.cli …`.
 enterprise-sim bench generate -o bench.jsonl
 
 # Or reuse an existing run directory's gold KG.
-enterprise-sim bench generate --run runs/golden/<run-id> -o bench.jsonl
+enterprise-sim bench generate --world worlds/<world-id> -o bench.jsonl
 ```
 
 The benchmark is one [`QAPair`](../enterprise_sim/benchmark/schema.py) per JSONL
@@ -196,7 +196,7 @@ LLM, no graph engine), so the same inputs always render the same markdown.
 |--------|------|
 | [`schema.py`](../enterprise_sim/benchmark/schema.py) | `QAPair` + the `Benchmark` collection; JSONL round-trip; `REASONING_TYPES`. |
 | [`fixtures.py`](../enterprise_sim/benchmark/fixtures.py) | One deterministic gold KG — executes the golden run (`load_gold_world` / `golden_run`) so generators and tests share one byte-stable source of ground truth. |
-| [`generate.py`](../enterprise_sim/benchmark/generate.py) | Deterministically derive `QAPair`s from the gold `World` (and grounding map) across all five reasoning types. Entry point: `generate(run_dir=None)`. |
+| [`generate.py`](../enterprise_sim/benchmark/generate.py) | Deterministically derive `QAPair`s from the gold `World` (and grounding map) across all five reasoning types. Entry point: `generate(world_dir=None)`. |
 | [`score.py`](../enterprise_sim/benchmark/score.py) | `Prediction`/`Predictions`, set-based per-item P/R/F1 (`score_item`), macro aggregation (`score` → `Report`), and `format_report` for the CLI. |
 | [`report.py`](../enterprise_sim/benchmark/report.py) | Multi-runner comparison: `most_frequent_baseline`, `build_leaderboard` (rank N runners + baseline), and `render_markdown` for `bench report`. |
 

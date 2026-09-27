@@ -142,9 +142,9 @@ def test_load_gold_world_returns_non_empty_kg() -> None:
     assert world.edge_count > 0
 
 
-def test_golden_run_lands_a_run_dir(tmp_path: Path) -> None:
+def test_golden_run_lands_a_world_dir(tmp_path: Path) -> None:
     result = fixtures.golden_run(tmp_path / "out")
-    assert result.run_dir.is_dir()
+    assert result.world_dir.is_dir()
     assert result.world.node_count > 0
 
 

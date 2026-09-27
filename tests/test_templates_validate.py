@@ -45,7 +45,15 @@ def test_scaffold_then_validate_is_green(tmp_path: Path, kind: TemplateKind) -> 
     assert report["ok"] is True, report
     assert report["slug"] == slug
     step_names = [s["step"] for s in report["steps"]]
-    assert step_names == ["import", "lint", "conformance", "archetype_sanity", "tests", "dry_run"]
+    assert step_names == [
+        "import",
+        "lint",
+        "conformance",
+        "archetype_sanity",
+        "tests",
+        "dry_run",
+        "data_spec",
+    ]
     assert all(s["ok"] for s in report["steps"]), report["steps"]
 
 
@@ -68,7 +76,12 @@ def test_scaffold_department_provides_archetype(tmp_path: Path) -> None:
     slug = _slug("dept")
     scaffold(tmp_path, slug=slug, kind=TemplateKind.DEPARTMENT, name="Dept")
     report = validate(tmp_path, slug)
-    assert report["provides"] == {"archetypes": [slug], "playbooks": [], "processes": []}
+    assert report["provides"] == {
+        "archetypes": [slug],
+        "playbooks": [],
+        "processes": [],
+        "data_scenarios": [],
+    }
 
 
 def test_scaffold_playbook_provides_playbook_and_process(tmp_path: Path) -> None:

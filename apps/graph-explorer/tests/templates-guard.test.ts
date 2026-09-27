@@ -68,7 +68,7 @@ describe('templates canUseTool guard: allow/deny matrix', () => {
       false
     )
     expect(
-      decide('Edit', { file_path: '/repo/enterprise_sim/playbooks/build_software.py', old_string: 'a', new_string: 'b' }, ctx)
+      decide('Edit', { file_path: '/repo/enterprise_sim/authoring/patterns.py', old_string: 'a', new_string: 'b' }, ctx)
         .allow
     ).toBe(false)
   })

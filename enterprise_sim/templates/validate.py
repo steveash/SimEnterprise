@@ -1,4 +1,4 @@
-"""``templates validate``: the six-step validation loop (EXPLORER_TEMPLATES.md §2.2).
+"""``templates validate``: the seven-step validation loop (EXPLORER_TEMPLATES.md §2.2).
 
 Runs, in order: **import** (isolated subprocess), **lint**, **conformance**,
 **archetype sanity**, **tests** (``pytest templates/<slug>``), and **dry run**
@@ -58,12 +58,10 @@ def _run_import_check(templates_dir: Path, slug: str) -> dict[str, Any]:
 
 def _import_in_process(templates_dir: Path, slug: str) -> None:
     """Re-run the (already-proven-safe) import in *this* process for steps 2-6."""
-    from enterprise_sim.core.registry import discover, discover_paths
+    from enterprise_sim.core.registry import discover_paths, load_templates
 
-    # Built-ins first, so a template's playbook-by-name references resolve.
-    discover("enterprise_sim.archetypes")
-    discover("enterprise_sim.playbooks")
-    discover("enterprise_sim.processes")
+    # Every other template first, so this one's playbook-by-name references resolve.
+    load_templates()
     isolated = prepare_isolated_import_dir(templates_dir, slug)
     discover_paths([isolated])
 
@@ -218,15 +216,15 @@ def _dry_run_step(templates_dir: Path, provides: dict[str, list[str]]) -> dict[s
         CompanyConfig,
         CompanySize,
         DepartmentConfig,
-        RunConfig,
         SimulationConfig,
+        WorldConfig,
     )
 
     # Force Layer A to pick this template's archetype as the (only) department
-    # via `RunConfig.departments` (docs/EXPLORER_RUNS.md §3.6), with the
+    # via `WorldConfig.departments` (docs/EXPLORER_RUNS.md §3.6), with the
     # templates dir on `plugins` so it is discovered exactly as in production.
     primary = provides["archetypes"][0]
-    config = RunConfig(
+    config = WorldConfig(
         company=CompanyConfig(
             name="Template Dry Run", vertical="template-dry-run", size=CompanySize.STARTUP
         ),
@@ -246,9 +244,90 @@ def _dry_run_step(templates_dir: Path, provides: dict[str, list[str]]) -> dict[s
             "artifacts": estimate.num_artifacts,
             "estimated_cost_usd": estimate.estimated_cost_usd,
             "model": estimate.model,
-            "note": "selected this template's archetype via RunConfig.departments",
+            "note": "selected this template's archetype via WorldConfig.departments",
         },
     }
+
+
+# -- step 7: data scenario (lint + a tiny end-to-end sample) ---------------------- #
+
+
+def _data_step(provides: dict[str, list[str]]) -> dict[str, Any]:
+    """Lint each provided data scenario and sample a tiny copy of it end to end.
+
+    The sample runs against a small deterministic world (so KG-linked
+    populations have real ``Person``/``Project`` nodes to bind to), materializes
+    the views, and evaluates the question bank once — reporting rows per table
+    and how many questions were answerable before any gap fix. Lint errors or a
+    crashing sample fail the step; unanswered gap questions do not (closing
+    them is the question loop's job during a real build).
+    """
+    names = provides.get("data_scenarios", [])
+    if not names:
+        return {"step": "data_spec", "ok": True, "detail": {"note": "no data scenarios"}}
+
+    import tempfile
+    from datetime import date
+
+    from enterprise_sim.core.config import CompanyConfig, CompanySize, SimulationConfig, WorldConfig
+    from enterprise_sim.core.config.seed import SeedContext
+    from enterprise_sim.data_products import questions as questions_mod
+    from enterprise_sim.data_products.lint import lint_spec
+    from enterprise_sim.data_products.sampler import sample_scenario
+    from enterprise_sim.data_products.scenarios import DATA_SCENARIOS
+    from enterprise_sim.data_products.views import materialize_views
+    from enterprise_sim.world_builders import build_world
+
+    start, end = date(2026, 1, 5), date(2026, 1, 25)
+    world = build_world(
+        WorldConfig(
+            company=CompanyConfig(name="Data Dry Run", vertical="software", size=CompanySize.SMALL),
+            simulation=SimulationConfig(period_start=start, period_end=end),
+        )
+    )
+    reports: list[dict[str, Any]] = []
+    ok = True
+    for name in names:
+        report: dict[str, Any] = {"scenario": name}
+        try:
+            spec = DATA_SCENARIOS.get(name).build_spec(start=start, end=end)
+            issues = lint_spec(spec, scale=0.05)
+            report["lint"] = [
+                {"severity": i.severity, "code": i.code, "message": i.message} for i in issues
+            ]
+            if any(i.severity == "error" for i in issues):
+                ok = False
+                reports.append(report)
+                continue
+            with tempfile.TemporaryDirectory(prefix="esim-data-dry-run-") as tmp:
+                data_dir = Path(tmp)
+                sampled = sample_scenario(
+                    spec,
+                    data_dir,
+                    seeds=SeedContext(1).child("data", name),
+                    world=world,
+                    scale=0.05,
+                    rows_per_partition=50_000,
+                )
+                materialize_views(spec, data_dir)
+                states = [questions_mod.QuestionState(q) for q in spec.questions]
+                questions_mod.evaluate_questions(
+                    spec, data_dir, states, iteration=1, only_unanswered=False
+                )
+            report["rows_by_table"] = dict(sampled.rows_by_table)
+            report["questions"] = {
+                "total": len(states),
+                "answerable_before_gap_fixes": sum(1 for st in states if st.answerable),
+                "with_gap_fix": sum(1 for q in spec.questions if q.gap is not None),
+            }
+            if not spec.questions:
+                ok = False
+                report["error"] = "the scenario ships no questions (question_bank is empty)"
+        except Exception as exc:  # noqa: BLE001 - reported, not raised
+            ok = False
+            report["error"] = f"{type(exc).__name__}: {exc}"
+        reports.append(report)
+    return {"step": "data_spec", "ok": ok, "detail": reports}
 
 
 # -- orchestration --------------------------------------------------------------- #
@@ -268,7 +347,12 @@ def validate(templates_dir: Path, slug: str) -> dict[str, Any]:
     playbook, …) — those are reported as a failing step instead.
     """
     steps: list[dict[str, Any]] = []
-    provides: dict[str, list[str]] = {"archetypes": [], "playbooks": [], "processes": []}
+    provides: dict[str, list[str]] = {
+        "archetypes": [],
+        "playbooks": [],
+        "processes": [],
+        "data_scenarios": [],
+    }
 
     import_result = _run_import_check(templates_dir, slug)
     import_ok = bool(import_result.get("ok"))
@@ -303,6 +387,7 @@ def validate(templates_dir: Path, slug: str) -> dict[str, Any]:
     steps.append(_archetype_sanity_step(provides, lint_ok=bool(lint_result["ok"])))
     steps.append(_tests_step(templates_dir, slug))
     steps.append(_dry_run_step(templates_dir, provides))
+    steps.append(_data_step(provides))
 
     ok = all(bool(s["ok"]) for s in steps)
     report = {"slug": slug, "ok": ok, "steps": steps, "provides": provides}

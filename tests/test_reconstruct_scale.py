@@ -63,7 +63,7 @@ def test_run_spec_to_config_maps_vertical_and_size() -> None:
     assert config.company.vertical == "software"
     assert config.company.size == CompanySize.STARTUP
     assert config.seed == 3
-    assert config.output_dir == Path("out")
+    assert config.worlds_root == Path("out")
 
 
 # --------------------------------------------------------------------------- #
@@ -112,8 +112,8 @@ def test_run_scale_keyless_generates_and_aggregates(tmp_path: Path) -> None:
     aggregate = run_scale(default_run_specs(2), tmp_path)
     _assert_well_formed(aggregate, expected_runs=2)
     # The two runs are distinct companies (different archetype → different gold).
-    run_ids = {run.run_id for run in aggregate.runs}
-    assert len(run_ids) == 2
+    world_ids = {run.world_id for run in aggregate.runs}
+    assert len(world_ids) == 2
     verticals = {run.vertical for run in aggregate.runs}
     assert verticals == {"software", "retail"}
 

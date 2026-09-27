@@ -115,7 +115,7 @@ def _truncate(rows: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
 def run_benchmark(
     benchmark: Benchmark,
     *,
-    run_dir: str | None = None,
+    world_dir: str | None = None,
     runner: GraphRunner | None = None,
     model: str = DEFAULT_MODEL,
     limit: int | None = None,
@@ -127,7 +127,7 @@ def run_benchmark(
     answer-many): from ``runner`` when the caller supplies a pre-built
     :class:`GraphRunner` — e.g. one loaded from a reconstructed KG, whose lifecycle
     the caller then owns — otherwise from the gold KG (a fresh golden run, or
-    ``run_dir`` when given, so the graph matches the benchmark's gold answers). One
+    ``world_dir`` when given, so the graph matches the benchmark's gold answers). One
     agent answers each question (the first ``limit`` if set) against that single
     runner. Requires ``ANTHROPIC_API_KEY`` and ``claude-agent-sdk``; raises
     :class:`RuntimeError` if the key is missing.
@@ -140,7 +140,7 @@ def run_benchmark(
     # Build the engines once, before the per-question loop. A caller-supplied runner
     # is left open for the caller to close; one we build here we also close.
     owns_runner = runner is None
-    active = _build_runner(run_dir) if runner is None else runner
+    active = _build_runner(world_dir) if runner is None else runner
     pairs = list(benchmark)[: limit if limit is not None else len(benchmark)]
     try:
         rows = asyncio.run(_run_all(active, pairs, model=model, max_turns=max_turns))
@@ -150,21 +150,21 @@ def run_benchmark(
     return Predictions.of(rows)
 
 
-def _build_runner(run_dir: str | None) -> GraphRunner:
+def _build_runner(world_dir: str | None) -> GraphRunner:
     """Load the gold KG (+ groundings) and build a :class:`GraphRunner`."""
-    from enterprise_sim.benchmark.generate import load_groundings, load_world_from_run
+    from enterprise_sim.benchmark.generate import load_groundings, load_world_kg
 
-    if run_dir is None:
+    if world_dir is None:
         import tempfile
 
         from enterprise_sim.benchmark.fixtures import golden_run
 
         with tempfile.TemporaryDirectory(prefix="esim-bench-graph-") as tmp:
             result = golden_run(tmp)
-            groundings = load_groundings(result.run_dir, result.world)
+            groundings = load_groundings(result.world_dir, result.world)
             return GraphRunner.from_world(result.world, groundings)
-    world = load_world_from_run(run_dir)
-    groundings = load_groundings(run_dir, world)
+    world = load_world_kg(world_dir)
+    groundings = load_groundings(world_dir, world)
     return GraphRunner.from_world(world, groundings)
 
 

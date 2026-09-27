@@ -350,9 +350,9 @@ def build_benchmark(world: World, groundings: Mapping[str, list[str]]) -> Benchm
     return Benchmark.of(draft.to_pair() for draft in drafts)
 
 
-def load_world_from_run(run_dir: str | Path) -> World:
+def load_world_kg(world_dir: str | Path) -> World:
     """Reconstruct the gold :class:`World` from a run's ``kg/{nodes,edges}.jsonl``."""
-    kg = Path(run_dir) / "kg"
+    kg = Path(world_dir) / "kg"
     world = World()
     for line in (kg / "nodes.jsonl").read_text(encoding="utf-8").splitlines():
         if line.strip():
@@ -363,7 +363,7 @@ def load_world_from_run(run_dir: str | Path) -> World:
     return world
 
 
-def load_groundings(run_dir: str | Path, world: World) -> dict[str, list[str]]:
+def load_groundings(world_dir: str | Path, world: World) -> dict[str, list[str]]:
     """Map each entity id to the artifact node ids that mention it (``kg/mentions.jsonl``).
 
     The answer key on disk records mentions by artifact *path*; this resolves
@@ -377,7 +377,7 @@ def load_groundings(run_dir: str | Path, world: World) -> dict[str, list[str]]:
         if "path" in node.props
     }
     groundings: dict[str, set[str]] = defaultdict(set)
-    mentions = Path(run_dir) / "kg" / "mentions.jsonl"
+    mentions = Path(world_dir) / "kg" / "mentions.jsonl"
     for line in mentions.read_text(encoding="utf-8").splitlines():
         if not line.strip():
             continue
@@ -388,23 +388,23 @@ def load_groundings(run_dir: str | Path, world: World) -> dict[str, list[str]]:
     return {entity_id: sorted(artifacts) for entity_id, artifacts in groundings.items()}
 
 
-def generate(run_dir: str | Path | None = None) -> Benchmark:
+def generate(world_dir: str | Path | None = None) -> Benchmark:
     """Generate the KG-QA benchmark, deterministically.
 
-    With ``run_dir``, read the gold graph and answer key from that existing run
+    With ``world_dir``, read the gold graph and answer key from that existing run
     directory. Without it, execute a fresh golden run (deterministic ``fake``
     backend, no network) into a throwaway directory so the gold graph and the
     answer key are guaranteed to agree, then discard the directory.
     """
     with contextlib.ExitStack() as stack:
-        if run_dir is None:
+        if world_dir is None:
             from enterprise_sim.benchmark.fixtures import golden_run
 
             tmp = stack.enter_context(tempfile.TemporaryDirectory(prefix="esim-bench-gen-"))
             result = golden_run(tmp)
             world = result.world
-            run_dir = result.run_dir
+            world_dir = result.world_dir
         else:
-            world = load_world_from_run(run_dir)
-        groundings = load_groundings(run_dir, world)
+            world = load_world_kg(world_dir)
+        groundings = load_groundings(world_dir, world)
         return build_benchmark(world, groundings)

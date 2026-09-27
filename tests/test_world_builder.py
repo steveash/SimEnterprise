@@ -13,7 +13,7 @@ import random
 from datetime import datetime
 
 import pytest
-from enterprise_sim.core.config import RunConfig, load_config_from_mapping
+from enterprise_sim.core.config import WorldConfig, load_config_from_mapping
 from enterprise_sim.core.sim.resolver import Filter, Resolver, Selector
 from enterprise_sim.world_builders import build_world
 from enterprise_sim.world_builders.builder import (
@@ -43,7 +43,7 @@ def _config(
     size: str = "medium",
     name: str = "Acme Corp",
     projects: list[dict[str, str]] | None = None,
-) -> RunConfig:
+) -> WorldConfig:
     return load_config_from_mapping(
         {
             "company": {"name": name, "vertical": vertical, "size": size},

@@ -6,26 +6,49 @@
 > reports now also *produces analytics data*.
 
 ```bash
-# Keyless demo: all five scenarios, deterministic, no network.
-enterprise-sim data run examples/data_products.toml
+# Keyless demo: all five scenarios, deterministic, no network. The config's
+# [world.company] builds a fresh world under worlds/ and attaches the data to it.
+enterprise-sim world data examples/data_products.toml
 
 # The ~100M-row / ~10GB profile (same code path, bigger dial).
-enterprise-sim data run examples/data_full_scale.toml
+enterprise-sim world data examples/data_full_scale.toml
 
-# LLM-authored specs (authoring.mode = "llm") against a real backend, linked to
-# a completed corpus run so tables and documents describe the same company.
-enterprise-sim data run examples/haiku_quarter_data.toml
+# LLM-authored specs (authoring.mode = "llm") against a real backend, attached
+# to an existing world so tables and documents describe the same company.
+enterprise-sim world data examples/haiku_quarter_data.toml   # or: --world worlds/<world-id>
 
 # List registered scenarios.
 enterprise-sim data scenarios
 ```
 
-> **`data run` has no `--live` flag.** Unlike `enterprise-sim run` — where the
-> config's `[model] backend` is honored only under `--live` — `data run` honors
+> **`world data` has no `--live` flag.** Unlike `enterprise-sim world create` — where the
+> config's `[model] backend` is honored only under `--live` — `world data` honors
 > it directly, because its backend already defaults to `fake`. So the paired
-> example configs are invoked asymmetrically: `run ... --live`, `data run ...`.
+> example configs are invoked asymmetrically: `world create ... --live`, `world data ...`.
 
 ---
+
+### Building data with the world
+
+A world's config can carry its structured data directly, so one `world create`
+builds both halves — the documents + graph, then a `data` phase over the same
+window and seed, linked to the same KG:
+
+```toml
+[data]
+scenarios = ["sales_pipeline", "support_ops"]   # built-in or template data scenarios
+authoring = "template"                          # or "llm" (uses the world's [model] on a --live build)
+scale_factor = 1.0
+iterations = 3
+```
+
+`[data]` is excluded from the config digest, so adding data never changes a
+world's id. Add scenarios to an existing world with
+`enterprise-sim world extend WORLD_DIR --add-data support_ops` (the corpus
+re-renders entirely from cache) or tick them under **Structured data** in the
+explorer's world form. `world data CONFIG --world WORLD_DIR` still runs a
+standalone data config into a world. A data failure never fails the world
+build: it is reported as a `warning` progress event.
 
 ## 1. What a data scenario is
 
@@ -78,7 +101,7 @@ Mirrors the document pipeline's contract (ARCHITECTURE.md §7):
   with `ORDER BY ALL` because DuckDB's parallel aggregation is unordered).
 - **The LLM elaborates, never gates.** With `authoring.mode = "llm"` the
   configured backend is used directly — no `--live` flag, unlike
-  `enterprise-sim run` — (through the one `core/llm` client — api/bedrock/cli,
+  `enterprise-sim world create` — (through the one `core/llm` client — api/bedrock/cli,
   prompt-cached, cost-ceilinged) authors the spec from the scenario's brief +
   a KG summary via `generate_structured` against the spec's JSON schema,
   proposes extra questions, and drives gap analysis. Every proposal is
@@ -118,14 +141,20 @@ error — an audit trail of the gap-closing process.
 
 ## 5. Output contract
 
+Data products are part of a **world** (`enterprise_sim.worlds`): they land under
+the world's `data/`, next to its corpus and gold KG, and each scenario is recorded
+in the world's `.world` (`data[<scenario>]` + a `data` history entry carrying the
+data config). There is no separate data-run directory and no per-scenario manifest.
+
 ```
-runs/data/<scenario>-<digest>/
-  manifest.json            # config snapshot, per-iteration stats, LLM cost
-  spec.json                # the FINAL causal spec — the ground-truth answer key
-  spec.iteration-N.json    # spec as sampled in each loop iteration
-  lineage.json             # dim values / identity rows ↔ gold KG node ids
-  questions.json           # categories + questions + SQL + answerability history
-  data/
+worlds/<world-id>/
+  .world                     # …data: {<scenario>: {title, rows_by_table, questions, iterations, llm_cost_usd, …}}
+  kg/  artifacts/  …         # the world's corpus + gold KG (what the dimensions link against)
+  data/<scenario>/
+    spec.json                # the FINAL causal spec — the ground-truth answer key
+    spec.iteration-N.json    # spec as sampled in each loop iteration
+    lineage.json             # dim values / identity rows ↔ gold KG node ids
+    questions.json           # categories + questions + SQL + answerability history
     tables/<table>/part-*.parquet   # sized partitions, dictionary-encoded dims
     views/<view>/part-00000.parquet # materialized rollups/joins
 ```
@@ -139,10 +168,9 @@ analytics agents can be scored against known structure.
 ```toml
 scenarios = ["product_growth", ...]   # registered scenario names
 seed = 11
-output_dir = "runs/data"
 
 [world]                    # exactly one of:
-run_dir = "runs/golden/<run-id>"      # link against a completed run's kg/
+world_dir = "worlds/<world-id>"       # attach to an existing world (links against its kg/)
 # — or —
 [world.company]                        # inline: Layer A builds it (keyless)
 name = "Northwind Tools"
@@ -174,7 +202,7 @@ CLI overrides: `-o/--output-dir`, `--scale X`, `--iterations N`.
 
 ## 7. Authoring a new scenario
 
-Register a plugin in `data_products/scenarios/` exposing `name`, `title`,
+Author one in the explorer's Templates tab (kind **Data scenario**), or register a plugin in `data_products/scenarios/` exposing `name`, `title`,
 `brief` (the LLM guidance), `build_spec(start, end)` (the deterministic
 template — use `scenarios/_helpers.py` for readable equation shorthand), and
 `question_bank(spec)` (include a few gap-carrying questions so the loop has

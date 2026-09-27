@@ -1,0 +1,21 @@
+{
+  "created_at": "2026-09-27T02:11:05.421269+00:00",
+  "description": "Product growth: users, engagement, and revenue for the simulated company.",
+  "kind": "data_scenario",
+  "name": "Product Growth Analytics",
+  "provides": {
+    "archetypes": [],
+    "data_scenarios": [
+      "product_growth"
+    ],
+    "playbooks": [],
+    "processes": []
+  },
+  "slug": "product_growth",
+  "updated_at": "2026-09-27T02:17:02.780207+00:00",
+  "validation": {
+    "checked_at": "2026-09-27T02:17:02.780225+00:00",
+    "status": "valid",
+    "summary": "valid: import ok, lint ok, conformance ok, archetype_sanity ok, tests ok, dry_run ok, data_spec ok"
+  }
+}

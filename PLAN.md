@@ -57,11 +57,11 @@ These are settled unless we revisit them. Rationale and detail in `ARCHITECTURE.
 | D6 | **Multi-modal by design, single in v1.** | Registry allows many producers per event (one event → docx + Jira + email later); v1 wires only `markdown`. |
 | D7 | **Language: Python.** | Mature `python-docx`/`python-pptx`, official Anthropic SDK with Bedrock support. |
 | D8 | **Native DOCX threaded comments are required (v2).** | Build our own OOXML comment injector; **spike it first** to de-risk. Escape hatch: a .NET Open XML SDK helper invoked as a subprocess. |
-| D9 | **LLM provider is pluggable:** Anthropic API key · AWS Bedrock · Claude CLI (`claude -p`). | API + Bedrock share the official SDK; the CLI path routes through the OAuth subscription for cheap bulk fan-out. Config-selected, but `enterprise-sim run` honors the config's backend only under `--live` (see D13); `data run` honors it directly. |
+| D9 | **LLM provider is pluggable:** Anthropic API key · AWS Bedrock · Claude CLI (`claude -p`). | API + Bedrock share the official SDK; the CLI path routes through the OAuth subscription for cheap bulk fan-out. Config-selected, but `enterprise-sim world create` honors the config's backend only under `--live` (see D13); `world data` honors it directly. |
 | D10 | **Determinism = structural, not byte-identical.** | One seed threads through; each plugin gets a derived sub-seed. LLM nondeterminism makes byte-identical infeasible. |
 | D11 | **Calendars: simple weekday business-hours in v1**; tz-aware working-hours later. | |
 | D12 | **Email/Jira/ServiceNow deferred to post-v1** as new producer (and optional process) plugins. | Collaboration in v1 is captured via document review/comment threads. |
-| D13 | **Configurable cost ceiling; `enterprise-sim run` defaults to the `fake` provider, `--live` opts in to the config's.** | Dry-run estimate + hard ceiling before large runs. A default run is free, network-free and reproducible; `--live` selects the configured provider (API/Bedrock/CLI) and forfeits byte-reproducibility. CLI/subscription remains available for cheap bulk runs. |
+| D13 | **Configurable cost ceiling; `enterprise-sim world create` defaults to the `fake` provider, `--live` opts in to the config's.** | Dry-run estimate + hard ceiling before large runs. A default run is free, network-free and reproducible; `--live` selects the configured provider (API/Bedrock/CLI) and forfeits byte-reproducibility. CLI/subscription remains available for cheap bulk runs. |
 | D14 | **Goals may nest (sub-goals) in v1.** | Goal is a recursive node like Initiative. |
 | D15 | **Ship ≥2 playbooks in v1** (e.g. `build_software` + one non-engineering, such as `sell_merchandise` or `compliance_audit`) to prove the abstraction. | Forces the process-sharing/divergence model to be real, not theoretical. |
 | D16 | **Rich cross-document reference KG is a primary goal** — artifacts cite prior artifacts/decisions, producing dense `references` edges. | Applies to *all* current and future producers/processes, not just v1. |
@@ -96,7 +96,7 @@ A complete, markdown-only end-to-end run that exercises the whole framework:
 - **Artifacts:** everything rendered as markdown/JSON by the `markdown` producer —
   including review threads represented in markdown.
 - **Gold KG export** with provenance linking every edge to supporting artifacts.
-- **Reproducible** via seed; `manifest.json` + config snapshot.
+- **Reproducible** via seed; the world's `.world` records the effective config, digest and counts.
 
 Office formats (`.docx` with native comments, `.pptx`) and new modalities (Jira, Outlook)
 arrive in later milestones as *additive* producer plugins — **the event simulator does

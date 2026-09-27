@@ -201,7 +201,7 @@ export class GraphIndex {
 
   /** Read raw artifact text (markdown / json) relative to the run root. */
   readArtifact(relPath: string): string | null {
-    const full = join(this.model.runPath, relPath)
+    const full = join(this.model.worldPath, relPath)
     if (!existsSync(full)) return null
     try {
       return readFileSync(full, 'utf8')

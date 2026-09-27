@@ -28,7 +28,7 @@ from enterprise_sim.assembly import (
     llm_config_for,
 )
 from enterprise_sim.cli import main
-from enterprise_sim.core.config import RunConfig, ScaleConfig, load_config_from_mapping
+from enterprise_sim.core.config import ScaleConfig, WorldConfig, load_config_from_mapping
 from enterprise_sim.core.llm import (
     Completion,
     CostCeilingExceeded,
@@ -40,22 +40,23 @@ from enterprise_sim.core.llm import (
 )
 from enterprise_sim.core.world import Edge, Node, World
 from enterprise_sim.world_builders import build_world
+from enterprise_sim.worlds import read_world
 
 
 def _config(
-    output_dir: Path,
+    worlds_root: Path,
     *,
     size: str = "enterprise",
     vertical: str = "software",
     seed: int = 5,
     end: str = "2026-01-31",
     scale: dict[str, Any] | None = None,
-) -> RunConfig:
+) -> WorldConfig:
     body: dict[str, Any] = {
         "company": {"name": "BigCo", "vertical": vertical, "size": size},
         "simulation": {"period_start": "2026-01-01", "period_end": end},
         "seed": seed,
-        "output_dir": str(output_dir),
+        "worlds_root": str(worlds_root),
     }
     if scale is not None:
         body["scale"] = scale
@@ -94,7 +95,7 @@ def test_scale_config_rejects_invalid(field: str, value: object) -> None:
 
 
 # ---------------------------------------------------------------------------
-# RunConfig -> LLMConfig bridge
+# WorldConfig -> LLMConfig bridge
 # ---------------------------------------------------------------------------
 
 
@@ -126,12 +127,16 @@ def test_estimate_run_counts_artifacts_and_prices_them(tmp_path: Path) -> None:
     assert isinstance(estimate, RenderEstimate)
     assert estimate.num_artifacts > 0
     assert estimate.estimated_cost_usd > 0
-    # Estimate scales as count × per-artifact price, so it is recomputable.
+    # Estimate scales as count × per-artifact price (from the pricing table), so it
+    # is recomputable.
+    from enterprise_sim.core.llm.pricing import pricing_for
+
+    price = pricing_for(estimate.model)
     assert estimate.estimated_cost_usd == pytest.approx(
         estimate.num_artifacts
         * (
-            estimate.input_tokens_each * 15.0  # opus input $/Mtok
-            + estimate.output_tokens_each * 75.0  # opus output $/Mtok
+            estimate.input_tokens_each * price.input_per_mtok
+            + estimate.output_tokens_each * price.output_per_mtok
         )
         / 1_000_000.0
     )
@@ -203,7 +208,7 @@ def test_large_company_one_month_run_within_ceiling(tmp_path: Path) -> None:
     result = execute_run(config)
     assert len(result.corpus.artifacts) > 0
     # The corpus is mixed: markdown by default, .docx for the word-bound kinds.
-    art_files = [p for p in (result.run_dir / "artifacts").rglob("*") if p.is_file()]
+    art_files = [p for p in (result.world_dir / "artifacts").rglob("*") if p.is_file()]
     assert len(art_files) == len(result.corpus.artifacts)
 
 
@@ -295,19 +300,19 @@ def test_corpus_identical_regardless_of_concurrency(tmp_path: Path) -> None:
     # D26: concurrency changes only how fast it renders, never what is rendered.
     serial = execute_run(_config(tmp_path / "a", scale={"max_concurrency": 1}))
     parallel = execute_run(_config(tmp_path / "b", scale={"max_concurrency": 8}))
-    assert serial.run_id == parallel.run_id
+    assert serial.world_id == parallel.world_id
     assert _corpus_blob(serial) == _corpus_blob(parallel)
 
 
-def test_scale_does_not_change_run_identity(tmp_path: Path) -> None:
-    # Scale is operational (where/how fast), not content — like output_dir, it is
+def test_scale_does_not_change_world_identity(tmp_path: Path) -> None:
+    # Scale is operational (where/how fast), not content — like worlds_root, it is
     # excluded from the config digest, so the run id and manifest stay stable.
-    from enterprise_sim.assembly import compute_config_digest, compute_run_id
+    from enterprise_sim.assembly import compute_config_digest, compute_world_id
 
     fast = _config(tmp_path / "a", scale={"max_concurrency": 8, "cost_ceiling_usd": 9.0})
     slow = _config(tmp_path / "b", scale={"max_concurrency": 1})
     assert compute_config_digest(fast) == compute_config_digest(slow)
-    assert compute_run_id(fast) == compute_run_id(slow)
+    assert compute_world_id(fast) == compute_world_id(slow)
 
 
 def test_multi_scenario_corpus_is_reproducible(tmp_path: Path) -> None:
@@ -405,7 +410,7 @@ def _write_config(path: Path, *, ceiling: float | None = None) -> Path:
 def test_cli_dry_run_writes_nothing(tmp_path: Path, capsys: Any) -> None:
     cfg = _write_config(tmp_path / "demo.toml")
     out = tmp_path / "out"
-    assert main(["run", "-c", str(cfg), "-o", str(out), "--dry-run"]) == 0
+    assert main(["world", "create", "-c", str(cfg), "--worlds-root", str(out), "--dry-run"]) == 0
     assert not out.exists()
     assert "dry-run" in capsys.readouterr().out
 
@@ -414,7 +419,20 @@ def test_cli_dry_run_ceiling_override_fails(tmp_path: Path) -> None:
     cfg = _write_config(tmp_path / "demo.toml")
     out = tmp_path / "out"
     assert (
-        main(["run", "-c", str(cfg), "-o", str(out), "--dry-run", "--cost-ceiling", "0.0001"]) == 1
+        main(
+            [
+                "world",
+                "create",
+                "-c",
+                str(cfg),
+                "--worlds-root",
+                str(out),
+                "--dry-run",
+                "--cost-ceiling",
+                "0.0001",
+            ]
+        )
+        == 1
     )
     assert not out.exists()
 
@@ -422,12 +440,38 @@ def test_cli_dry_run_ceiling_override_fails(tmp_path: Path) -> None:
 def test_cli_cost_ceiling_override_aborts_full_run(tmp_path: Path) -> None:
     cfg = _write_config(tmp_path / "demo.toml")
     out = tmp_path / "out"
-    assert main(["run", "-c", str(cfg), "-o", str(out), "--cost-ceiling", "0.0001"]) == 1
-    assert not out.exists()  # aborted before any output written
+    assert (
+        main(
+            [
+                "world",
+                "create",
+                "-c",
+                str(cfg),
+                "--worlds-root",
+                str(out),
+                "--cost-ceiling",
+                "0.0001",
+            ]
+        )
+        == 1
+    )
+    # The world was minted (so it can be resumed after raising the ceiling) but the
+    # job failed at the dry-run gate: nothing was rendered.
+    [world_dir] = list(out.iterdir())
+    world = read_world(world_dir)
+    assert world is not None
+    assert world.job.status == "failed"
+    assert (world.job.error or {})["type"] == "CostCeilingExceeded"
+    assert not any(p.is_file() for p in (world_dir / "artifacts").rglob("*"))
 
 
 def test_cli_max_concurrency_override_runs(tmp_path: Path) -> None:
     cfg = _write_config(tmp_path / "demo.toml")
     out = tmp_path / "out"
-    assert main(["run", "-c", str(cfg), "-o", str(out), "--max-concurrency", "2"]) == 0
+    assert (
+        main(
+            ["world", "create", "-c", str(cfg), "--worlds-root", str(out), "--max-concurrency", "2"]
+        )
+        == 0
+    )
     assert len(list(out.iterdir())) == 1

@@ -67,3 +67,10 @@
   padding: 3px 8px; font-size: 11px; font-family: 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
 }
 .tpl-file-tabs button.active { color: var(--bg); background: var(--accent); border-color: var(--accent); }
+
+/* the "what templates are for" explainer at the top of the library */
+.tpl-intro { border: 1px solid var(--line); border-radius: var(--radius); padding: 6px 10px; background: var(--bg3); }
+.tpl-intro summary { cursor: pointer; font-size: 12px; color: var(--text); }
+.tpl-intro p { margin: 6px 0 0; line-height: 1.45; }
+.tpl-intro ul { margin: 6px 0 0; padding-left: 16px; line-height: 1.45; }
+.tpl-intro li { margin: 4px 0; }

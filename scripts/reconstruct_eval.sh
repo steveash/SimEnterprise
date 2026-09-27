@@ -6,7 +6,7 @@
 # crew run is a single invocation instead of six hand-copied commands with four
 # intermediate files to keep in sync. Every artifact lands under one --out dir.
 #
-#   scripts/reconstruct_eval.sh --run runs/<id> --backend anthropic_api -o eval/
+#   scripts/reconstruct_eval.sh --run worlds/<id> --backend anthropic_api -o eval/
 #   scripts/reconstruct_eval.sh --keyless-smoke -o /tmp/eval   # wiring only, no key
 #
 # The oracle (graph agent on the gold KG) and reconstructed (same agent on the
@@ -56,25 +56,25 @@ LIMIT_ARGS=()
 
 say() { printf '\n=== %s ===\n' "$*" >&2; }
 
-# 0. A golden run to reconstruct (fresh, deterministic fake sim) if none given.
+# 0. A golden world to reconstruct (fresh, deterministic fake sim) if none given.
 if [[ -z "$RUN" ]]; then
-  say "golden run (fresh)"
-  "${ESIM[@]}" run examples/golden.toml -o "$OUT/runs"
-  RUN=$(find "$OUT/runs" -mindepth 1 -maxdepth 1 -type d | head -1)
+  say "golden world (fresh)"
+  "${ESIM[@]}" world create examples/golden.toml --worlds-root "$OUT/worlds"
+  RUN=$(find "$OUT/worlds" -mindepth 1 -maxdepth 1 -type d | head -1)
 fi
 echo "run: $RUN" >&2
 
 # A shared benchmark generated from that run's gold graph.
 say "bench generate"
-"${ESIM[@]}" bench generate --run "$RUN" -o "$OUT/bench.jsonl"
+"${ESIM[@]}" bench generate --world "$RUN" -o "$OUT/bench.jsonl"
 
 # 1. BUILD — reconstruct + persist the KG once.
 say "build (backend=$BACKEND)"
-"${ESIM[@]}" reconstruct build --run "$RUN" -o "$OUT/recon" --backend "$BACKEND"
+"${ESIM[@]}" reconstruct build --world "$RUN" -o "$OUT/recon" --backend "$BACKEND"
 
 # 2. FIDELITY — score the reconstruction against the gold graph (keyless).
 say "fidelity"
-"${ESIM[@]}" reconstruct fidelity --reconstructed "$OUT/recon" --run "$RUN" \
+"${ESIM[@]}" reconstruct fidelity --reconstructed "$OUT/recon" --world "$RUN" \
   --json -o "$OUT/fidelity.json"
 
 # 3. REASON — three prediction files: oracle / reconstructed / rag.
@@ -82,21 +82,21 @@ if [[ "$SMOKE" -eq 1 ]]; then
   # Keyless wiring smoke: one keyless RAG prediction stands in for all three
   # slots so REPORT runs without a key. NOT a real eval — proves the plumbing.
   say "reason (keyless smoke: rag stands in for all three slots)"
-  "${ESIM[@]}" bench run --runner rag --backend fake --run "$RUN" \
+  "${ESIM[@]}" bench run --runner rag --backend fake --world "$RUN" \
     --bench "$OUT/bench.jsonl" -o "$OUT/pred.rag.jsonl"
   cp "$OUT/pred.rag.jsonl" "$OUT/pred.oracle.jsonl"
   cp "$OUT/pred.rag.jsonl" "$OUT/pred.reconstructed.jsonl"
   echo "NOTE: --keyless-smoke numbers are wiring stand-ins, not an eval." >&2
 else
   say "reason: oracle (graph agent on gold KG)"
-  "${ESIM[@]}" bench run --runner graph --run "$RUN" --bench "$OUT/bench.jsonl" \
+  "${ESIM[@]}" bench run --runner graph --world "$RUN" --bench "$OUT/bench.jsonl" \
     -o "$OUT/pred.oracle.jsonl" --model "$MODEL" "${LIMIT_ARGS[@]}"
   say "reason: reconstructed (same agent on reconstructed KG)"
   "${ESIM[@]}" reconstruct reason --reconstructed "$OUT/recon" \
     --bench "$OUT/bench.jsonl" -o "$OUT/pred.reconstructed.jsonl" \
     --model "$MODEL" "${LIMIT_ARGS[@]}"
   say "reason: rag (corpus baseline)"
-  "${ESIM[@]}" bench run --runner rag --backend "$BACKEND" --run "$RUN" \
+  "${ESIM[@]}" bench run --runner rag --backend "$BACKEND" --world "$RUN" \
     --bench "$OUT/bench.jsonl" -o "$OUT/pred.rag.jsonl"
 fi
 

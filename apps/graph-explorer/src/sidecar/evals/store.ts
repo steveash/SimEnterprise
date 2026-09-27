@@ -6,22 +6,22 @@
 // since it owns the counts and canonical JSON shape.
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import type { EvalExecutionMeta, EvalItemResult, QAPair } from '../../shared/evals-protocol.js'
+import type { EvalExecutionMeta, EvalItemResult, EvalTrace, QAPair } from '../../shared/evals-protocol.js'
 
-export function evalsDir(runPath: string): string {
-  return join(runPath, 'evals')
+export function evalsDir(worldPath: string): string {
+  return join(worldPath, 'evals')
 }
 
-export function questionsPath(runPath: string): string {
-  return join(evalsDir(runPath), 'questions.jsonl')
+export function questionsPath(worldPath: string): string {
+  return join(evalsDir(worldPath), 'questions.jsonl')
 }
 
-export function resultsDir(runPath: string): string {
-  return join(evalsDir(runPath), 'results')
+export function resultsDir(worldPath: string): string {
+  return join(evalsDir(worldPath), 'results')
 }
 
-export function resultDir(runPath: string, evalId: string): string {
-  return join(resultsDir(runPath), evalId)
+export function resultDir(worldPath: string, evalId: string): string {
+  return join(resultsDir(worldPath), evalId)
 }
 
 function parseJsonl<T>(text: string): T[] {
@@ -40,19 +40,19 @@ function writeJsonl(path: string, rows: unknown[]): void {
 }
 
 /** Read `<run>/evals/questions.jsonl`; `[]` if the question set hasn't been generated yet. */
-export function readQuestions(runPath: string): QAPair[] {
-  const p = questionsPath(runPath)
+export function readQuestions(worldPath: string): QAPair[] {
+  const p = questionsPath(worldPath)
   if (!existsSync(p)) return []
   return parseJsonl<QAPair>(readFileSync(p, 'utf8'))
 }
 
-export function hasQuestions(runPath: string): boolean {
-  return existsSync(questionsPath(runPath))
+export function hasQuestions(worldPath: string): boolean {
+  return existsSync(questionsPath(worldPath))
 }
 
 /** List `<run>/evals/results/*`'s eval ids, newest first (lexicographic — the id starts with a timestamp). */
-export function listResultIds(runPath: string): string[] {
-  const dir = resultsDir(runPath)
+export function listResultIds(worldPath: string): string[] {
+  const dir = resultsDir(worldPath)
   if (!existsSync(dir)) return []
   return readdirSync(dir, { withFileTypes: true })
     .filter((e) => e.isDirectory())
@@ -61,45 +61,45 @@ export function listResultIds(runPath: string): string[] {
     .reverse()
 }
 
-export function readEvalMeta(runPath: string, evalId: string): EvalExecutionMeta | null {
-  const p = join(resultDir(runPath, evalId), 'eval.json')
+export function readEvalMeta(worldPath: string, evalId: string): EvalExecutionMeta | null {
+  const p = join(resultDir(worldPath, evalId), 'eval.json')
   if (!existsSync(p)) return null
   return JSON.parse(readFileSync(p, 'utf8')) as EvalExecutionMeta
 }
 
-export function writeEvalMeta(runPath: string, meta: EvalExecutionMeta): void {
-  const dir = resultDir(runPath, meta.eval_id)
+export function writeEvalMeta(worldPath: string, meta: EvalExecutionMeta): void {
+  const dir = resultDir(worldPath, meta.eval_id)
   mkdirSync(dir, { recursive: true })
   writeFileSync(join(dir, 'eval.json'), JSON.stringify(meta, null, 2) + '\n', 'utf8')
 }
 
-export function readItems(runPath: string, evalId: string): EvalItemResult[] {
-  const p = join(resultDir(runPath, evalId), 'items.jsonl')
+export function readItems(worldPath: string, evalId: string): EvalItemResult[] {
+  const p = join(resultDir(worldPath, evalId), 'items.jsonl')
   if (!existsSync(p)) return []
   return parseJsonl<EvalItemResult>(readFileSync(p, 'utf8'))
 }
 
-export function writeItems(runPath: string, evalId: string, items: EvalItemResult[]): void {
-  const dir = resultDir(runPath, evalId)
+export function writeItems(worldPath: string, evalId: string, items: EvalItemResult[]): void {
+  const dir = resultDir(worldPath, evalId)
   mkdirSync(dir, { recursive: true })
   writeJsonl(join(dir, 'items.jsonl'), items)
 }
 
-export function writePredictions(runPath: string, evalId: string, predictedById: Map<string, string[]>): void {
-  const dir = resultDir(runPath, evalId)
+export function writePredictions(worldPath: string, evalId: string, predictedById: Map<string, string[]>): void {
+  const dir = resultDir(worldPath, evalId)
   mkdirSync(dir, { recursive: true })
   const rows = [...predictedById.entries()].map(([qa_id, predicted_ids]) => ({ qa_id, predicted_ids }))
   writeJsonl(join(dir, 'predictions.jsonl'), rows)
 }
 
-export function predictionsPath(runPath: string, evalId: string): string {
-  return join(resultDir(runPath, evalId), 'predictions.jsonl')
+export function predictionsPath(worldPath: string, evalId: string): string {
+  return join(resultDir(worldPath, evalId), 'predictions.jsonl')
 }
 
 /** Drop a byproduct file (e.g. the Python runner's own `results.json`) that the sidecar's own eval.json supersedes. */
-export function removeResultFile(runPath: string, evalId: string, name: string): void {
+export function removeResultFile(worldPath: string, evalId: string, name: string): void {
   try {
-    rmSync(join(resultDir(runPath, evalId), name), { force: true })
+    rmSync(join(resultDir(worldPath, evalId), name), { force: true })
   } catch {
     /* best-effort cleanup */
   }
@@ -111,4 +111,34 @@ export function makeEvalId(now: Date, runner: string, n: number): string {
     `${now.getUTCFullYear()}${pad(now.getUTCMonth() + 1)}${pad(now.getUTCDate())}` +
     `-${pad(now.getUTCHours())}${pad(now.getUTCMinutes())}${pad(now.getUTCSeconds())}`
   return `${stamp}-${runner}-${n}q`
+}
+
+/** `<world>/evals/results/<eval-id>/traces/` — one JSON transcript per answered question. */
+export function tracesDir(worldPath: string, evalId: string): string {
+  return join(resultDir(worldPath, evalId), 'traces')
+}
+
+function traceFile(worldPath: string, evalId: string, qaId: string): string {
+  // qa ids are content hashes (`qa-<hex>`); keep the file name safe regardless.
+  return join(tracesDir(worldPath, evalId), `${qaId.replace(/[^A-Za-z0-9._-]/g, '_')}.json`)
+}
+
+export function writeTrace(worldPath: string, trace: EvalTrace): void {
+  mkdirSync(tracesDir(worldPath, trace.eval_id), { recursive: true })
+  writeFileSync(traceFile(worldPath, trace.eval_id, trace.qa_id), JSON.stringify(trace) + '\n', 'utf8')
+}
+
+export function readTrace(worldPath: string, evalId: string, qaId: string): EvalTrace | null {
+  const p = traceFile(worldPath, evalId, qaId)
+  if (!existsSync(p)) return null
+  return JSON.parse(readFileSync(p, 'utf8')) as EvalTrace
+}
+
+/** The qa ids that have a persisted transcript in this execution. */
+export function listTraced(worldPath: string, evalId: string): string[] {
+  const dir = tracesDir(worldPath, evalId)
+  if (!existsSync(dir)) return []
+  return readdirSync(dir)
+    .filter((f) => f.endsWith('.json'))
+    .map((f) => f.slice(0, -'.json'.length))
 }

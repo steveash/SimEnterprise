@@ -30,7 +30,7 @@ function Message({ m }: { m: ProposeMessage }): JSX.Element {
 }
 
 export function ProposeTab(): JSX.Element {
-  const runPath = useStore((s) => s.runPath)
+  const worldPath = useStore((s) => s.worldPath)
   const chat = useEvalsStore((s) => s.proposeChat)
   const active = useEvalsStore((s) => s.proposeActive)
   const send = useEvalsStore((s) => s.sendPropose)
@@ -52,8 +52,8 @@ export function ProposeTab(): JSX.Element {
   }, [chat])
 
   const submit = () => {
-    if (!draft.trim() || active || !runPath) return
-    send(runPath, draft)
+    if (!draft.trim() || active || !worldPath) return
+    send(worldPath, draft)
     setDraft('')
   }
 
@@ -71,7 +71,7 @@ export function ProposeTab(): JSX.Element {
               </div>
               <div className="examples">
                 {EXAMPLES.map((ex) => (
-                  <button key={ex} className="example-chip" onClick={() => runPath && send(runPath, ex)}>
+                  <button key={ex} className="example-chip" onClick={() => worldPath && send(worldPath, ex)}>
                     {ex}
                   </button>
                 ))}
@@ -107,7 +107,7 @@ export function ProposeTab(): JSX.Element {
               Stop
             </button>
           ) : (
-            <button className="btn primary" onClick={submit} disabled={!draft.trim() || !runPath}>
+            <button className="btn primary" onClick={submit} disabled={!draft.trim() || !worldPath}>
               Send
             </button>
           )}
@@ -152,8 +152,8 @@ export function ProposeTab(): JSX.Element {
         <div className="btn-row">
           <button
             className="btn primary"
-            disabled={checkedCount === 0 || addingToSet || !runPath}
-            onClick={() => runPath && addCheckedToSet(runPath)}
+            disabled={checkedCount === 0 || addingToSet || !worldPath}
+            onClick={() => worldPath && addCheckedToSet(worldPath)}
           >
             Add {checkedCount} to eval set
           </button>

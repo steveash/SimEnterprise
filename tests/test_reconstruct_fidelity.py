@@ -452,7 +452,7 @@ def test_fidelity_cli_gold_vs_gold_json(tmp_path: Path, capsys: Any) -> None:
     gold = _gold_world()
     recon_dir = tmp_path / "recon"
     _kg_from_world(gold).write(recon_dir)
-    run_dir = _write_gold_run(tmp_path / "gold", gold)
+    world_dir = _write_gold_run(tmp_path / "gold", gold)
 
     rc = main(
         [
@@ -460,8 +460,8 @@ def test_fidelity_cli_gold_vs_gold_json(tmp_path: Path, capsys: Any) -> None:
             "fidelity",
             "--reconstructed",
             str(recon_dir),
-            "--run",
-            str(run_dir),
+            "--world",
+            str(world_dir),
             "--json",
         ]
     )
@@ -476,7 +476,7 @@ def test_fidelity_cli_writes_markdown_to_output(tmp_path: Path, capsys: Any) -> 
     gold = _gold_world()
     recon_dir = tmp_path / "recon"
     _kg_from_world(gold).write(recon_dir)
-    run_dir = _write_gold_run(tmp_path / "gold", gold)
+    world_dir = _write_gold_run(tmp_path / "gold", gold)
     out = tmp_path / "report.md"
 
     rc = main(
@@ -485,8 +485,8 @@ def test_fidelity_cli_writes_markdown_to_output(tmp_path: Path, capsys: Any) -> 
             "fidelity",
             "--reconstructed",
             str(recon_dir),
-            "--run",
-            str(run_dir),
+            "--world",
+            str(world_dir),
             "-o",
             str(out),
         ]
@@ -510,8 +510,8 @@ def test_fidelity_cli_scores_provenance_from_mentions(tmp_path: Path, capsys: An
             aliases=["Doc"],
         )
     )
-    run_dir = _write_gold_run(tmp_path / "gold", gold)
-    (run_dir / "kg" / "mentions.jsonl").write_text(
+    world_dir = _write_gold_run(tmp_path / "gold", gold)
+    (world_dir / "kg" / "mentions.jsonl").write_text(
         json.dumps(
             {
                 "artifact_path": "doc.md",
@@ -532,8 +532,8 @@ def test_fidelity_cli_scores_provenance_from_mentions(tmp_path: Path, capsys: An
             "fidelity",
             "--reconstructed",
             str(recon_dir),
-            "--run",
-            str(run_dir),
+            "--world",
+            str(world_dir),
             "--json",
         ]
     )

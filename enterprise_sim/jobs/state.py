@@ -1,51 +1,25 @@
-"""Job directory + ledger: ``state.json``, segments, job id (``docs/EXPLORER_RUNS.md`` §3.3).
+"""The job ledger: ``JobState`` + segments (``docs/EXPLORER_RUNS.md`` §3.3).
 
-``state.json`` is the single source of truth a UI lists jobs from: status,
-progress counters, the running cost ledger, and the list of render *segments*
-(one per ``job run`` attempt — a fresh process, a resume after a pause, or a
-retry after a failure). Cache hits are priced at $0 (``CostTracker``), so a
-job's total spend across segments has to be summed from this ledger rather than
-read off any single segment's client.
+A world's ledger lives in its ``.world`` under ``job`` (see
+:mod:`enterprise_sim.worlds.file`, whose :func:`~enterprise_sim.worlds.file.read_job_state`
+/ :func:`~enterprise_sim.worlds.file.write_job_state` are the I/O). This module
+is a leaf — the dataclasses and a pid liveness check only — so ``worlds`` can
+depend on it without a cycle.
 """
 
 from __future__ import annotations
 
-import json
 import os
-import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
-from pathlib import Path
 from typing import Any
 
-__all__ = [
-    "JobState",
-    "Segment",
-    "generate_job_id",
-    "is_alive",
-    "read_state",
-    "state_path",
-    "write_state",
-]
-
-_STATE_FILE = "state.json"
-
-
-def _slugify(name: str) -> str:
-    slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
-    return slug or "job"
-
-
-def generate_job_id(company_name: str, *, now: datetime | None = None) -> str:
-    """A unique, sortable, human-readable job id: ``<yyyymmdd-hhmmss>-<slug>``."""
-    stamp = (now or datetime.now(UTC)).strftime("%Y%m%d-%H%M%S")
-    return f"{stamp}-{_slugify(company_name)}"
+__all__ = ["JobState", "Segment", "is_alive"]
 
 
 @dataclass(slots=True)
 class Segment:
-    """One render attempt: a ``job run`` invocation from start to pause/done/failure."""
+    """One render attempt: a ``world run`` invocation from start to pause/done/failure."""
 
     started_at: str
     ended_at: str | None = None
@@ -78,18 +52,18 @@ class Segment:
 
 @dataclass(slots=True)
 class JobState:
-    """The contents of ``state.json`` (``docs/EXPLORER_RUNS.md`` §3.3's table).
+    """The ``job`` block of a ``.world`` (``docs/EXPLORER_RUNS.md`` §3.3's table).
 
     ``status`` is one of ``"created"`` / ``"running"`` / ``"paused"`` /
     ``"failed"`` / ``"done"`` / ``"cancelled"``. A job whose status is
     ``"running"`` but whose ``pid`` is dead (see :func:`is_alive`) is shown by a
-    UI as *interrupted* (resumable) rather than actually running.
+    UI as *interrupted* (resumable) rather than actually running. The ledger
+    spans the world's whole life: every create / extend / resume appends a
+    segment, and ``cost_usd_total`` is the sum across all of them.
     """
 
     status: str = "created"
     pid: int | None = None
-    run_id: str | None = None
-    run_dir: str | None = None
     phase: str | None = None
     artifacts_done: int = 0
     artifacts_total: int = 0
@@ -109,8 +83,6 @@ class JobState:
         return {
             "status": self.status,
             "pid": self.pid,
-            "run_id": self.run_id,
-            "run_dir": self.run_dir,
             "phase": self.phase,
             "artifacts_done": self.artifacts_done,
             "artifacts_total": self.artifacts_total,
@@ -132,8 +104,6 @@ class JobState:
         return cls(
             status=data.get("status", "created"),
             pid=data.get("pid"),
-            run_id=data.get("run_id"),
-            run_dir=data.get("run_dir"),
             phase=data.get("phase"),
             artifacts_done=int(data.get("artifacts_done", 0)),
             artifacts_total=int(data.get("artifacts_total", 0)),
@@ -148,29 +118,6 @@ class JobState:
             finished_at=data.get("finished_at"),
             error=data.get("error"),
         )
-
-
-def state_path(job_dir: Path) -> Path:
-    """The path to ``job_dir``'s ``state.json``."""
-    return Path(job_dir) / _STATE_FILE
-
-
-def read_state(job_dir: Path) -> JobState | None:
-    """Read ``job_dir``'s ``state.json``, or ``None`` if it does not exist yet."""
-    path = state_path(job_dir)
-    if not path.is_file():
-        return None
-    return JobState.from_dict(json.loads(path.read_text(encoding="utf-8")))
-
-
-def write_state(job_dir: Path, state: JobState) -> None:
-    """Atomically write ``state.json`` (tmp + replace), stamping ``updated_at``."""
-    state.updated_at = datetime.now(UTC).isoformat()
-    path = state_path(job_dir)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps(state.to_dict(), indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    tmp.replace(path)
 
 
 def is_alive(pid: int | None) -> bool:

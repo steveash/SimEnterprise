@@ -8,7 +8,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { runEvalExplorer } from '../src/sidecar/evals/run.js'
-import { readEvalMeta, readItems, resultDir } from '../src/sidecar/evals/store.js'
+import { listTraced, readEvalMeta, readItems, readTrace, resultDir } from '../src/sidecar/evals/store.js'
 import type { AnswerResult } from '../src/sidecar/evals/answerer.js'
 import type { ChatEngines } from '../src/sidecar/agent/harness.js'
 import type { EvalStreamEvent, QAPair } from '../src/shared/evals-protocol.js'
@@ -52,20 +52,20 @@ function stubAnswerer(byId: Record<string, string[]>): (engines: ChatEngines, op
 }
 
 describe('runEvalExplorer persistence with a stubbed answerer', () => {
-  let runPath: string
+  let worldPath: string
 
   beforeEach(() => {
-    runPath = mkdtempSync(join(tmpdir(), 'esim-evals-run-'))
+    worldPath = mkdtempSync(join(tmpdir(), 'esim-evals-run-'))
   })
 
   afterEach(() => {
-    rmSync(runPath, { recursive: true, force: true })
+    rmSync(worldPath, { recursive: true, force: true })
   })
 
   it('writes eval.json, predictions.jsonl, items.jsonl and streams the documented event kinds', async () => {
     const events: EvalStreamEvent[] = []
     const ac = new AbortController()
-    const meta = await runEvalExplorer(FAKE_ENGINES, runPath, '20260101-000000-explorer-2q', PAIRS, {
+    const meta = await runEvalExplorer(FAKE_ENGINES, worldPath, '20260101-000000-explorer-2q', PAIRS, {
       model: 'sonnet',
       concurrency: 2,
       signal: ac.signal,
@@ -90,16 +90,16 @@ describe('runEvalExplorer persistence with a stubbed answerer', () => {
     const doneEvent = events.find((e) => e.kind === 'done')!
     expect(doneEvent.kind === 'done' && doneEvent.report.overall.count).toBe(2)
 
-    const dir = resultDir(runPath, meta.eval_id)
+    const dir = resultDir(worldPath, meta.eval_id)
     expect(existsSync(join(dir, 'eval.json'))).toBe(true)
     expect(existsSync(join(dir, 'predictions.jsonl'))).toBe(true)
     expect(existsSync(join(dir, 'items.jsonl'))).toBe(true)
 
-    const diskMeta = readEvalMeta(runPath, meta.eval_id)
+    const diskMeta = readEvalMeta(worldPath, meta.eval_id)
     expect(diskMeta?.status).toBe('done')
     expect(diskMeta?.report?.overall.count).toBe(2)
 
-    const items = readItems(runPath, meta.eval_id)
+    const items = readItems(worldPath, meta.eval_id)
     expect(items).toHaveLength(2)
     expect(items.find((i) => i.qa_id === 'qa-1')!.predicted).toEqual(['person:manager'])
 
@@ -109,10 +109,64 @@ describe('runEvalExplorer persistence with a stubbed answerer', () => {
     expect(preds.find((p) => p.qa_id === 'qa-1')?.predicted_ids).toEqual(['person:manager'])
   })
 
+  it('persists every question\'s full transcript, and surfaces a failed run\'s error', async () => {
+    const events: EvalStreamEvent[] = []
+    const answerFn = async (_e: ChatEngines, opts: { question: string }): Promise<AnswerResult> => {
+      if (opts.question === PAIRS[1].question) {
+        return { predicted_ids: [], turns: 1, seconds: 0.5, error: 'Not logged in · Please run /login', events: [] }
+      }
+      return {
+        predicted_ids: ['person:manager'],
+        label: 'the manager',
+        turns: 3,
+        seconds: 1.2,
+        cost_usd: 0.004,
+        events: [
+          { kind: 'thinking', text: 'Resolve Ash first.' },
+          { kind: 'tool_use', id: 't1', name: 'search_nodes', input: { query: 'Ash' } },
+          { kind: 'tool_result', id: 't1', ok: true, preview: '[{"id":"person:ash"}]' },
+          { kind: 'text', text: 'Ash reports to the manager.' },
+          { kind: 'tool_use', id: 't2', name: 'submit_answer', input: { node_ids: ['person:manager'] } },
+          { kind: 'tool_result', id: 't2', ok: true, preview: 'ok' }
+        ]
+      }
+    }
+    await runEvalExplorer(FAKE_ENGINES, worldPath, '20260101-000000-explorer-2q', PAIRS, {
+      model: 'claude-opus-5-5',
+      concurrency: 2,
+      signal: new AbortController().signal,
+      selection: { kind: 'all' },
+      stream: (e) => events.push(e),
+      answerFn
+    })
+
+    expect(listTraced(worldPath, '20260101-000000-explorer-2q').sort()).toEqual(['qa-1', 'qa-2'])
+    const ok = readTrace(worldPath, '20260101-000000-explorer-2q', 'qa-1')!
+    expect(ok.question).toBe(PAIRS[0].question)
+    expect(ok.model).toBe('claude-opus-5-5')
+    expect(ok.predicted_ids).toEqual(['person:manager'])
+    expect(ok.expected_ids).toEqual(['person:manager'])
+    expect(ok.submitted_label).toBe('the manager')
+    expect(ok.turns).toBe(3)
+    expect(ok.events.map((e) => e.kind)).toEqual(['thinking', 'tool_use', 'tool_result', 'text', 'tool_use', 'tool_result'])
+
+    const failed = readTrace(worldPath, '20260101-000000-explorer-2q', 'qa-2')!
+    expect(failed.error).toContain('Not logged in')
+    expect(failed.predicted_ids).toEqual([])
+
+    // The error reaches the stream and items.jsonl, so the UI can say *why* there is no answer.
+    const done = events.find((e) => e.kind === 'question_done' && e.id === 'qa-2')
+    expect(done && done.kind === 'question_done' && done.error).toContain('Not logged in')
+    expect(readItems(worldPath, '20260101-000000-explorer-2q').find((i) => i.qa_id === 'qa-2')!.error).toContain(
+      'Not logged in'
+    )
+    expect(readTrace(worldPath, '20260101-000000-explorer-2q', 'qa-missing')).toBeNull()
+  })
+
   it('a single-question run includes a per-tool trace on question_done', async () => {
     const events: EvalStreamEvent[] = []
     const ac = new AbortController()
-    await runEvalExplorer(FAKE_ENGINES, runPath, '20260101-000000-explorer-1q', [PAIRS[0]], {
+    await runEvalExplorer(FAKE_ENGINES, worldPath, '20260101-000000-explorer-1q', [PAIRS[0]], {
       model: 'sonnet',
       concurrency: 1,
       signal: ac.signal,
@@ -140,7 +194,7 @@ describe('runEvalExplorer persistence with a stubbed answerer', () => {
   it('cancellation keeps finished questions and reports status "cancelled" over the completed subset', async () => {
     const ac = new AbortController()
     let answered = 0
-    const meta = await runEvalExplorer(FAKE_ENGINES, runPath, '20260101-000000-explorer-2q', PAIRS, {
+    const meta = await runEvalExplorer(FAKE_ENGINES, worldPath, '20260101-000000-explorer-2q', PAIRS, {
       model: 'sonnet',
       concurrency: 1,
       signal: ac.signal,
@@ -166,12 +220,12 @@ describe.skipIf(!goldenRunExists())('evals ops end-to-end against the golden run
     const generate = getOp('evalsGenerate')!
     await generate({
       requestId: 'r0',
-      params: { runPath: GOLDEN_RUN },
+      params: { worldPath: GOLDEN_RUN },
       ensureLoaded: async () => {
         throw new Error('not needed')
       },
       stream: () => {},
-      runsRoot: '',
+      worldsRoot: '',
       repoRoot: join(GOLDEN_RUN, '..', '..', '..')
     })
   }, 120_000)
@@ -181,15 +235,15 @@ describe.skipIf(!goldenRunExists())('evals ops end-to-end against the golden run
     expect(handler).toBeDefined()
     const result = (await handler!({
       requestId: 'r1',
-      params: { runPath: GOLDEN_RUN },
-      ensureLoaded: async (runPath: string) => {
-        const { loadRun } = await import('../src/sidecar/graph/loader.js')
+      params: { worldPath: GOLDEN_RUN },
+      ensureLoaded: async (worldPath: string) => {
+        const { loadWorld } = await import('../src/sidecar/graph/loader.js')
         const { GraphIndex } = await import('../src/sidecar/graph/index.js')
-        const model = loadRun(runPath)
+        const model = loadWorld(worldPath)
         return { index: new GraphIndex(model), kuzu: {} as never, oxigraph: {} as never, result: {} as never }
       },
       stream: () => {},
-      runsRoot: '',
+      worldsRoot: '',
       repoRoot: join(GOLDEN_RUN, '..', '..', '..')
     })) as { questions: QAPair[]; expected_labels: Record<string, string> }
     expect(result.questions.length).toBeGreaterThan(0)
@@ -203,12 +257,12 @@ describe.skipIf(!goldenRunExists())('evals ops end-to-end against the golden run
     const call = () =>
       handler!({
         requestId: 'r2',
-        params: { runPath: GOLDEN_RUN, fraction: 0.1, seed: 3, stratify: true },
+        params: { worldPath: GOLDEN_RUN, fraction: 0.1, seed: 3, stratify: true },
         ensureLoaded: async () => {
           throw new Error('not needed')
         },
         stream: () => {},
-        runsRoot: '',
+        worldsRoot: '',
         repoRoot: ''
       }) as Promise<{ ids: string[]; count: number }>
     const a = await call()

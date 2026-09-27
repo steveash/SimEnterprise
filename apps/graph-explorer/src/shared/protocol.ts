@@ -1,5 +1,5 @@
 // Wire protocol between renderer and the Node sidecar (over a localhost WebSocket).
-import type { GraphModel, RunSummary } from './model.js'
+import type { GraphModel } from './model.js'
 
 export interface RpcRequest {
   type: 'rpc'
@@ -25,7 +25,7 @@ export interface RpcStreamEvent {
 
 export type ServerMessage = RpcResponse | RpcStreamEvent
 
-export interface LoadRunResult {
+export interface LoadWorldResult {
   model: GraphModel
   kuzuSchema: string
   sparqlSchema: string
@@ -62,9 +62,18 @@ export interface TypeDelta {
   removed: number
 }
 
+/** One side of a diff: the loaded world's identity + size (not the full `.world` summary). */
+export interface DiffSide {
+  worldId: string
+  worldPath: string
+  nodeCount: number
+  edgeCount: number
+  window: { start: string; end: string } | null
+}
+
 export interface DiffResult {
-  a: RunSummary
-  b: RunSummary
+  a: DiffSide
+  b: DiffSide
   // Raw id partitions (added = only in B, removed = only in A, common = both).
   nodes: { added: string[]; removed: string[]; common: string[] }
   edges: { added: string[]; removed: string[]; common: string[] }
@@ -77,8 +86,8 @@ export interface DiffResult {
 }
 
 export const OPS = {
-  listRuns: 'listRuns',
-  loadRun: 'loadRun',
+  listWorlds: 'listWorlds',
+  loadWorld: 'loadWorld',
   search: 'search',
   neighbors: 'neighbors',
   shortestPath: 'shortestPath',
@@ -86,7 +95,7 @@ export const OPS = {
   readArtifact: 'readArtifact',
   cypher: 'cypher',
   sparql: 'sparql',
-  diffRuns: 'diffRuns',
+  diffWorlds: 'diffWorlds',
   chat: 'chat',
   cancelChat: 'cancelChat'
 } as const

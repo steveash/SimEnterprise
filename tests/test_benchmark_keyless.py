@@ -54,7 +54,7 @@ def gold() -> tuple[World, dict[str, list[str]]]:
 
     with tempfile.TemporaryDirectory(prefix="esim-bench-keyless-") as tmp:
         result = golden_run(tmp)
-        return result.world, load_groundings(result.run_dir, result.world)
+        return result.world, load_groundings(result.world_dir, result.world)
 
 
 @pytest.fixture(scope="module")

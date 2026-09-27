@@ -1,6 +1,6 @@
 """A run whose org uses a *template* archetype, wired via ``plugins``/the env var.
 
-``RunConfig.departments`` (``[[departments]] archetype = <name>``,
+``WorldConfig.departments`` (``[[departments]] archetype = <name>``,
 EXPLORER_TEMPLATES.md §2.2) is being added by a sibling agent and is not yet
 available in this branch, so these tests cannot force-select a template
 archetype directly. Instead they lean on ``world_builders.builder.
@@ -21,7 +21,7 @@ from datetime import date
 from pathlib import Path
 
 import pytest
-from enterprise_sim.core.config import CompanyConfig, CompanySize, RunConfig, SimulationConfig
+from enterprise_sim.core.config import CompanyConfig, CompanySize, SimulationConfig, WorldConfig
 from enterprise_sim.core.registry import ARCHETYPES
 from enterprise_sim.templates.scaffold import scaffold
 from enterprise_sim.templates.store import TemplateKind
@@ -39,9 +39,9 @@ def _restore_archetypes() -> Iterator[None]:
     trigger ``build_world`` (which discovers them as a side effect), the
     teardown below would wipe out the built-ins it just legitimately added.
     """
-    from enterprise_sim.core.registry import discover
+    from enterprise_sim.core.registry import load_templates
 
-    discover("enterprise_sim.archetypes")
+    load_templates()
     original = dict(ARCHETYPES.items())
     yield
     ARCHETYPES.clear()
@@ -54,8 +54,8 @@ def _slug() -> str:
     return f"aaa_tpl_{uuid.uuid4().hex[:10]}"
 
 
-def _config(plugins: tuple[str, ...] = ()) -> RunConfig:
-    return RunConfig(
+def _config(plugins: tuple[str, ...] = ()) -> WorldConfig:
+    return WorldConfig(
         company=CompanyConfig(
             name="Template Co", vertical="unmatched-vertical", size=CompanySize.STARTUP
         ),

@@ -800,6 +800,9 @@ def _resolve_impl_source(impl: str) -> str | None:
     is not itself a Tier 1 error, so the determinism scan is simply skipped.
     """
     module_path = impl.split(":", 1)[0]
+    from enterprise_sim.core.registry import ensure_module
+
+    ensure_module(module_path)  # a template process's impl lives in its template module
     try:
         spec = importlib.util.find_spec(module_path)
     except (ImportError, ValueError, ModuleNotFoundError):

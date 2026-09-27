@@ -56,8 +56,8 @@ export interface ValidationIssue {
 }
 
 export interface GraphModel {
-  runId: string
-  runPath: string
+  worldId: string
+  worldPath: string
   nodes: KGNode[]
   edges: KGEdge[]
   mentions: KGMention[]
@@ -65,17 +65,12 @@ export interface GraphModel {
   provenance: KGProvenance[]
   aliases: KGAlias[]
   validation: ValidationIssue[]
-  manifest: Record<string, unknown> | null
+  /** The world's `.world` document (enterprise_sim.worlds), or null if unreadable. */
+  world: Record<string, unknown> | null
   nodeTypes: string[]
   edgeTypes: string[]
   /** ISO range of the simulated window, derived from manifest or event timestamps. */
   timeRange: { start: string; end: string } | null
 }
 
-export interface RunSummary {
-  runId: string
-  runPath: string
-  nodeCount: number
-  edgeCount: number
-  window: { start: string; end: string } | null
-}
+export type { WorldSummary } from './worlds-protocol.js'

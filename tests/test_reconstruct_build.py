@@ -482,9 +482,9 @@ def _write_run(root: Path) -> Path:
 
 
 def test_run_pipeline_keyless_emits_loadable_kg(tmp_path: Path) -> None:
-    run_dir = _write_run(tmp_path / "run")
+    world_dir = _write_run(tmp_path / "run")
     client = build_client(LLMConfig(backend="fake"))
-    kg = run_pipeline(str(run_dir), client, config=BuildConfig())
+    kg = run_pipeline(str(world_dir), client, config=BuildConfig())
     # The fake backend yields a small KG — at minimum nodes, all loadable.
     assert kg.node_count >= 1
     out = tmp_path / "recon"
@@ -493,10 +493,10 @@ def test_run_pipeline_keyless_emits_loadable_kg(tmp_path: Path) -> None:
 
 
 def test_run_pipeline_is_deterministic_over_a_run(tmp_path: Path) -> None:
-    run_dir = _write_run(tmp_path / "run")
+    world_dir = _write_run(tmp_path / "run")
     client = build_client(LLMConfig(backend="fake"))
-    first = run_pipeline(str(run_dir), client)
-    second = run_pipeline(str(run_dir), client)
+    first = run_pipeline(str(world_dir), client)
+    second = run_pipeline(str(world_dir), client)
     assert [n.id for n in first.nodes] == [n.id for n in second.nodes]
     assert [e.id for e in first.edges] == [e.id for e in second.edges]
 
@@ -509,7 +509,7 @@ def test_run_pipeline_over_golden_run_keyless() -> None:
 
     with tempfile.TemporaryDirectory(prefix="esim-build-test-") as tmp:
         run = golden_run(tmp)
-        kg = run_pipeline(str(run.run_dir), build_client(LLMConfig(backend="fake")))
+        kg = run_pipeline(str(run.world_dir), build_client(LLMConfig(backend="fake")))
     assert kg.node_count >= 1
     # Loadable by the fidelity scorer against the gold world.
     report = score_fidelity(kg, run.world)
@@ -530,9 +530,9 @@ def test_build_subcommand_is_registered() -> None:
 
 
 def test_build_cli_writes_loadable_kg(tmp_path: Path, capsys: Any) -> None:
-    run_dir = _write_run(tmp_path / "run")
+    world_dir = _write_run(tmp_path / "run")
     out = tmp_path / "recon"
-    rc = main(["reconstruct", "build", "--run", str(run_dir), "-o", str(out)])
+    rc = main(["reconstruct", "build", "--world", str(world_dir), "-o", str(out)])
     assert rc == 0
 
     kg = ReconstructedKG.read(out)
@@ -549,7 +549,7 @@ def test_build_cli_writes_loadable_kg(tmp_path: Path, capsys: Any) -> None:
     reason="real extraction needs ANTHROPIC_API_KEY; keyless CI covers the fake path",
 )
 def test_run_pipeline_real_backend(tmp_path: Path) -> None:  # pragma: no cover - needs a key
-    run_dir = _write_run(tmp_path / "run")
+    world_dir = _write_run(tmp_path / "run")
     client = build_client(LLMConfig(backend="anthropic_api"))
-    kg = run_pipeline(str(run_dir), client)
+    kg = run_pipeline(str(world_dir), client)
     assert kg.node_count >= 1

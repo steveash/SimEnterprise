@@ -13,7 +13,7 @@ const RUNNERS: { id: EvalRunner; label: string; title: string }[] = [
 ]
 
 export function RunControls(): JSX.Element {
-  const runPath = useStore((s) => s.runPath)
+  const worldPath = useStore((s) => s.worldPath)
   const questions = useEvalsStore((s) => s.questions)
   const selected = useEvalsStore((s) => s.selected)
   const runner = useEvalsStore((s) => s.runner)
@@ -34,7 +34,7 @@ export function RunControls(): JSX.Element {
   const runQuestions = useEvalsStore((s) => s.runQuestions)
   const cancelRun = useEvalsStore((s) => s.cancelRun)
 
-  const disabled = !runPath || !!activeRun || questions.length === 0
+  const disabled = !worldPath || !!activeRun || questions.length === 0
   const sampleCount = Math.max(0, Math.ceil((fraction / 100) * questions.length))
 
   return (
@@ -43,7 +43,7 @@ export function RunControls(): JSX.Element {
         <button
           className="btn"
           disabled={disabled || selected.size === 0}
-          onClick={() => runPath && runQuestions(runPath, { kind: 'ids', ids: [...selected] })}
+          onClick={() => worldPath && runQuestions(worldPath, { kind: 'ids', ids: [...selected] })}
         >
           Run selected ({selected.size})
         </button>
@@ -51,13 +51,13 @@ export function RunControls(): JSX.Element {
           className="btn"
           disabled={disabled}
           onClick={() =>
-            runPath &&
-            runQuestions(runPath, { kind: 'fraction', fraction: fraction / 100, seed, stratify })
+            worldPath &&
+            runQuestions(worldPath, { kind: 'fraction', fraction: fraction / 100, seed, stratify })
           }
         >
           Run {fraction}% (~{sampleCount})
         </button>
-        <button className="btn" disabled={disabled} onClick={() => runPath && runQuestions(runPath, { kind: 'all' })}>
+        <button className="btn" disabled={disabled} onClick={() => worldPath && runQuestions(worldPath, { kind: 'all' })}>
           Run all ({questions.length})
         </button>
         {activeRun && (

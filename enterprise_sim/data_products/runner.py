@@ -1,10 +1,15 @@
-"""Orchestrate a data-products run: author → lint → sample → views → loop.
+"""Orchestrate a data-products run into a world: author → lint → sample → views → loop.
 
-The structured-data analog of ``assembly/runner.py``. For each configured
-scenario:
+The structured-data analog of ``assembly/runner.py``, and the other half of the
+same world: the tables land under ``<world>/data/<scenario>/`` next to the
+world's document corpus and gold KG, and every scenario is recorded in the
+world's ``.world`` (``data[<scenario>]`` + a ``data`` history entry). For each
+configured scenario:
 
-1. **World** — load the linked enterprise KG (a completed run's export, or an
-   inline company built deterministically by Layer A).
+1. **World** — resolve the world: an existing world directory (its exported KG
+   is loaded for linking), or an inline company, for which a new world is
+   built deterministically first (``execute_run`` on the ``fake`` backend) so
+   there is one folder per company either way.
 2. **Author** — produce the scenario's causal spec (template plugin, or
    LLM-elaborated per the authoring mode) and lint it.
 3. **Loop** (up to ``loop.iterations`` times): sample every table to
@@ -14,27 +19,25 @@ scenario:
    The loop exits early once everything answerable is answered or no fix
    exists.
 4. **Assemble** — write ``spec.json`` (the causal ground truth), per-iteration
-   spec snapshots, ``lineage.json`` (parquet values ↔ KG entity ids),
-   ``questions.json`` (categories, SQL, answerability history), and
-   ``manifest.json``.
+   spec snapshots, ``lineage.json`` (parquet values ↔ KG entity ids) and
+   ``questions.json`` (categories, SQL, answerability history) into the
+   scenario's folder, and its summary into the ``.world``.
 
-The run id is a content digest of ``(config, scenario)`` — re-running the same
-config reproduces the same directory, and the ``fake``-backend path is fully
-deterministic end to end.
+Re-running the same config into the same world reproduces the same folders,
+and the ``fake``-backend path is fully deterministic end to end.
 """
 
 from __future__ import annotations
 
-import hashlib
-import json
 import shutil
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from enterprise_sim import __version__
-from enterprise_sim.core.config import RunConfig
+from enterprise_sim.core.config import WorldConfig
 from enterprise_sim.core.config.models import SimulationConfig
 from enterprise_sim.core.config.seed import SeedContext
 from enterprise_sim.core.llm import LLMClient, LLMConfig, build_client
@@ -42,7 +45,7 @@ from enterprise_sim.core.world import World
 from enterprise_sim.data_products import authoring
 from enterprise_sim.data_products import questions as questions_mod
 from enterprise_sim.data_products.config import AuthoringMode, DataRunConfig
-from enterprise_sim.data_products.linking import load_world_from_run
+from enterprise_sim.data_products.linking import LinkageError, load_world_kg
 from enterprise_sim.data_products.lint import projected_rows, require_clean
 from enterprise_sim.data_products.questions import QuestionState
 from enterprise_sim.data_products.sampler import sample_scenario
@@ -53,11 +56,15 @@ from enterprise_sim.data_products.views import (
     materialize_views,
     validate_view_sql,
 )
-from enterprise_sim.world_builders import build_world
+from enterprise_sim.worlds import WorldFile, cache_dir, is_world_dir, update_world
 
-__all__ = ["DataRunResult", "ScenarioRunResult", "execute_data_run"]
+__all__ = ["DATA_DIR", "DataRunResult", "ScenarioRunResult", "execute_data_run", "scenario_dir"]
 
-MANIFEST_SCHEMA_VERSION = 1
+#: The subdirectory of a world its structured data products live in.
+DATA_DIR = "data"
+
+# Bumped when the per-scenario summary recorded in ``.world`` changes incompatibly.
+DATA_SCHEMA_VERSION = 2
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,7 +72,7 @@ class ScenarioRunResult:
     """Where one scenario's data product landed and its headline stats."""
 
     scenario: str
-    run_dir: Path
+    data_dir: Path
     spec: ScenarioSpec
     iterations_run: int
     rows_by_table: dict[str, int]
@@ -77,32 +84,51 @@ class ScenarioRunResult:
 class DataRunResult:
     """The outcome of :func:`execute_data_run` across all scenarios."""
 
+    world_dir: Path
     scenarios: tuple[ScenarioRunResult, ...]
     world_nodes: int
 
 
-def _run_id(config: DataRunConfig, scenario: str) -> str:
-    payload = config.model_dump(mode="json", exclude={"output_dir"})
-    digest = hashlib.blake2b(
-        json.dumps({"config": payload, "scenario": scenario}, sort_keys=True).encode("utf-8"),
-        digest_size=6,
-    ).hexdigest()
-    return f"{scenario.replace('_', '-')}-{digest}"
+def scenario_dir(world_dir: Path | str, scenario: str) -> Path:
+    """``<world>/data/<scenario>/`` — where that scenario's tables, views and spec live."""
+    return Path(world_dir) / DATA_DIR / scenario
 
 
-def _resolve_world(config: DataRunConfig) -> World:
-    if config.world.run_dir is not None:
-        return load_world_from_run(config.world.run_dir)
-    assert config.world.company is not None
-    run_config = RunConfig(
+def _resolve_world_dir(
+    config: DataRunConfig, *, world_dir: Path | None, worlds_root: Path | None
+) -> Path:
+    """The world the data belongs to — an existing one, or one built from the inline company.
+
+    ``world_dir`` (the CLI's ``--world``) wins over the config's ``world.world_dir``.
+    With neither, the config's ``world.company`` is built into a fresh world under
+    ``worlds_root`` (default ``worlds/``) on the deterministic ``fake`` backend —
+    or reused if that world already exists — so a keyless data run still yields
+    one complete world folder.
+    """
+    from enterprise_sim.assembly import compute_world_id, execute_run
+    from enterprise_sim.worlds.cli import DEFAULT_WORLDS_ROOT
+
+    target = world_dir if world_dir is not None else config.world.world_dir
+    if target is not None:
+        target = Path(target)
+        if not is_world_dir(target):
+            raise LinkageError(f"{target} is not a world directory (no .world file)")
+        return target
+    assert config.world.company is not None  # the config validator guarantees one of the two.
+    run_config = WorldConfig(
         company=config.world.company,
         simulation=SimulationConfig(period_start=config.window.start, period_end=config.window.end),
         seed=config.seed,
+        worlds_root=Path(worlds_root) if worlds_root is not None else DEFAULT_WORLDS_ROOT,
     )
-    return build_world(run_config)
+    target = run_config.worlds_root / compute_world_id(run_config)
+    if not is_world_dir(target):
+        execute_run(run_config, world_dir=target)
+    return target
 
 
-def _build_llm_client(config: DataRunConfig) -> LLMClient | None:
+def _build_llm_client(config: DataRunConfig, world_dir: Path) -> LLMClient | None:
+    """The authoring client (``llm`` mode only), cached in the world like the corpus render."""
     if config.authoring.mode is not AuthoringMode.LLM:
         return None
     backend = config.model.backend
@@ -110,7 +136,7 @@ def _build_llm_client(config: DataRunConfig) -> LLMClient | None:
         backend=backend.value,
         model=config.model.name,
         cost_ceiling_usd=config.model.cost_ceiling_usd,
-        cache_dir=config.model.cache_dir,
+        cache_dir=config.model.cache_dir or str(cache_dir(world_dir)),
     )
     return build_client(llm_config)
 
@@ -119,22 +145,26 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, indent=2, default=str) + "\n", encoding="utf-8")
 
 
-def _clear_data_dir(data_dir: Path) -> None:
-    if data_dir.exists():
-        shutil.rmtree(data_dir)
+def _clear_tables_and_views(data_dir: Path) -> None:
+    """Wipe the sampled output (``tables/`` + ``views/``) but keep the spec snapshots."""
+    for name in ("tables", "views"):
+        sub = data_dir / name
+        if sub.exists():
+            shutil.rmtree(sub)
     data_dir.mkdir(parents=True, exist_ok=True)
 
 
 def _run_scenario(
     name: str,
     config: DataRunConfig,
+    world_dir: Path,
     world: World,
     client: LLMClient | None,
-) -> ScenarioRunResult:
+) -> tuple[ScenarioRunResult, dict[str, Any]]:
+    """Run one scenario into ``<world>/data/<name>/``; returns the result + its summary."""
     plugin = DATA_SCENARIOS.get(name)
-    run_dir = Path(config.output_dir) / _run_id(config, name)
-    run_dir.mkdir(parents=True, exist_ok=True)
-    data_dir = run_dir / "data"
+    data_dir = scenario_dir(world_dir, name)
+    data_dir.mkdir(parents=True, exist_ok=True)
     seeds = SeedContext(config.seed).child("data", name)
 
     spec, author_report = authoring.author_spec(
@@ -171,10 +201,10 @@ def _run_scenario(
     for iteration in range(1, max_iterations + 1):
         iterations_run = iteration
         _write_json(
-            run_dir / f"spec.iteration-{iteration}.json",
+            data_dir / f"spec.iteration-{iteration}.json",
             spec.model_dump(mode="json", exclude_none=True),
         )
-        _clear_data_dir(data_dir)
+        _clear_tables_and_views(data_dir)
         report = sample_scenario(
             spec,
             data_dir,
@@ -257,9 +287,9 @@ def _run_scenario(
         states = _carry_states(states, spec)
 
     assert report is not None
-    _write_json(run_dir / "spec.json", spec.model_dump(mode="json", exclude_none=True))
+    _write_json(data_dir / "spec.json", spec.model_dump(mode="json", exclude_none=True))
     _write_json(
-        run_dir / "lineage.json",
+        data_dir / "lineage.json",
         {
             "scenario": spec.name,
             "identities": report.identity_lineage,
@@ -267,13 +297,13 @@ def _run_scenario(
         },
     )
     _write_json(
-        run_dir / "questions.json",
+        data_dir / "questions.json",
         questions_mod.questions_payload(spec, states, iterations_run=iterations_run),
     )
 
     answerable = sum(1 for state in states if state.answerable)
-    manifest = {
-        "schema_version": MANIFEST_SCHEMA_VERSION,
+    summary = {
+        "schema_version": DATA_SCHEMA_VERSION,
         "generator": {"name": "enterprise-sim", "version": __version__},
         "created_at": datetime.now(UTC).isoformat(),
         "scenario": spec.name,
@@ -283,27 +313,28 @@ def _run_scenario(
             "start": config.window.start.isoformat(),
             "end": config.window.end.isoformat(),
         },
-        "config": config.model_dump(mode="json"),
+        "dir": f"{DATA_DIR}/{name}/",
         "authoring": question_reports,
         "projected_rows": projected_rows(
             spec, scale=config.scale.factor, sizes=report.population_sizes
         ),
         "population_sizes": report.population_sizes,
+        "rows_by_table": dict(report.rows_by_table),
         "iterations": iteration_stats,
         "questions": {"total": len(states), "answerable": answerable},
         "llm_cost_usd": (round(client.cost.total_cost_usd, 6) if client is not None else 0.0),
     }
-    _write_json(run_dir / "manifest.json", manifest)
 
-    return ScenarioRunResult(
+    result = ScenarioRunResult(
         scenario=spec.name,
-        run_dir=run_dir,
+        data_dir=data_dir,
         spec=spec,
         iterations_run=iterations_run,
         rows_by_table=dict(report.rows_by_table),
         questions_total=len(states),
         questions_answerable=answerable,
     )
+    return result, summary
 
 
 def _carry_states(states: list[QuestionState], spec: ScenarioSpec) -> list[QuestionState]:
@@ -323,15 +354,68 @@ def _require_valid_views(spec: ScenarioSpec) -> None:
         raise MaterializeError("; ".join(errors))
 
 
-def execute_data_run(config: DataRunConfig) -> DataRunResult:
-    """Run every configured scenario; returns per-scenario results."""
+def execute_data_run(
+    config: DataRunConfig,
+    *,
+    world_dir: Path | None = None,
+    worlds_root: Path | None = None,
+    on_scenario: Callable[[str, int, int], None] | None = None,
+) -> DataRunResult:
+    """Run every configured scenario into the world; returns per-scenario results.
+
+    ``world_dir`` overrides the config's ``world.world_dir``; ``worlds_root`` is
+    where a world built from an inline ``world.company`` lands (see
+    :func:`_resolve_world_dir`). Each scenario's summary is recorded in the
+    world's ``.world`` under ``data``, and the run itself as a ``data`` history
+    entry carrying the data config. ``on_scenario(name, index, total)`` is
+    called as each scenario starts (a world build reports it as progress).
+
+    Data scenarios authored as templates (``<templates>/<slug>/plugin.py``
+    registering into :data:`DATA_SCENARIOS`) are discovered from the plugin
+    paths (``ENTERPRISE_SIM_PLUGIN_PATH``) exactly like archetypes/playbooks.
+    """
+    from enterprise_sim.core.registry import discover_paths, plugin_paths
+
+    discover_paths(plugin_paths())
     registry = discover_scenarios()
     unknown = [name for name in config.scenarios if name not in set(registry.names())]
     if unknown:
         # Fail before any world-build or sampling cost, with the registry's
         # clean known-names message.
         registry.get(unknown[0])
-    world = _resolve_world(config)
-    client = _build_llm_client(config)
-    results = tuple(_run_scenario(name, config, world, client) for name in config.scenarios)
-    return DataRunResult(scenarios=results, world_nodes=world.node_count)
+    target = _resolve_world_dir(config, world_dir=world_dir, worlds_root=worlds_root)
+    world = load_world_kg(target)
+    client = _build_llm_client(config, target)
+
+    results: list[ScenarioRunResult] = []
+    summaries: dict[str, dict[str, Any]] = {}
+    for index, name in enumerate(config.scenarios):
+        if on_scenario is not None:
+            on_scenario(name, index, len(config.scenarios))
+        result, summary = _run_scenario(name, config, target, world, client)
+        results.append(result)
+        summaries[name] = summary
+
+    now = datetime.now(UTC).isoformat()
+    recorded_config = config.model_dump(mode="json")
+    recorded_config["world"] = {"world_dir": None, "company": recorded_config["world"]["company"]}
+
+    def record(w: WorldFile) -> None:
+        w.data.update(summaries)
+        w.history.append(
+            {
+                "kind": "data",
+                "at": now,
+                "scenarios": list(config.scenarios),
+                "config": recorded_config,
+            }
+        )
+        w.outputs = {**w.outputs, "data": f"{DATA_DIR}/"}
+
+    update_world(target, record)
+    return DataRunResult(world_dir=target, scenarios=tuple(results), world_nodes=world.node_count)
+
+
+# ``json`` is only needed by the small writers above; imported last to keep the
+# dependency block above focused on the pipeline.
+import json  # noqa: E402

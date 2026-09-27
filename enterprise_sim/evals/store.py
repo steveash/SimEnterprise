@@ -22,32 +22,32 @@ class DuplicateQuestionError(ValueError):
     """Raised when a :class:`QAPair` id already exists in the run's question set."""
 
 
-def evals_dir(run_dir: str | Path) -> Path:
+def evals_dir(world_dir: str | Path) -> Path:
     """``<run>/evals/``."""
-    return Path(run_dir) / "evals"
+    return Path(world_dir) / "evals"
 
 
-def questions_path(run_dir: str | Path) -> Path:
+def questions_path(world_dir: str | Path) -> Path:
     """``<run>/evals/questions.jsonl``."""
-    return evals_dir(run_dir) / QUESTIONS_FILENAME
+    return evals_dir(world_dir) / QUESTIONS_FILENAME
 
 
-def read_questions(run_dir: str | Path) -> Benchmark:
+def read_questions(world_dir: str | Path) -> Benchmark:
     """Read the run's question set; an empty :class:`Benchmark` if none exists yet."""
-    path = questions_path(run_dir)
+    path = questions_path(world_dir)
     if not path.is_file():
         return Benchmark()
     return Benchmark.read_jsonl(path)
 
 
-def write_questions(run_dir: str | Path, benchmark: Benchmark) -> None:
+def write_questions(world_dir: str | Path, benchmark: Benchmark) -> None:
     """Overwrite ``<run>/evals/questions.jsonl`` with ``benchmark`` (creates ``evals/``)."""
-    path = questions_path(run_dir)
+    path = questions_path(world_dir)
     path.parent.mkdir(parents=True, exist_ok=True)
     benchmark.write_jsonl(path)
 
 
-def append_questions(run_dir: str | Path, pairs: Iterable[QAPair]) -> Benchmark:
+def append_questions(world_dir: str | Path, pairs: Iterable[QAPair]) -> Benchmark:
     """Append ``pairs`` to the run's question set; reject any duplicate id.
 
     Validates every incoming pair's id is unique — both against the existing
@@ -55,23 +55,23 @@ def append_questions(run_dir: str | Path, pairs: Iterable[QAPair]) -> Benchmark:
     bad pair in a batch never leaves a partially-appended file. Raises
     :class:`DuplicateQuestionError` naming the first duplicate found.
     """
-    existing = read_questions(run_dir)
+    existing = read_questions(world_dir)
     existing_ids = {p.id for p in existing}
     incoming = list(pairs)
     seen_in_batch: set[str] = set()
     for pair in incoming:
         if pair.id in existing_ids:
-            raise DuplicateQuestionError(f"question id {pair.id!r} already exists in {run_dir}")
+            raise DuplicateQuestionError(f"question id {pair.id!r} already exists in {world_dir}")
         if pair.id in seen_in_batch:
             raise DuplicateQuestionError(f"question id {pair.id!r} appears twice in this batch")
         seen_in_batch.add(pair.id)
     merged = Benchmark.of([*existing, *incoming])
-    write_questions(run_dir, merged)
+    write_questions(world_dir, merged)
     return merged
 
 
 def remove_questions(
-    run_dir: str | Path, ids: Iterable[str], *, only_source: str | None = "proposed"
+    world_dir: str | Path, ids: Iterable[str], *, only_source: str | None = "proposed"
 ) -> tuple[Benchmark, list[str]]:
     """Remove ``ids`` from the run's question set; returns ``(new set, ids removed)``.
 
@@ -82,7 +82,7 @@ def remove_questions(
     deterministic derivation from the gold KG, and removing one would desync
     the set from ``bench generate``/``evals generate``.
     """
-    existing = read_questions(run_dir)
+    existing = read_questions(world_dir)
     wanted = set(ids)
     keep: list[QAPair] = []
     removed: list[str] = []
@@ -93,7 +93,7 @@ def remove_questions(
         keep.append(pair)
     result = Benchmark.of(keep)
     if removed:
-        write_questions(run_dir, result)
+        write_questions(world_dir, result)
     return result, removed
 
 

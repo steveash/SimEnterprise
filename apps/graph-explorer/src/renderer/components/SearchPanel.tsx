@@ -14,7 +14,7 @@ export function SearchPanel(): JSX.Element {
   const [q, setQ] = useState('')
   const [hits, setHits] = useState<Hit[]>([])
   const [busy, setBusy] = useState(false)
-  const runPath = useStore((s) => s.runPath)
+  const worldPath = useStore((s) => s.worldPath)
   const select = useStore((s) => s.select)
   const setHighlight = useStore((s) => s.setHighlight)
   const focusNodes = useStore((s) => s.focusNodes)
@@ -22,13 +22,13 @@ export function SearchPanel(): JSX.Element {
   const search = async (text: string) => {
     setQ(text)
     const rpc = useStore.getState().rpc
-    if (!rpc || !runPath || !text.trim()) {
+    if (!rpc || !worldPath || !text.trim()) {
       setHits([])
       return
     }
     setBusy(true)
     try {
-      const res = await rpc.call<Hit[]>('search', { runPath, query: text, limit: 40 })
+      const res = await rpc.call<Hit[]>('search', { worldPath, query: text, limit: 40 })
       setHits(res)
       setHighlight(res.map((h) => h.id))
     } finally {

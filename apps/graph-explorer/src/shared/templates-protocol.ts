@@ -5,7 +5,7 @@
 // read those before changing this file.
 import type { AgentEvent } from './agent-events.js'
 
-export type TemplateKind = 'department' | 'playbook' | 'bundle'
+export type TemplateKind = 'department' | 'playbook' | 'bundle' | 'data_scenario'
 export type ValidationStatus = 'valid' | 'invalid' | 'unvalidated'
 
 /** The plugin names a template's `plugin.py` registers, by kind. */
@@ -13,6 +13,8 @@ export interface TemplateProvides {
   archetypes: string[]
   playbooks: string[]
   processes: string[]
+  /** Structured-data scenarios (DATA_SCENARIOS); absent on templates written before the kind existed. */
+  data_scenarios?: string[]
 }
 
 /** The last recorded `templates validate` outcome, as stored in `template.json`. */
@@ -45,7 +47,7 @@ export type TemplateListEntry =
 
 /** One step of a `templates validate` report ({"step","ok","detail"}). */
 export interface ValidationStep {
-  step: 'import' | 'lint' | 'conformance' | 'archetype_sanity' | 'tests' | 'dry_run'
+  step: 'import' | 'lint' | 'conformance' | 'archetype_sanity' | 'tests' | 'dry_run' | 'data_spec'
   ok: boolean
   detail: unknown
 }
@@ -70,7 +72,7 @@ export interface CatalogArchetype {
   name: string
   charter: string
   playbooks: string[]
-  source: string // "builtin" | `template:${slug}`
+  source: string // `template:${slug}` (built-ins are templates too), rarely "builtin"
 }
 
 export interface CatalogPlaybook {

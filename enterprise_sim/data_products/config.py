@@ -62,24 +62,25 @@ class DataBackend(StrEnum):
 
 
 class WorldSourceConfig(_Frozen):
-    """Where the simulated enterprise (the KG to link against) comes from.
+    """Which world the data products belong to (and whose KG they link against).
 
-    Exactly one of ``run_dir`` (a completed enterprise-sim run whose
-    ``kg/nodes.jsonl`` is loaded) or ``company`` (an inline profile Layer A
-    builds deterministically from the data run's seed) must be set.
+    Exactly one of ``world_dir`` (an existing world directory — its exported
+    ``kg/nodes.jsonl`` is loaded and the data lands under its ``data/``) or
+    ``company`` (an inline profile: a new world is built deterministically from
+    it and the data run's seed, then the data is attached to that) must be set.
     """
 
-    run_dir: Path | None = Field(
-        default=None, description="A completed run directory with an exported kg/."
+    world_dir: Path | None = Field(
+        default=None, description="An existing world directory (holds a .world)."
     )
     company: CompanyConfig | None = Field(
-        default=None, description="Inline company profile to build a world from."
+        default=None, description="Inline company profile to build a new world from."
     )
 
     @model_validator(mode="after")
     def _check(self) -> WorldSourceConfig:
-        if (self.run_dir is None) == (self.company is None):
-            raise ValueError("world source needs exactly one of run_dir or company")
+        if (self.world_dir is None) == (self.company is None):
+            raise ValueError("world source needs exactly one of world_dir or company")
         return self
 
 
@@ -139,13 +140,16 @@ class DataModelConfig(_Frozen):
 
 
 class DataRunConfig(_Frozen):
-    """Top-level config for `enterprise-sim data run`."""
+    """Top-level config for `enterprise-sim world data`.
+
+    There is no output directory: the data products are part of a world and
+    land under ``<world>/data/<scenario>/`` (docs/DATA_PRODUCTS.md).
+    """
 
     scenarios: tuple[str, ...] = Field(
         min_length=1, description="Registered data-scenario names to run."
     )
     seed: int = Field(default=0, ge=0)
-    output_dir: Path = Path("runs/data")
     world: WorldSourceConfig
     window: DataWindowConfig
     briefs: dict[str, str] = Field(

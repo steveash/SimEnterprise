@@ -10,15 +10,16 @@
 #   npm run web
 #
 # Ports (override with env): GRAPH_EXPLORER_WEB_PORT=5173, GRAPH_EXPLORER_PORT=8787.
-# Runs are discovered under GRAPH_EXPLORER_RUNS_ROOT (default: the repo's runs/).
+# Worlds are discovered under GRAPH_EXPLORER_WORLDS_ROOT (default: the repo's worlds/).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 export GRAPH_EXPLORER_PORT="${GRAPH_EXPLORER_PORT:-8787}"
 export GRAPH_EXPLORER_WEB_PORT="${GRAPH_EXPLORER_WEB_PORT:-5173}"
-export GRAPH_EXPLORER_RUNS_ROOT="${GRAPH_EXPLORER_RUNS_ROOT:-$(cd ../../runs && pwd)}"
+mkdir -p ../../worlds
+export GRAPH_EXPLORER_WORLDS_ROOT="${GRAPH_EXPLORER_WORLDS_ROOT:-$(cd ../../worlds && pwd)}"
 
-echo "sidecar  : 127.0.0.1:${GRAPH_EXPLORER_PORT}   (runs root: ${GRAPH_EXPLORER_RUNS_ROOT})"
+echo "sidecar  : 127.0.0.1:${GRAPH_EXPLORER_PORT}   (worlds root: ${GRAPH_EXPLORER_WORLDS_ROOT})"
 echo "web UI   : http://127.0.0.1:${GRAPH_EXPLORER_WEB_PORT}"
 echo "forward BOTH ports, then open the web UI in a browser."
 echo

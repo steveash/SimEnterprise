@@ -228,14 +228,14 @@ def _golden_run(root: Path) -> tuple[str, Any]:
     from enterprise_sim.benchmark.fixtures import golden_run
 
     run = golden_run(root)
-    return str(run.run_dir), run.world
+    return str(run.world_dir), run.world
 
 
 def test_sweep_models_iterates_in_order_and_dedupes(tmp_path: Path) -> None:
-    run_dir, gold = _golden_run(tmp_path / "run")
+    world_dir, gold = _golden_run(tmp_path / "run")
     client = build_client(LLMConfig(backend="fake"))
     report = sweep_models(
-        run_dir,
+        world_dir,
         gold,
         ["haiku", "sonnet", "haiku"],  # duplicate is dropped, order preserved
         client,
@@ -247,10 +247,10 @@ def test_sweep_models_iterates_in_order_and_dedupes(tmp_path: Path) -> None:
 
 
 def test_sweep_models_rejects_empty_model_list(tmp_path: Path) -> None:
-    run_dir, gold = _golden_run(tmp_path / "run")
+    world_dir, gold = _golden_run(tmp_path / "run")
     client = build_client(LLMConfig(backend="fake"))
     with pytest.raises(ValueError, match="at least one model"):
-        sweep_models(run_dir, gold, [], client)
+        sweep_models(world_dir, gold, [], client)
 
 
 def test_sweep_models_fake_backend_recovers_only_the_structural_floor(tmp_path: Path) -> None:
@@ -259,9 +259,9 @@ def test_sweep_models_fake_backend_recovers_only_the_structural_floor(tmp_path: 
     # structural org-relation floor (esim-din.3), identical for every model — the
     # model axis is a recorded label in keyless CI; real per-model extraction
     # differences are a keyed run.
-    run_dir, gold = _golden_run(tmp_path / "run")
+    world_dir, gold = _golden_run(tmp_path / "run")
     client = build_client(LLMConfig(backend="fake"))
-    report = sweep_models(run_dir, gold, ["haiku", "sonnet"], client)
+    report = sweep_models(world_dir, gold, ["haiku", "sonnet"], client)
     haiku, sonnet = report.points
     # The structural reader recovers real org edges with no key, so edge fidelity is
     # a nonzero floor rather than ~0.
@@ -269,7 +269,7 @@ def test_sweep_models_fake_backend_recovers_only_the_structural_floor(tmp_path: 
 
 
 def test_sweep_models_runs_the_injected_answer_scorer(tmp_path: Path) -> None:
-    run_dir, gold = _golden_run(tmp_path / "run")
+    world_dir, gold = _golden_run(tmp_path / "run")
     client = build_client(LLMConfig(backend="fake"))
 
     seen: list[str] = []
@@ -280,7 +280,7 @@ def test_sweep_models_runs_the_injected_answer_scorer(tmp_path: Path) -> None:
         return _answer(0.7 if model == "sonnet" else 0.4)
 
     report = sweep_models(
-        run_dir,
+        world_dir,
         gold,
         ["haiku", "sonnet"],
         client,
@@ -294,21 +294,21 @@ def test_sweep_models_runs_the_injected_answer_scorer(tmp_path: Path) -> None:
 
 
 def test_sweep_models_is_deterministic(tmp_path: Path) -> None:
-    run_dir, gold = _golden_run(tmp_path / "run")
+    world_dir, gold = _golden_run(tmp_path / "run")
     client = build_client(LLMConfig(backend="fake"))
-    a = sweep_models(run_dir, gold, ["haiku", "sonnet"], client)
-    b = sweep_models(run_dir, gold, ["haiku", "sonnet"], client)
+    a = sweep_models(world_dir, gold, ["haiku", "sonnet"], client)
+    b = sweep_models(world_dir, gold, ["haiku", "sonnet"], client)
     assert a.to_json() == b.to_json()
 
 
 def test_sweep_models_honors_the_edge_threshold(tmp_path: Path) -> None:
     from enterprise_sim.reconstruct import BuildConfig
 
-    run_dir, gold = _golden_run(tmp_path / "run")
+    world_dir, gold = _golden_run(tmp_path / "run")
     client = build_client(LLMConfig(backend="fake"))
     # A threshold above the max clamped confidence gates every edge away.
     report = sweep_models(
-        run_dir,
+        world_dir,
         gold,
         ["haiku"],
         client,
@@ -338,14 +338,14 @@ def test_sweep_cli_rejects_empty_models() -> None:
 
 
 def test_sweep_cli_model_axis_writes_markdown_table(tmp_path: Path, capsys: Any) -> None:
-    run_dir, _gold = _golden_run(tmp_path / "run")
+    world_dir, _gold = _golden_run(tmp_path / "run")
     out = tmp_path / "model-sweep.md"
     rc = main(
         [
             "reconstruct",
             "sweep",
-            "--run",
-            run_dir,
+            "--world",
+            world_dir,
             "--models",
             "haiku,sonnet",
             "-o",
@@ -363,8 +363,8 @@ def test_sweep_cli_model_axis_writes_markdown_table(tmp_path: Path, capsys: Any)
 
 
 def test_sweep_cli_model_axis_json_to_stdout(tmp_path: Path, capsys: Any) -> None:
-    run_dir, _gold = _golden_run(tmp_path / "run")
-    rc = main(["reconstruct", "sweep", "--run", run_dir, "--models", "haiku,sonnet", "--json"])
+    world_dir, _gold = _golden_run(tmp_path / "run")
+    rc = main(["reconstruct", "sweep", "--world", world_dir, "--models", "haiku,sonnet", "--json"])
     assert rc == 0
     data = json.loads(capsys.readouterr().out)
     assert [p["model"] for p in data["points"]] == ["haiku", "sonnet"]
@@ -373,9 +373,9 @@ def test_sweep_cli_model_axis_json_to_stdout(tmp_path: Path, capsys: Any) -> Non
 
 def test_sweep_without_models_still_runs_the_threshold_axis(tmp_path: Path) -> None:
     # The model axis is additive: no --models keeps the ecr.3 threshold sweep.
-    run_dir, _gold = _golden_run(tmp_path / "run")
+    world_dir, _gold = _golden_run(tmp_path / "run")
     parser = build_parser()
-    args = parser.parse_args(["reconstruct", "sweep", "--run", run_dir])
+    args = parser.parse_args(["reconstruct", "sweep", "--world", world_dir])
     assert args.models is None
-    rc = main(["reconstruct", "sweep", "--run", run_dir, "--thresholds", "0,1.1", "--json"])
+    rc = main(["reconstruct", "sweep", "--world", world_dir, "--thresholds", "0,1.1", "--json"])
     assert rc == 0

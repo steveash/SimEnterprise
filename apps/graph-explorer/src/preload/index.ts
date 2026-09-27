@@ -3,13 +3,13 @@ import type { Lens, LensInput } from '../shared/lenses.js'
 
 export interface SidecarInfo {
   port: number
-  runsRoot: string
+  worldsRoot: string
   error: string | null
 }
 
 const api = {
   sidecarInfo: (): Promise<SidecarInfo> => ipcRenderer.invoke('sidecar-info'),
-  pickRunDir: (): Promise<string | null> => ipcRenderer.invoke('pick-run-dir'),
+  pickWorldDir: (): Promise<string | null> => ipcRenderer.invoke('pick-world-dir'),
   lenses: {
     list: (): Promise<Lens[]> => ipcRenderer.invoke('lenses-list'),
     save: (input: LensInput): Promise<Lens[]> => ipcRenderer.invoke('lenses-save', input),

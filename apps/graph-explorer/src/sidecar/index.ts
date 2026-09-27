@@ -1,5 +1,5 @@
 import { WebSocketServer, type WebSocket } from 'ws'
-import { readdirSync, existsSync, statSync } from 'node:fs'
+import { existsSync } from 'node:fs'
 import { join, dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -14,95 +14,56 @@ if (existsSync(ENV_FILE)) {
     /* ignore malformed env file */
   }
 }
-import type { RpcRequest, ServerMessage, LoadRunResult, DiffResult } from '../shared/protocol.js'
-import type { RunSummary } from '../shared/model.js'
-import { loadRun } from './graph/loader.js'
+import type { RpcRequest, ServerMessage, LoadWorldResult, DiffResult } from '../shared/protocol.js'
+import { loadWorld } from './graph/loader.js'
 import { diffModels } from './graph/diff.js'
 import { GraphIndex } from './graph/index.js'
 import { KuzuEngine } from './graph/kuzu.js'
 import { OxigraphEngine } from './graph/rdf.js'
 import { runChat, type ChatEngines } from './agent/harness.js'
 import { getOp, type OpContext } from './ops.js'
+import { discoverWorlds } from './worlds/discover.js'
 // Feature modules register their ops on import (docs/EXPLORER.md §3).
 import './features.js'
 
-const RUNS_ROOT = process.env.GRAPH_EXPLORER_RUNS_ROOT ?? join(process.cwd(), '..', '..', 'runs')
+// The worlds root: every directory holding a `.world` under it is a world
+// (enterprise_sim.worlds). The old RUNS_ROOT name is still honored.
+const WORLDS_ROOT =
+  process.env.GRAPH_EXPLORER_WORLDS_ROOT ?? process.env.GRAPH_EXPLORER_RUNS_ROOT ?? join(process.cwd(), '..', '..', 'worlds')
 /** The repo root: pyproject.toml, templates/, skills/ live here (two levels above the app). */
 const REPO_ROOT = process.env.GRAPH_EXPLORER_REPO_ROOT ?? resolve(APP_ROOT, '..', '..')
 const PORT = Number(process.env.GRAPH_EXPLORER_PORT ?? 0)
 
-/** One fully-loaded run: model + index + both query engines. */
-interface LoadedRun extends ChatEngines {
-  result: LoadRunResult
+/** One fully-loaded world: model + index + both query engines. */
+interface LoadedWorld extends ChatEngines {
+  result: LoadWorldResult
 }
 
-const loaded = new Map<string, LoadedRun>() // runPath -> loaded
+const loaded = new Map<string, LoadedWorld>() // worldPath -> loaded
 const chatAborts = new Map<string, AbortController>() // request id -> controller
 const chatSessions = new Map<string, string>() // ws-scoped conversation id -> sdk session id
 
-function isRunDir(p: string): boolean {
-  return existsSync(join(p, 'kg', 'nodes.jsonl'))
-}
-
-function discoverRuns(root: string): RunSummary[] {
-  const out: RunSummary[] = []
-  const walk = (dir: string, depth: number) => {
-    if (depth > 3 || !existsSync(dir)) return
-    let entries: string[]
-    try {
-      entries = readdirSync(dir)
-    } catch {
-      return
-    }
-    if (isRunDir(dir)) {
-      try {
-        const m = loadRun(dir)
-        out.push({
-          runId: m.runId,
-          runPath: dir,
-          nodeCount: m.nodes.length,
-          edgeCount: m.edges.length,
-          window: m.timeRange
-        })
-      } catch {
-        /* skip */
-      }
-      return // don't descend into a run
-    }
-    for (const e of entries) {
-      const full = join(dir, e)
-      try {
-        if (statSync(full).isDirectory()) walk(full, depth + 1)
-      } catch {
-        /* skip */
-      }
-    }
-  }
-  walk(root, 0)
-  return out.sort((a, b) => a.runPath.localeCompare(b.runPath))
-}
-
-async function ensureLoaded(runPath: string): Promise<LoadedRun> {
-  const existing = loaded.get(runPath)
+async function ensureLoaded(worldPath: string): Promise<LoadedWorld> {
+  const existing = loaded.get(worldPath)
   if (existing) return existing
-  const model = loadRun(runPath)
+  const model = loadWorld(worldPath)
   const index = new GraphIndex(model)
   const kuzu = await KuzuEngine.build(model)
   const oxigraph = OxigraphEngine.build(model)
-  const result: LoadRunResult = {
+  const result: LoadWorldResult = {
     model,
     kuzuSchema: kuzu.describeSchema(),
     sparqlSchema: oxigraph.describeSchema(model),
     inferredCount: oxigraph.inferredCount,
     eval: summarizeEval(model)
   }
-  const lr: LoadedRun = { index, kuzu, oxigraph, result }
-  loaded.set(runPath, lr)
+  const lr: LoadedWorld = { index, kuzu, oxigraph, result }
+  loaded.set(worldPath, lr)
   return lr
 }
 
 /** Surface manifest validation + any committed eval as lightweight metrics. */
-function summarizeEval(model: ReturnType<typeof loadRun>): LoadRunResult['eval'] {
+function summarizeEval(model: ReturnType<typeof loadWorld>): LoadWorldResult['eval'] {
   const metrics: { name: string; score: number; ok: boolean; detail?: string }[] = []
   const byKind = new Map<string, number>()
   for (const v of model.validation) byKind.set(v.kind, (byKind.get(v.kind) ?? 0) + 1)
@@ -125,7 +86,7 @@ function summarizeEval(model: ReturnType<typeof loadRun>): LoadRunResult['eval']
   return { metrics, ok: metrics.every((m) => m.ok) }
 }
 
-function diffRuns(a: LoadedRun, b: LoadedRun): DiffResult {
+function diffWorlds(a: LoadedWorld, b: LoadedWorld): DiffResult {
   return diffModels(a.index.model, b.index.model)
 }
 
@@ -139,18 +100,18 @@ async function handle(ws: WebSocket, req: RpcRequest): Promise<void> {
 
   try {
     switch (req.op) {
-      case 'listRuns':
-        return reply(true, discoverRuns((p.root as string) ?? RUNS_ROOT))
-      case 'loadRun': {
+      case 'listWorlds':
+        return reply(true, discoverWorlds((p.root as string) ?? WORLDS_ROOT))
+      case 'loadWorld': {
         const lr = await ensureLoaded(p.path as string)
         return reply(true, lr.result)
       }
       case 'search': {
-        const lr = await ensureLoaded(p.runPath as string)
+        const lr = await ensureLoaded(p.worldPath as string)
         return reply(true, lr.index.search(p.query as string, { types: p.types as string[], limit: p.limit as number }))
       }
       case 'neighbors': {
-        const lr = await ensureLoaded(p.runPath as string)
+        const lr = await ensureLoaded(p.worldPath as string)
         return reply(
           true,
           lr.index.neighbors(p.id as string, {
@@ -161,32 +122,32 @@ async function handle(ws: WebSocket, req: RpcRequest): Promise<void> {
         )
       }
       case 'shortestPath': {
-        const lr = await ensureLoaded(p.runPath as string)
+        const lr = await ensureLoaded(p.worldPath as string)
         return reply(true, lr.index.shortestPath(p.from as string, p.to as string, { directed: p.directed as boolean }))
       }
       case 'provenance': {
-        const lr = await ensureLoaded(p.runPath as string)
+        const lr = await ensureLoaded(p.worldPath as string)
         return reply(true, lr.index.provenance(p.id as string))
       }
       case 'readArtifact': {
-        const lr = await ensureLoaded(p.runPath as string)
+        const lr = await ensureLoaded(p.worldPath as string)
         return reply(true, { text: lr.index.readArtifact(p.path as string) })
       }
       case 'cypher': {
-        const lr = await ensureLoaded(p.runPath as string)
+        const lr = await ensureLoaded(p.worldPath as string)
         return reply(true, await lr.kuzu.query(p.query as string))
       }
       case 'sparql': {
-        const lr = await ensureLoaded(p.runPath as string)
+        const lr = await ensureLoaded(p.worldPath as string)
         return reply(true, lr.oxigraph.query(p.query as string))
       }
-      case 'diffRuns': {
+      case 'diffWorlds': {
         const a = await ensureLoaded(p.pathA as string)
         const b = await ensureLoaded(p.pathB as string)
-        return reply(true, diffRuns(a, b))
+        return reply(true, diffWorlds(a, b))
       }
       case 'chat': {
-        const lr = await ensureLoaded(p.runPath as string)
+        const lr = await ensureLoaded(p.worldPath as string)
         const convoKey = (p.conversationId as string) ?? req.id
         const ac = new AbortController()
         chatAborts.set(req.id, ac)
@@ -215,7 +176,7 @@ async function handle(ws: WebSocket, req: RpcRequest): Promise<void> {
           params: p,
           ensureLoaded,
           stream: (event) => send({ type: 'stream', id: req.id, event }),
-          runsRoot: RUNS_ROOT,
+          worldsRoot: WORLDS_ROOT,
           repoRoot: REPO_ROOT
         }
         return reply(true, await handler(ctx))

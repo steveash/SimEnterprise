@@ -83,7 +83,8 @@ function previewToolResult(content: unknown): string {
       .map((c) => (typeof c === 'object' && c && 'text' in c ? String((c as { text: unknown }).text) : ''))
       .join('')
   } else text = JSON.stringify(content)
-  return text.length > 400 ? text.slice(0, 400) + '…' : text
+  // Kept generous: this is what the persisted per-question transcript shows.
+  return text.length > 4000 ? text.slice(0, 4000) + '…' : text
 }
 
 /** Run one question through the graph agent; returns its prediction + trace. */

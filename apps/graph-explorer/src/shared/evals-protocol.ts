@@ -23,7 +23,18 @@ export interface QAPair {
   difficulty: string
   source: 'generated' | 'proposed' | string
   tags: string[]
+  /** How far the expected answer can be trusted, 0-1 (enterprise_sim.evals.critic); absent = not reviewed. */
+  confidence?: number
+  /** The critic's (or the human's) notes on the expected answer. */
+  critique?: string
+  /** Who set `confidence`: 'structural' | 'llm' | 'human'. */
+  critic?: string
+  /** A human confirmed or corrected the expected answer. */
+  verified?: boolean
 }
+
+export type CriticMode = 'structural' | 'llm'
+
 
 export interface QuestionCounts {
   reasoning_type: Record<string, number>
@@ -136,6 +147,9 @@ export type EvalStreamEvent =
       cost_usd?: number
       /** Only populated for a single-question run (a batch would make every event heavy for no reason). */
       trace?: TraceEntry[]
+      /** Why the question produced no answer (e.g. the agent could not start). */
+      error?: string
+      turns?: number
     }
   | { kind: 'progress'; done: number; total: number; macro_f1_so_far: number; by_reasoning_type: Record<string, Aggregate> }
   | { kind: 'done'; report: Report }
@@ -155,3 +169,32 @@ export interface ProposedQuestion {
 export type ProposeStreamEvent =
   | AgentEvent
   | { kind: 'proposal'; proposal: ProposedQuestion; valid: boolean; reason?: string }
+
+/**
+ * One question's full transcript from an explorer-runner execution, persisted at
+ * `<world>/evals/results/<eval-id>/traces/<qa_id>.json` — every thinking block,
+ * text block, tool call (input) and tool result, in order, plus the outcome.
+ */
+export interface EvalTrace {
+  eval_id: string
+  qa_id: string
+  question: string
+  model: string | null
+  expected_ids: string[]
+  predicted_ids: string[]
+  submitted_label?: string
+  turns: number
+  seconds: number
+  cost_usd?: number
+  error?: string
+  events: AgentEvent[]
+}
+
+/** `evalsReadResult`: one execution with per-question items, id labels, and which items have traces. */
+export interface EvalResultDetail {
+  meta: EvalExecutionMeta
+  items: EvalItemResult[]
+  predictionsPath: string
+  labels: Record<string, string>
+  traced: string[]
+}

@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 from enterprise_sim.assembly import execute_run
-from enterprise_sim.core.config import RunConfig, load_config_from_mapping
+from enterprise_sim.core.config import WorldConfig, load_config_from_mapping
 from enterprise_sim.core.world import World
 from enterprise_sim.exporters import (
     EXPORTERS,
@@ -22,13 +22,13 @@ from enterprise_sim.exporters import (
 from enterprise_sim.exporters.bundle import aliases_records
 
 
-def _config(output_dir: Path) -> RunConfig:
+def _config(worlds_root: Path) -> WorldConfig:
     return load_config_from_mapping(
         {
             "company": {"name": "Acme Corp", "vertical": "software", "size": "small"},
             "simulation": {"period_start": "2026-01-01", "period_end": "2026-01-31"},
             "seed": 7,
-            "output_dir": str(output_dir),
+            "worlds_root": str(worlds_root),
         }
     )
 
@@ -243,7 +243,7 @@ def test_neo4j_node_csv_covers_every_node(tmp_path: Path) -> None:
 
 def test_run_emits_the_full_kg_export(tmp_path: Path) -> None:
     result = execute_run(_config(tmp_path))
-    kg = result.run_dir / "kg"
+    kg = result.world_dir / "kg"
     for name in (*KG_SCHEMA, "schema.json", "graph.json"):
         assert (kg / name).is_file()
     assert (kg / "neo4j" / "import.cypher").is_file()
@@ -253,7 +253,7 @@ def test_run_emits_the_full_kg_export(tmp_path: Path) -> None:
 
 def test_run_kg_is_schema_valid_and_round_trips(tmp_path: Path) -> None:
     result = execute_run(_config(tmp_path))
-    kg = result.run_dir / "kg"
+    kg = result.world_dir / "kg"
     for name in KG_SCHEMA:
         rows = [json.loads(line) for line in (kg / name).read_text().splitlines()]
         validate_rows(name, rows)
@@ -265,8 +265,8 @@ def test_run_kg_is_schema_valid_and_round_trips(tmp_path: Path) -> None:
 
 def test_run_kg_export_is_byte_deterministic(tmp_path: Path) -> None:
     stamp = "2026-01-01T00:00:00Z"
-    first = execute_run(_config(tmp_path / "a"), generated_at=stamp).run_dir / "kg"
-    second = execute_run(_config(tmp_path / "b"), generated_at=stamp).run_dir / "kg"
+    first = execute_run(_config(tmp_path / "a"), generated_at=stamp).world_dir / "kg"
+    second = execute_run(_config(tmp_path / "b"), generated_at=stamp).world_dir / "kg"
     for path in sorted(p for p in first.rglob("*") if p.is_file()):
         twin = second / path.relative_to(first)
         assert twin.read_bytes() == path.read_bytes(), path

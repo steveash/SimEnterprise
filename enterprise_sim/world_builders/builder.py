@@ -1,7 +1,7 @@
 """Layer A — the world & intent builder (ARCHITECTURE.md §2/§6, bead esim-65bf4594).
 
 Layer A is where a run stops being a config and becomes a *company*. Given the
-validated :class:`~enterprise_sim.core.config.RunConfig`, :func:`build_world`
+validated :class:`~enterprise_sim.core.config.WorldConfig`, :func:`build_world`
 invents the whole org top-down and writes it into a :class:`World` (the KG spine,
 §11):
 
@@ -33,15 +33,13 @@ from dataclasses import dataclass
 from datetime import datetime, time
 
 from enterprise_sim.archetypes._base import DepartmentArchetypeSpec, TeamShape
-from enterprise_sim.core.config import RunConfig
+from enterprise_sim.core.config import WorldConfig
 from enterprise_sim.core.config.models import CompanySize, ProjectConfig
 from enterprise_sim.core.config.seed import SeedContext
 from enterprise_sim.core.registry import (
     ARCHETYPES,
     PLAYBOOKS,
-    discover,
-    discover_paths,
-    plugin_paths,
+    load_templates,
 )
 from enterprise_sim.core.world import Edge, Node, World
 from enterprise_sim.world_builders.names import (
@@ -200,7 +198,7 @@ class _WorldBuilder:
     the produced graph is a pure function of ``(config, seed)``.
     """
 
-    def __init__(self, config: RunConfig) -> None:
+    def __init__(self, config: WorldConfig) -> None:
         self._config = config
         self._world = World()
         self._ctx = SeedContext(config.seed)
@@ -246,8 +244,7 @@ class _WorldBuilder:
         ``max_departments``, itself capped by how many archetypes are registered
         — the selection this project always made before §3.6.
         """
-        discover("enterprise_sim.archetypes")  # idempotent; fires registrations.
-        discover_paths(plugin_paths(self._config.plugins))  # external templates.
+        load_templates(self._config.plugins)  # every template, built-ins included.
         registered = {spec.name: spec for spec in ARCHETYPES}
         if not registered:
             raise RuntimeError("no department archetypes registered; cannot build a world")
@@ -584,7 +581,7 @@ class _WorldBuilder:
         """
         if not self._config.projects:
             return
-        discover("enterprise_sim.playbooks")  # idempotent; populates PLAYBOOKS for validation.
+        load_templates(self._config.plugins)  # idempotent; populates PLAYBOOKS for validation.
         for project in self._config.projects:
             target_department = project.department or self._primary_department
             if target_department != spec.name:
@@ -726,7 +723,7 @@ def _as_spec(plugin: object) -> DepartmentArchetypeSpec:
     return plugin
 
 
-def build_world(config: RunConfig) -> World:
+def build_world(config: WorldConfig) -> World:
     """Build the Layer-A knowledge graph for ``config`` (deterministic in seed).
 
     Returns a populated :class:`World` — company, goals, departments, teams,

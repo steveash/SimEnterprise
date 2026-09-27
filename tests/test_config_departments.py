@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 from enterprise_sim.assembly import compute_config_digest
-from enterprise_sim.core.config import RunConfig, load_config_from_mapping
+from enterprise_sim.core.config import WorldConfig, load_config_from_mapping
 from enterprise_sim.core.config.models import DepartmentConfig
 from enterprise_sim.core.world import Node, World
 from enterprise_sim.world_builders import build_world
@@ -21,7 +21,7 @@ def _config(
     vertical: str = "software",
     size: str = "medium",
     seed: int = 7,
-) -> RunConfig:
+) -> WorldConfig:
     payload: dict[str, object] = {
         "company": {"name": "Acme Corp", "vertical": vertical, "size": size},
         "simulation": {"period_start": "2026-01-01", "period_end": "2026-03-31"},
@@ -245,7 +245,7 @@ def test_departments_field_survives_a_config_round_trip() -> None:
     config = _config(departments=[{"archetype": "retail"}, {"archetype": "engineering"}])
     dumped = config.model_dump(mode="json")
     assert dumped["departments"] == [{"archetype": "retail"}, {"archetype": "engineering"}]
-    assert RunConfig.model_validate(dumped) == config
+    assert WorldConfig.model_validate(dumped) == config
     assert config.departments == (
         DepartmentConfig(archetype="retail"),
         DepartmentConfig(archetype="engineering"),

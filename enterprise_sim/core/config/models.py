@@ -5,7 +5,7 @@ else. This module defines the *input* a user supplies: the company profile, the
 projects/initiatives to seed, the simulation window, the LLM backend, the root
 seed, and the output directory. Everything is validated up front so a bad config
 fails before any LLM cost is incurred, and the validated object is snapshotted
-into the run's ``manifest.json`` for reproducibility.
+into the world's ``.world`` for reproducibility.
 
 All models are frozen (immutable) and forbid unknown keys, so typos in a config
 file surface as errors rather than being silently ignored.
@@ -92,7 +92,7 @@ class DepartmentConfig(_Frozen):
 
     Ordered — the first entry is the *primary* department (the one a project
     attaches to by default, and the vertical/size-driven selection's role when
-    ``RunConfig.departments`` is omitted entirely).
+    ``WorldConfig.departments`` is omitted entirely).
     """
 
     archetype: str = Field(min_length=1, description="A registered department archetype name.")
@@ -179,7 +179,45 @@ class ScaleConfig(_Frozen):
     )
 
 
-class RunConfig(_Frozen):
+class DataAuthoring(StrEnum):
+    """How each structured-data scenario's causal spec is produced (docs/DATA_PRODUCTS.md §2)."""
+
+    TEMPLATE = "template"
+    LLM = "llm"
+
+
+class DataPlanConfig(_Frozen):
+    """The structured-data half of a world: which data scenarios to build with it.
+
+    A world is one company: its document corpus + gold KG (the rest of
+    :class:`WorldConfig`) and, when ``scenarios`` is non-empty, structured data
+    products — causal tables, views, and business questions — sampled over the
+    same window and linked against the same KG, written to
+    ``<world>/data/<scenario>/``. The build runs them as a ``data`` phase after
+    the corpus. ``llm`` authoring uses the world's ``[model]`` (on a ``--live``
+    build; otherwise the deterministic template is used, as in keyless mode).
+    """
+
+    scenarios: tuple[str, ...] = Field(
+        default=(),
+        description="Data-scenario names (built-in or template); empty = no structured data.",
+    )
+    authoring: DataAuthoring = Field(
+        default=DataAuthoring.TEMPLATE,
+        description="template (deterministic) or llm (the world's model elaborates each spec).",
+    )
+    scale_factor: float = Field(
+        default=1.0, gt=0.0, description="Multiplier on every data population's base size."
+    )
+    iterations: int = Field(
+        default=3, ge=1, le=5, description="Max question-loop passes per scenario."
+    )
+    rows_per_partition: int = Field(
+        default=2_000_000, ge=10_000, description="Target rows per parquet part file."
+    )
+
+
+class WorldConfig(_Frozen):
     """Top-level run configuration: the complete validated input to a simulation."""
 
     company: CompanyConfig
@@ -189,9 +227,9 @@ class RunConfig(_Frozen):
         ge=0,
         description="Root seed; threads through the run to derive all sub-seeds.",
     )
-    output_dir: Path = Field(
-        default=Path("runs"),
-        description="Directory the run materializes into (corpus + manifest + gold KG).",
+    worlds_root: Path = Field(
+        default=Path("worlds"),
+        description="Directory the world lands in, as <worlds_root>/<world-id>/.",
     )
     projects: tuple[ProjectConfig, ...] = Field(
         default=(),
@@ -206,6 +244,15 @@ class RunConfig(_Frozen):
     )
     model: ModelConfig = Field(default_factory=ModelConfig)
     scale: ScaleConfig = Field(default_factory=ScaleConfig)
+    data: DataPlanConfig = Field(
+        default_factory=DataPlanConfig,
+        description=(
+            "Structured data products built with the world (data scenarios over the "
+            "same window, linked to the same KG). Excluded from the config digest: "
+            "it does not change the corpus or graph, so adding data never changes "
+            "a world's id."
+        ),
+    )
     plugins: tuple[str, ...] = Field(
         default=(),
         description=(

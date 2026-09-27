@@ -17,8 +17,8 @@ import { WebSocket } from 'ws'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { GOLDEN_RUN, goldenRunExists } from './helpers.js'
 import type { RpcResponse } from '../src/shared/protocol.js'
-import type { LoadRunResult, DiffResult } from '../src/shared/protocol.js'
-import type { RunSummary } from '../src/shared/model.js'
+import type { LoadWorldResult, DiffResult } from '../src/shared/protocol.js'
+import type { WorldSummary } from '../src/shared/model.js'
 import type { SearchHit, SubgraphResult, ProvenanceResult } from '../src/sidecar/graph/index.js'
 import type { CypherResult } from '../src/sidecar/graph/kuzu.js'
 import type { SparqlResult } from '../src/sidecar/graph/rdf.js'
@@ -26,10 +26,10 @@ import type { SparqlResult } from '../src/sidecar/graph/rdf.js'
 const APP_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const SIDECAR = join(APP_ROOT, 'src', 'sidecar', 'index.ts')
 const TSX = join(APP_ROOT, 'node_modules', '.bin', 'tsx')
-// Repo-root `runs/` (two levels above the app) — what listRuns should discover.
-const RUNS_ROOT = join(GOLDEN_RUN, '..', '..')
+// Repo-root `worlds/` (two levels above the app) — what listWorlds should discover.
+const WORLDS_ROOT = join(GOLDEN_RUN, '..')
 
-// Engines build on the first loadRun; give every test plenty of headroom.
+// Engines build on the first loadWorld; give every test plenty of headroom.
 const TEST_TIMEOUT = 60_000
 
 /** Minimal RPC client mirroring renderer/rpc.ts: id-correlated request/reply. */
@@ -85,7 +85,7 @@ describe.skipIf(!goldenRunExists())('sidecar WebSocket RPC', () => {
       cwd: APP_ROOT,
       env: {
         ...process.env,
-        GRAPH_EXPLORER_RUNS_ROOT: RUNS_ROOT,
+        GRAPH_EXPLORER_WORLDS_ROOT: WORLDS_ROOT,
         GRAPH_EXPLORER_PORT: '0'
       }
     })
@@ -116,22 +116,22 @@ describe.skipIf(!goldenRunExists())('sidecar WebSocket RPC', () => {
   })
 
   it(
-    'listRuns discovers the golden run',
+    'listWorlds discovers the golden run',
     async () => {
-      const runs = await rpc.call<RunSummary[]>('listRuns')
+      const runs = await rpc.call<WorldSummary[]>('listWorlds')
       expect(runs.length).toBeGreaterThanOrEqual(1)
-      const golden = runs.find((r) => r.runPath === GOLDEN_RUN)
-      expect(golden, 'golden run should be discovered under RUNS_ROOT').toBeTruthy()
-      expect(golden!.nodeCount).toBeGreaterThan(0)
-      expect(golden!.edgeCount).toBeGreaterThan(0)
+      const golden = runs.find((r) => r.world_dir === GOLDEN_RUN)
+      expect(golden, 'golden run should be discovered under WORLDS_ROOT').toBeTruthy()
+      expect(golden!.counts.nodes).toBeGreaterThan(0)
+      expect(golden!.counts.edges).toBeGreaterThan(0)
     },
     TEST_TIMEOUT
   )
 
   it(
-    'loadRun loads the model, infers triples, and evaluates clean',
+    'loadWorld loads the model, infers triples, and evaluates clean',
     async () => {
-      const res = await rpc.call<LoadRunResult>('loadRun', { path: GOLDEN_RUN })
+      const res = await rpc.call<LoadWorldResult>('loadWorld', { path: GOLDEN_RUN })
       expect(res.model.nodes.length).toBeGreaterThan(0)
       expect(res.model.edges.length).toBeGreaterThan(0)
       // Oxigraph materializes ontology inferences on load.
@@ -147,7 +147,7 @@ describe.skipIf(!goldenRunExists())('sidecar WebSocket RPC', () => {
   it(
     'search resolves a known entity',
     async () => {
-      const hits = await rpc.call<SearchHit[]>('search', { runPath: GOLDEN_RUN, query: 'Cleo' })
+      const hits = await rpc.call<SearchHit[]>('search', { worldPath: GOLDEN_RUN, query: 'Cleo' })
       expect(hits.length).toBeGreaterThan(0)
       expect(hits[0]).toHaveProperty('id')
       expect(hits[0]).toHaveProperty('score')
@@ -160,7 +160,7 @@ describe.skipIf(!goldenRunExists())('sidecar WebSocket RPC', () => {
     'neighbors returns a subgraph around a node',
     async () => {
       const sub = await rpc.call<SubgraphResult>('neighbors', {
-        runPath: GOLDEN_RUN,
+        worldPath: GOLDEN_RUN,
         id: 'person:cleo-diaz',
         depth: 1
       })
@@ -175,7 +175,7 @@ describe.skipIf(!goldenRunExists())('sidecar WebSocket RPC', () => {
     'cypher runs a traversal query',
     async () => {
       const res = await rpc.call<CypherResult>('cypher', {
-        runPath: GOLDEN_RUN,
+        worldPath: GOLDEN_RUN,
         query: 'MATCH (p:Person) RETURN p.id AS id, p.label AS label'
       })
       expect(res.columns).toEqual(['id', 'label'])
@@ -188,7 +188,7 @@ describe.skipIf(!goldenRunExists())('sidecar WebSocket RPC', () => {
     'sparql runs a reasoning query',
     async () => {
       const res = await rpc.call<SparqlResult>('sparql', {
-        runPath: GOLDEN_RUN,
+        worldPath: GOLDEN_RUN,
         query: 'SELECT ?s ?p ?o WHERE { ?s ?p ?o } LIMIT 5'
       })
       expect(res.kind).toBe('select')
@@ -201,7 +201,7 @@ describe.skipIf(!goldenRunExists())('sidecar WebSocket RPC', () => {
     'provenance grounds a node in source mentions',
     async () => {
       const prov = await rpc.call<ProvenanceResult>('provenance', {
-        runPath: GOLDEN_RUN,
+        worldPath: GOLDEN_RUN,
         id: 'person:cleo-diaz'
       })
       expect(prov.nodeId).toBe('person:cleo-diaz')
@@ -212,9 +212,9 @@ describe.skipIf(!goldenRunExists())('sidecar WebSocket RPC', () => {
   )
 
   it(
-    'diffRuns of a run against itself shows zero drift',
+    'diffWorlds of a run against itself shows zero drift',
     async () => {
-      const diff = await rpc.call<DiffResult>('diffRuns', { pathA: GOLDEN_RUN, pathB: GOLDEN_RUN })
+      const diff = await rpc.call<DiffResult>('diffWorlds', { pathA: GOLDEN_RUN, pathB: GOLDEN_RUN })
       expect(diff.nodes.added).toEqual([])
       expect(diff.nodes.removed).toEqual([])
       expect(diff.edges.added).toEqual([])
@@ -236,12 +236,12 @@ describe.skipIf(!goldenRunExists())('sidecar WebSocket RPC', () => {
   it(
     'a malformed Cypher query errors without crashing the sidecar',
     async () => {
-      const bad = await rpc.send('cypher', { runPath: GOLDEN_RUN, query: 'THIS IS NOT CYPHER' })
+      const bad = await rpc.send('cypher', { worldPath: GOLDEN_RUN, query: 'THIS IS NOT CYPHER' })
       expect(bad.ok).toBe(false)
       expect(bad.error).toBeTruthy()
 
       // The sidecar must still serve subsequent requests on the same connection.
-      const ok = await rpc.call<RunSummary[]>('listRuns')
+      const ok = await rpc.call<WorldSummary[]>('listWorlds')
       expect(ok.length).toBeGreaterThanOrEqual(1)
     },
     TEST_TIMEOUT

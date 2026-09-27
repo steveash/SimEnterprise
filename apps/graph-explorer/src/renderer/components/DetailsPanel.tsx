@@ -13,7 +13,7 @@ interface Prov {
 export function DetailsPanel(): JSX.Element {
   const selectedId = useStore((s) => s.selectedId)
   const model = useStore((s) => s.model)
-  const runPath = useStore((s) => s.runPath)
+  const worldPath = useStore((s) => s.worldPath)
   const setHighlight = useStore((s) => s.setHighlight)
   const focusNodes = useStore((s) => s.focusNodes)
   const select = useStore((s) => s.select)
@@ -29,10 +29,10 @@ export function DetailsPanel(): JSX.Element {
     setProv(null)
     setArtifact(null)
     setPathInfo(null)
-    if (!selectedId || !runPath) return
+    if (!selectedId || !worldPath) return
     const rpc = useStore.getState().rpc
-    rpc?.call<Prov>('provenance', { runPath, id: selectedId }).then(setProv).catch(() => {})
-  }, [selectedId, runPath])
+    rpc?.call<Prov>('provenance', { worldPath, id: selectedId }).then(setProv).catch(() => {})
+  }, [selectedId, worldPath])
 
   if (!node) {
     return (
@@ -44,9 +44,9 @@ export function DetailsPanel(): JSX.Element {
 
   const showNeighbors = async () => {
     const rpc = useStore.getState().rpc
-    if (!rpc || !runPath) return
+    if (!rpc || !worldPath) return
     const sub = await rpc.call<{ nodeIds: string[]; edgeIds: string[] }>('neighbors', {
-      runPath,
+      worldPath,
       id: node.id,
       depth,
       direction: 'both'
@@ -57,9 +57,9 @@ export function DetailsPanel(): JSX.Element {
 
   const findPathTo = async (target: string) => {
     const rpc = useStore.getState().rpc
-    if (!rpc || !runPath) return
+    if (!rpc || !worldPath) return
     const p = await rpc.call<{ nodeIds: string[]; edgeIds: string[] } | null>('shortestPath', {
-      runPath,
+      worldPath,
       from: node.id,
       to: target
     })
@@ -74,8 +74,8 @@ export function DetailsPanel(): JSX.Element {
 
   const openArtifact = async (path: string) => {
     const rpc = useStore.getState().rpc
-    if (!rpc || !runPath) return
-    const res = await rpc.call<{ text: string | null }>('readArtifact', { runPath, path })
+    if (!rpc || !worldPath) return
+    const res = await rpc.call<{ text: string | null }>('readArtifact', { worldPath, path })
     setArtifact({ path, text: res.text ?? '(could not read)' })
   }
 

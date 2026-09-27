@@ -47,7 +47,7 @@ describe('feature op registry', () => {
         throw new Error('unused')
       },
       stream: () => {},
-      runsRoot: '/runs',
+      worldsRoot: '/runs',
       repoRoot: '/repo'
     })
     expect(out).toEqual({ echo: 42 })

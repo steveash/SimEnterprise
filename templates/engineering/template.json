@@ -1,0 +1,21 @@
+{
+  "created_at": "2026-09-27T02:11:05.421269+00:00",
+  "description": "A software-engineering org unit that ships product via the build_software playbook.",
+  "kind": "department",
+  "name": "Engineering",
+  "provides": {
+    "archetypes": [
+      "engineering"
+    ],
+    "data_scenarios": [],
+    "playbooks": [],
+    "processes": []
+  },
+  "slug": "engineering",
+  "updated_at": "2026-09-27T02:16:58.267926+00:00",
+  "validation": {
+    "checked_at": "2026-09-27T02:16:58.267942+00:00",
+    "status": "valid",
+    "summary": "valid: import ok, lint ok, conformance ok, archetype_sanity ok, tests ok, dry_run ok, data_spec ok"
+  }
+}

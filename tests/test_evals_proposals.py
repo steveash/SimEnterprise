@@ -10,12 +10,12 @@ from enterprise_sim.evals.store import append_questions, read_questions
 
 
 def _run_with_nodes(tmp_path: Path, node_ids: list[str]) -> Path:
-    run_dir = tmp_path / "run"
-    (run_dir / "kg").mkdir(parents=True)
-    with (run_dir / "kg" / "nodes.jsonl").open("w", encoding="utf-8") as f:
+    world_dir = tmp_path / "run"
+    (world_dir / "kg").mkdir(parents=True)
+    with (world_dir / "kg" / "nodes.jsonl").open("w", encoding="utf-8") as f:
         for node_id in node_ids:
             f.write(json.dumps({"id": node_id, "type": "Person"}) + "\n")
-    return run_dir
+    return world_dir
 
 
 def test_valid_proposal_is_accepted() -> None:
@@ -91,22 +91,22 @@ def test_rejects_duplicate_within_batch() -> None:
 
 
 def test_rejects_duplicate_against_existing_run_questions(tmp_path: Path) -> None:
-    run_dir = _run_with_nodes(tmp_path, ["person:a"])
+    world_dir = _run_with_nodes(tmp_path, ["person:a"])
     proposal = {"question": "Q?", "reasoning_type": "direct_relation", "expected_ids": ["person:a"]}
-    accepted, _ = validate_proposals(run_dir, [proposal])
-    append_questions(run_dir, accepted)
+    accepted, _ = validate_proposals(world_dir, [proposal])
+    append_questions(world_dir, accepted)
 
-    accepted2, rejected2 = validate_proposals(run_dir, [proposal])
+    accepted2, rejected2 = validate_proposals(world_dir, [proposal])
 
     assert accepted2 == []
     assert "duplicate" in rejected2[0].reason
 
 
 def test_load_node_ids_reads_kg_nodes_jsonl(tmp_path: Path) -> None:
-    run_dir = _run_with_nodes(tmp_path, ["a", "b", "c"])
+    world_dir = _run_with_nodes(tmp_path, ["a", "b", "c"])
     from enterprise_sim.evals.proposals import load_node_ids
 
-    assert load_node_ids(run_dir) == frozenset({"a", "b", "c"})
+    assert load_node_ids(world_dir) == frozenset({"a", "b", "c"})
 
 
 def test_mixed_batch_partial_accept() -> None:
@@ -122,18 +122,18 @@ def test_mixed_batch_partial_accept() -> None:
 
 
 def test_accepted_proposal_round_trips_through_the_run_store(tmp_path: Path) -> None:
-    run_dir = _run_with_nodes(tmp_path, ["person:a"])
+    world_dir = _run_with_nodes(tmp_path, ["person:a"])
     proposal = {
         "question": "Who is A?",
         "reasoning_type": "direct_relation",
         "expected_ids": ["person:a"],
         "tags": ["demo"],
     }
-    accepted, rejected = validate_proposals(run_dir, [proposal])
+    accepted, rejected = validate_proposals(world_dir, [proposal])
     assert rejected == []
-    append_questions(run_dir, accepted)
+    append_questions(world_dir, accepted)
 
-    stored = list(read_questions(run_dir))
+    stored = list(read_questions(world_dir))
     assert len(stored) == 1
     assert stored[0].source == "proposed"
     assert stored[0].tags == ("demo",)

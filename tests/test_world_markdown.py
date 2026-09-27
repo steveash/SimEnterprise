@@ -9,11 +9,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from enterprise_sim.core.config import RunConfig, load_config_from_mapping
+from enterprise_sim.core.config import WorldConfig, load_config_from_mapping
 from enterprise_sim.world_builders import build_world, render_organization, write_organization
 
 
-def _config(*, size: str = "medium", projects: list[dict[str, str]] | None = None) -> RunConfig:
+def _config(*, size: str = "medium", projects: list[dict[str, str]] | None = None) -> WorldConfig:
     return load_config_from_mapping(
         {
             "company": {"name": "Acme Corp", "vertical": "software", "size": size},

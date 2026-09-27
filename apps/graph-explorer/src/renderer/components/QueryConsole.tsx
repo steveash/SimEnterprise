@@ -42,7 +42,7 @@ export function QueryConsole(): JSX.Element {
   const [result, setResult] = useState<Result | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  const runPath = useStore((s) => s.runPath)
+  const worldPath = useStore((s) => s.worldPath)
   const schema = useStore((s) => s.schema)
   const setHighlight = useStore((s) => s.setHighlight)
   const focusNodes = useStore((s) => s.focusNodes)
@@ -53,11 +53,11 @@ export function QueryConsole(): JSX.Element {
 
   const runQuery = async (eng: Engine, query: string) => {
     const rpc = useStore.getState().rpc
-    if (!rpc || !runPath) return
+    if (!rpc || !worldPath) return
     setBusy(true)
     setError(null)
     try {
-      const res = await rpc.call<Result>(eng, { runPath, query })
+      const res = await rpc.call<Result>(eng, { worldPath, query })
       setResult(res)
       // highlight any node ids appearing in results
       if (model) {

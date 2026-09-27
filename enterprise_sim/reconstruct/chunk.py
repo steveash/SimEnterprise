@@ -63,8 +63,8 @@ _ATX_HEADING = re.compile(r"^(#{1,6})[ \t]+(.*?)[ \t]*#*[ \t]*$")
 _CODE_FENCE = re.compile(r"^[ \t]*(?:```+|~~~+)")
 
 
-def chunk_run(run_dir: str | Path) -> list[Chunk]:
-    """Chunk every markdown + Jira artifact under ``run_dir`` into :class:`Chunk`\\ s.
+def chunk_run(world_dir: str | Path) -> list[Chunk]:
+    """Chunk every markdown + Jira artifact under ``world_dir`` into :class:`Chunk`\\ s.
 
     Walks the run directory for ``*.md`` and ``*.jira.json`` files (skipping the
     gold ``kg/`` subtree), splits each by its document structure, and returns the
@@ -72,7 +72,7 @@ def chunk_run(run_dir: str | Path) -> list[Chunk]:
     chunks are emitted in document order, so the result is deterministic across
     runs. The gold KG is never read — this is a pure function of the raw corpus.
     """
-    base = Path(run_dir)
+    base = Path(world_dir)
     chunks: list[Chunk] = []
     for path in iter_corpus_files(base):
         source_path = path.relative_to(base).as_posix()
@@ -84,14 +84,14 @@ def chunk_run(run_dir: str | Path) -> list[Chunk]:
     return chunks
 
 
-def iter_corpus_files(run_dir: str | Path) -> list[Path]:
-    """Return the raw markdown + Jira artifact files under ``run_dir``, sorted.
+def iter_corpus_files(world_dir: str | Path) -> list[Path]:
+    """Return the raw markdown + Jira artifact files under ``world_dir``, sorted.
 
     Recurses the whole run directory but skips the top-level gold ``kg/`` subtree
     (the answer key the reconstruction must not read). The returned paths are
     sorted by their run-relative POSIX form for a stable, cross-platform order.
     """
-    base = Path(run_dir)
+    base = Path(world_dir)
     gold_kg = base / _GOLD_KG_DIR
     files: list[Path] = []
     for path in base.rglob("*"):

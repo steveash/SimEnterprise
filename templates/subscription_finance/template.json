@@ -1,0 +1,21 @@
+{
+  "created_at": "2026-09-27T02:11:05.421269+00:00",
+  "description": "Subscription billing & finance: accounts, MRR, churn, and a price change.",
+  "kind": "data_scenario",
+  "name": "Subscription Billing & Finance",
+  "provides": {
+    "archetypes": [],
+    "data_scenarios": [
+      "subscription_finance"
+    ],
+    "playbooks": [],
+    "processes": []
+  },
+  "slug": "subscription_finance",
+  "updated_at": "2026-09-27T02:17:11.180631+00:00",
+  "validation": {
+    "checked_at": "2026-09-27T02:17:11.180655+00:00",
+    "status": "valid",
+    "summary": "valid: import ok, lint ok, conformance ok, archetype_sanity ok, tests ok, dry_run ok, data_spec ok"
+  }
+}

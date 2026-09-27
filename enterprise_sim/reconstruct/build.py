@@ -310,7 +310,7 @@ class PipelineExtraction:
 
 
 def extract_once(
-    run_dir: str,
+    world_dir: str,
     client: LLMClient,
     *,
     model: str | None = HAIKU_MODEL,
@@ -319,13 +319,13 @@ def extract_once(
     """Run chunk → extract → resolve over a run's corpus, stopping before aggregation.
 
     The gated, expensive prefix of :func:`run_pipeline`: chunks the raw artifact
-    corpus under ``run_dir`` (never the gold ``kg/``), extracts typed mentions +
+    corpus under ``world_dir`` (never the gold ``kg/``), extracts typed mentions +
     candidate triples through ``client``, and resolves the mentions into canonical
     entities (``client`` gating the ambiguous-band adjudication). Returns the
     :class:`PipelineExtraction` the aggregate stage consumes, so a caller can build
     the KG at multiple edge-confidence thresholds from one extraction.
     """
-    chunks = chunk_run(run_dir)
+    chunks = chunk_run(world_dir)
     extractions = list(extract_chunks(chunks, client, model=model))
     mentions = [mention for extraction in extractions for mention in extraction.mentions]
     canonical = resolve_entities(
@@ -339,7 +339,7 @@ def extract_once(
 
 
 def run_pipeline(
-    run_dir: str,
+    world_dir: str,
     client: LLMClient,
     *,
     model: str | None = HAIKU_MODEL,
@@ -347,7 +347,7 @@ def run_pipeline(
 ) -> ReconstructedKG:
     """Run chunk → extract → resolve → aggregate end to end over a run's corpus.
 
-    Chunks the raw artifact corpus under ``run_dir`` (never the gold ``kg/``),
+    Chunks the raw artifact corpus under ``world_dir`` (never the gold ``kg/``),
     extracts typed mentions + candidate triples from every chunk through ``client``,
     resolves the mentions into canonical entities (with ``client`` gating the
     ambiguous-band adjudication), and aggregates the triples into the persisted
@@ -357,7 +357,7 @@ def run_pipeline(
     real gated extraction. Splits into :func:`extract_once` (the gated prefix) plus
     :meth:`PipelineExtraction.build` (the pure aggregate stage).
     """
-    extraction = extract_once(run_dir, client, model=model, resolution=config.resolution)
+    extraction = extract_once(world_dir, client, model=model, resolution=config.resolution)
     return extraction.build(config=config)
 
 

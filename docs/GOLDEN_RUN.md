@@ -24,27 +24,27 @@ from its seed and can be checked in CI without any API cost.
 ## Reproduce it
 
 ```bash
-# Render the corpus + gold KG (network-free, deterministic).
-# The config's output_dir lands the run under runs/golden/.
-enterprise-sim run examples/golden.toml
+# Build the world: corpus + gold KG (network-free, deterministic).
+# The config's worlds_root lands it under worlds/.
+enterprise-sim world create examples/golden.toml
 
-# Evaluate the completed run (structural realism metrics).
-enterprise-sim eval runs/golden/golden-slice-co-5b1e84522235
+# Evaluate the built world (structural realism metrics).
+enterprise-sim eval worlds/golden-slice-co-5b1e84522235
 ```
 
-Both commands are also runnable as `python -m enterprise_sim.cli ...`. The run id
+Both commands are also runnable as `python -m enterprise_sim.cli ...`. The world id
 `golden-slice-co-5b1e84522235` is a pure function of `(config, seed)`; it is
 pinned by the acceptance test, so any change to the config that would alter the
-run surfaces as a loud test failure.
+world surfaces as a loud test failure.
 
 A `--dry-run` first prints the artifact count and estimated cost without
 rendering:
 
 ```bash
-enterprise-sim run examples/golden.toml --dry-run
+enterprise-sim world create examples/golden.toml --dry-run
 ```
 
-The run line reports which backend it will use, so a live run is never a
+The create line reports which backend it will use, so a live build is never a
 surprise: `backend=fake (deterministic; pass --live for the real provider)`.
 
 The estimate itself is backend-independent — it prices `[model] name` against the
@@ -54,12 +54,13 @@ Note also that the estimate counts *prompt* tokens only: the `claude_cli` backen
 additionally re-sends the agent's own system prompt on every call, so a real
 `claude_cli` run costs materially more than the figure shown.
 
-## What the run produces
+## What the build produces
 
 ```
-runs/golden/golden-slice-co-5b1e84522235/
-├── manifest.json              # run index: ids, counts, validation summary
-├── config.snapshot.json       # the validated config, frozen for reproducibility
+worlds/golden-slice-co-5b1e84522235/
+├── .world                     # the world's one state file: id, effective config, counts,
+│                              #   validation summary, history, job ledger (enterprise_sim.worlds)
+├── .cache/llm/                # the response cache (D31), inside the world so it moves with it
 ├── organization/              # Layer A reference data (markdown)
 │   ├── README.md  company.md  people.md
 │   └── departments/engineering.md
@@ -123,7 +124,7 @@ acceptance test proves four properties against the *actual* rendered corpus:
 ### Validation semantics (D17/D30)
 
 `validation/issues.jsonl` is **report-and-continue**: a finding is recorded and
-summarized in `manifest.json`, never raised. The golden run currently logs 5
+summarized in the `.world`, never raised. The golden run currently logs 5
 **soft** `unresolved_mention` findings — generated prose that named a template
 phrase (e.g. "Kickoff Brief", "Sprint Plan") the grounding pass could not bind to
 an in-scope entity after one repair (D30). These do **not** corrupt the KG; they
@@ -135,9 +136,9 @@ faithfully indexes `issues.jsonl`.
 
 A change to the simulator keeps the golden run honest when:
 
-- [ ] `enterprise-sim run examples/golden.toml` completes and writes the layout above.
+- [ ] `enterprise-sim world create examples/golden.toml` completes and writes the layout above.
 - [ ] `pytest tests/test_golden_run.py` is green (shape, answer-key, reproducibility).
-- [ ] `enterprise-sim eval runs/golden/<run-id>` reports all structural metrics passing.
+- [ ] `enterprise-sim eval worlds/<world-id>` reports all structural metrics passing.
 
 If the golden config changes on purpose, update the pinned run id and counts in
 the acceptance test and in this document together.

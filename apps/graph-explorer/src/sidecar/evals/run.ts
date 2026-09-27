@@ -15,7 +15,8 @@ import {
   resultDir,
   writeEvalMeta,
   writeItems,
-  writePredictions
+  writePredictions,
+  writeTrace
 } from './store.js'
 import type {
   EvalExecutionMeta,
@@ -62,7 +63,7 @@ export interface RunExplorerOpts {
 
 export async function runEvalExplorer(
   engines: ChatEngines,
-  runPath: string,
+  worldPath: string,
   evalId: string,
   pairs: QAPair[],
   opts: RunExplorerOpts
@@ -92,6 +93,20 @@ export async function runEvalExplorer(
       })
       const scored = scoreItem(pair, new Set(res.predicted_ids))
       predictedById.set(pair.id, res.predicted_ids)
+      writeTrace(worldPath, {
+        eval_id: evalId,
+        qa_id: pair.id,
+        question: pair.question,
+        model: opts.model,
+        expected_ids: pair.expected_ids,
+        predicted_ids: res.predicted_ids,
+        submitted_label: res.label,
+        turns: res.turns,
+        seconds: res.seconds,
+        cost_usd: res.cost_usd,
+        error: res.error,
+        events: res.events
+      })
       completedPairs.push(pair)
       items.push({
         qa_id: pair.id,
@@ -129,7 +144,9 @@ export async function runEvalExplorer(
         // A single-question run doubles as the "run one question live" UI action
         // (EXPLORER_EVALS.md §3/§5) — include the trace only then, so a batch run's
         // stream stays light.
-        trace: pairs.length === 1 ? traceFromEvents(res.events) : undefined
+        trace: pairs.length === 1 ? traceFromEvents(res.events) : undefined,
+        error: res.error,
+        turns: res.turns
       })
       const soFar = scoreReport(completedPairs, predictedById)
       opts.stream({
@@ -149,8 +166,8 @@ export async function runEvalExplorer(
   const reportPairs = cancelled ? completedPairs : pairs
   const report = scoreReport(reportPairs, predictedById)
 
-  writeItems(runPath, evalId, items)
-  writePredictions(runPath, evalId, predictedById)
+  writeItems(worldPath, evalId, items)
+  writePredictions(worldPath, evalId, predictedById)
 
   const meta: EvalExecutionMeta = {
     eval_id: evalId,
@@ -165,7 +182,7 @@ export async function runEvalExplorer(
     usage: usages.length ? usages : undefined,
     report
   }
-  writeEvalMeta(runPath, meta)
+  writeEvalMeta(worldPath, meta)
   opts.stream({ kind: 'done', report })
   return meta
 }
@@ -193,17 +210,17 @@ interface PythonEvalEvent {
 
 export async function runEvalPython(
   repoRoot: string,
-  runPath: string,
+  worldPath: string,
   evalId: string,
   pairs: QAPair[],
   selection: EvalSelection,
   opts: RunPythonOpts
 ): Promise<EvalExecutionMeta> {
   const started_at = new Date().toISOString()
-  const dir = resultDir(runPath, evalId)
+  const dir = resultDir(worldPath, evalId)
   mkdirSync(dir, { recursive: true })
 
-  const args = ['evals', 'run', '--run', runPath, '--runner', opts.runner, '--out', dir]
+  const args = ['evals', 'run', '--run', worldPath, '--runner', opts.runner, '--out', dir]
   if (selection.kind === 'ids') {
     args.push('--ids', ...selection.ids)
   } else if (selection.kind === 'fraction') {
@@ -285,11 +302,11 @@ export async function runEvalPython(
       seconds: 0
     }
   })
-  writeItems(runPath, evalId, items)
+  writeItems(worldPath, evalId, items)
   // `enterprise-sim evals run --out <dir>` already wrote predictions.jsonl in the
   // exact {qa_id, predicted_ids} shape; only synthesize one if it didn't get that far.
-  if (!existsSync(predictionsPath(runPath, evalId))) writePredictions(runPath, evalId, predictedById)
-  removeResultFile(runPath, evalId, 'results.json') // superseded by eval.json
+  if (!existsSync(predictionsPath(worldPath, evalId))) writePredictions(worldPath, evalId, predictedById)
+  removeResultFile(worldPath, evalId, 'results.json') // superseded by eval.json
 
   const report: Report = pythonReport ?? scoreReport(cancelled ? completedPairs : pairs, predictedById)
   const status: EvalStatus = errorMsg ? 'failed' : cancelled ? 'cancelled' : code === 0 ? 'done' : 'failed'
@@ -305,7 +322,7 @@ export async function runEvalPython(
     status,
     report
   }
-  writeEvalMeta(runPath, meta)
+  writeEvalMeta(worldPath, meta)
   if (errorMsg) opts.stream({ kind: 'error', message: errorMsg })
   opts.stream({ kind: 'done', report })
   return meta

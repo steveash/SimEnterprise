@@ -1,6 +1,6 @@
 // Renders a `templates validate` report step-by-step (docs/EXPLORER_TEMPLATES.md
-// §4): the six steps (import, lint, conformance, archetype_sanity, tests,
-// dry_run), each with its ok/fail status and its `detail` rendered in the shape
+// §4): the seven steps (import, lint, conformance, archetype_sanity, tests,
+// dry_run, data_spec), each with its ok/fail status and its `detail` rendered in the shape
 // that step actually produces — a diagnostics table for `lint`, a violation list
 // for `conformance`/`archetype_sanity`, a small key/value table for
 // `tests`/`dry_run`, or plain text for an `import` failure.
@@ -12,7 +12,8 @@ const STEP_LABEL: Record<ValidationStep['step'], string> = {
   conformance: 'Conformance',
   archetype_sanity: 'Archetype sanity',
   tests: 'Tests',
-  dry_run: 'Dry run'
+  dry_run: 'Dry run',
+  data_spec: 'data scenario (lint + tiny sample)'
 }
 
 function isLintDiagnostics(v: unknown): v is LintDiagnostic[] {
@@ -97,9 +98,9 @@ export function ValidationCard({ report }: { report: ValidationReport | null }):
           <DetailView step={step.step} detail={step.detail} />
         </details>
       ))}
-      {report.ok && (report.provides.archetypes.length + report.provides.playbooks.length + report.provides.processes.length > 0) && (
+      {report.ok && (report.provides.archetypes.length + report.provides.playbooks.length + report.provides.processes.length + (report.provides.data_scenarios?.length ?? 0) > 0) && (
         <div className="tpl-provides-summary muted small">
-          provides: {[...report.provides.archetypes, ...report.provides.playbooks, ...report.provides.processes].join(', ')}
+          provides: {[...report.provides.archetypes, ...report.provides.playbooks, ...report.provides.processes, ...(report.provides.data_scenarios ?? [])].join(', ')}
         </div>
       )}
     </div>

@@ -12,11 +12,11 @@ from pathlib import Path
 
 import duckdb
 import pytest
-from enterprise_sim.core.config import RunConfig
+from enterprise_sim.core.config import WorldConfig
 from enterprise_sim.core.config.models import CompanyConfig, CompanySize, SimulationConfig
 from enterprise_sim.core.config.seed import SeedContext
 from enterprise_sim.core.world import World
-from enterprise_sim.data_products.linking import LinkageError, load_world_from_run
+from enterprise_sim.data_products.linking import LinkageError, load_world_kg
 from enterprise_sim.data_products.lint import require_clean
 from enterprise_sim.data_products.sampler import sample_scenario
 from enterprise_sim.data_products.scenarios._helpers import (
@@ -52,7 +52,7 @@ END = date(2026, 2, 13)  # 40 days
 
 @pytest.fixture(scope="module")
 def world() -> World:
-    config = RunConfig(
+    config = WorldConfig(
         company=CompanyConfig(name="Sampler Co", vertical="software", size=CompanySize.SMALL),
         simulation=SimulationConfig(period_start=START, period_end=END),
         seed=3,
@@ -268,7 +268,7 @@ class TestKgLinking:
 
     def test_load_world_requires_kg_export(self, tmp_path: Path) -> None:
         with pytest.raises(LinkageError, match="no exported KG"):
-            load_world_from_run(tmp_path)
+            load_world_kg(tmp_path)
 
 
 class TestLagSemantics:

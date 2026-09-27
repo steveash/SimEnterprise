@@ -9,6 +9,7 @@ registry holds opaque, name-bearing plugins keyed by their ``name``.
 
 from __future__ import annotations
 
+import sys
 from collections.abc import Iterator, Mapping
 from typing import Protocol, runtime_checkable
 
@@ -53,14 +54,27 @@ class Registry[T: NamedPlugin]:
         #: human-readable label for this registry, used in error messages.
         self.kind = kind
         self._entries: dict[str, T] = {}
+        self._origins: dict[str, str] = {}
 
     def register(self, plugin: T) -> T:
-        """Add ``plugin`` to the catalog; raise on a duplicate name."""
+        """Add ``plugin`` to the catalog; raise on a duplicate name.
+
+        Also records the module that called ``register`` (see :meth:`origin`) —
+        for a template that is ``enterprise_sim_templates.<slug>`` — so a catalog
+        can say which template provides each plugin.
+        """
         name = plugin.name
         if name in self._entries:
             raise DuplicateRegistrationError(f"{self.kind} {name!r} is already registered")
         self._entries[name] = plugin
+        caller = sys._getframe(1).f_globals.get("__name__")
+        if isinstance(caller, str):
+            self._origins[name] = caller
         return plugin
+
+    def origin(self, name: str) -> str | None:
+        """The module that registered ``name`` (``None`` if unknown or unregistered)."""
+        return self._origins.get(name)
 
     def get(self, name: str) -> T:
         """Return the plugin registered under ``name``; raise if unknown."""
@@ -82,6 +96,7 @@ class Registry[T: NamedPlugin]:
     def clear(self) -> None:
         """Remove every registration (chiefly for test isolation)."""
         self._entries.clear()
+        self._origins.clear()
 
     def __contains__(self, name: object) -> bool:
         return name in self._entries

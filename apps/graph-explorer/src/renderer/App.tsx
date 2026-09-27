@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { WorldLoading, WorldLoadingOverlay } from './components/WorldLoading.js'
 import { useStore, type View } from './store.js'
 import { GraphView } from './components/GraphView.js'
 import { SearchPanel } from './components/SearchPanel.js'
@@ -8,7 +9,7 @@ import { DetailsPanel } from './components/DetailsPanel.js'
 import { ChatPanel } from './components/ChatPanel.js'
 import { QueryConsole } from './components/QueryConsole.js'
 import { DiffPanel } from './components/DiffPanel.js'
-import { RunsView } from './views/RunsView.js'
+import { WorldsView } from './views/WorldsView.js'
 import { TemplatesView } from './views/TemplatesView.js'
 import { EvalsView } from './views/EvalsView.js'
 
@@ -16,7 +17,7 @@ type Tab = 'chat' | 'details' | 'query' | 'diff'
 
 const VIEWS: { id: View; label: string }[] = [
   { id: 'explore', label: 'Explore' },
-  { id: 'runs', label: 'Runs' },
+  { id: 'worlds', label: 'Worlds' },
   { id: 'templates', label: 'Templates' },
   { id: 'evals', label: 'Evals' }
 ]
@@ -25,13 +26,15 @@ export function App(): JSX.Element {
   const init = useStore((s) => s.init)
   const connecting = useStore((s) => s.connecting)
   const connectError = useStore((s) => s.connectError)
-  const runs = useStore((s) => s.runs)
-  const runPath = useStore((s) => s.runPath)
+  const worlds = useStore((s) => s.worlds)
+  const worldPath = useStore((s) => s.worldPath)
   const model = useStore((s) => s.model)
   const schema = useStore((s) => s.schema)
-  const loadingRun = useStore((s) => s.loadingRun)
-  const loadRun = useStore((s) => s.loadRun)
-  const pickRunDir = useStore((s) => s.pickRunDir)
+  const loadingWorld = useStore((s) => s.loadingWorld)
+  const loadingWorldPath = useStore((s) => s.loadingWorldPath)
+  const connection = useStore((s) => s.connection)
+  const loadWorld = useStore((s) => s.loadWorld)
+  const pickWorldDir = useStore((s) => s.pickWorldDir)
   const layout = useStore((s) => s.layout)
   const setLayout = useStore((s) => s.setLayout)
   const clearHighlight = useStore((s) => s.clearHighlight)
@@ -73,19 +76,29 @@ export function App(): JSX.Element {
         </nav>
         <select
           className="run-select"
-          value={runPath ?? ''}
-          onChange={(e) => void loadRun(e.target.value)}
+          value={loadingWorldPath ?? worldPath ?? ''}
+          disabled={loadingWorld}
+          onChange={(e) => void loadWorld(e.target.value)}
         >
-          {runs.length === 0 && <option value="">no runs found</option>}
-          {runs.map((r) => (
-            <option key={r.runPath} value={r.runPath}>
-              {r.runId} · {r.nodeCount}n/{r.edgeCount}e
+          {worlds.length === 0 && <option value="">no worlds found</option>}
+          {worlds.map((w) => (
+            <option key={w.world_dir} value={w.world_dir} disabled={!w.has_kg}>
+              {w.world_id}
+              {w.has_kg ? ` · ${w.counts.nodes ?? '?'}n/${w.counts.edges ?? '?'}e` : ' · no graph yet'}
+              {w.status !== 'done' ? ` · ${w.status}` : ''}
             </option>
           ))}
         </select>
-        <button className="btn ghost" onClick={() => void pickRunDir()}>
+        <button className="btn ghost" disabled={loadingWorld} onClick={() => void pickWorldDir()}>
           Open…
         </button>
+        <WorldLoading />
+        {connection === 'reconnecting' && (
+          <span className="world-loading-chip reconnecting" role="status" aria-live="polite">
+            <span className="spinner" aria-hidden="true" />
+            Reconnecting to the graph engine…
+          </span>
+        )}
         <div className="spacer" />
         {schema?.eval && (
           <div className="eval-badges">
@@ -115,7 +128,7 @@ export function App(): JSX.Element {
         )}
       </header>
 
-      {view === 'runs' && <RunsView />}
+      {view === 'worlds' && <WorldsView />}
       {view === 'templates' && <TemplatesView />}
       {view === 'evals' && <EvalsView />}
       <div className="body" style={view === 'explore' ? undefined : { display: 'none' }}>
@@ -125,8 +138,8 @@ export function App(): JSX.Element {
         </aside>
 
         <main className="center">
-          {loadingRun && <div className="loading-overlay">loading run…</div>}
           {model && <GraphView />}
+          <WorldLoadingOverlay />
           <TimeScrubber />
         </main>
 

@@ -1,7 +1,7 @@
 // Pure structural diff between two loaded gold KG runs.
 //
-// Kept engine-free (operates on GraphModel, not LoadedRun) so it is cheap to unit
-// test and reusable: the sidecar's `diffRuns` op is a thin wrapper around this.
+// Kept engine-free (operates on GraphModel, not LoadedWorld) so it is cheap to unit
+// test and reusable: the sidecar's `diffWorlds` op is a thin wrapper around this.
 
 import type { GraphModel, KGNode, KGEdge } from '../../shared/model.js'
 import type { DiffResult, DiffNode, DiffEdge, TypeDelta } from '../../shared/protocol.js'
@@ -68,8 +68,8 @@ export function diffModels(a: GraphModel, b: GraphModel): DiffResult {
   }
 
   const sum = (m: GraphModel) => ({
-    runId: m.runId,
-    runPath: m.runPath,
+    worldId: m.worldId,
+    worldPath: m.worldPath,
     nodeCount: m.nodes.length,
     edgeCount: m.edges.length,
     window: m.timeRange

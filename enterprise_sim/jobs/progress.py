@@ -78,13 +78,17 @@ class JsonlSink:
     Thread-safe: the render phase fans out across a bounded thread pool
     (``LLMClient.generate_many``), and each scenario's renderer emits its own
     ``artifact`` events concurrently — a lock around both writes keeps lines from
-    interleaving. ``also_to`` (typically ``<job>/progress.jsonl``) is opened once
-    in append mode and flushed after every line so a reattached UI (or a killed
-    process's next ``job status``) sees a consistent, un-truncated file.
+    interleaving. ``also_to`` (typically ``<world>/.jobs/progress.jsonl``) is
+    opened once in append mode (its directory created on demand) and flushed
+    after every line so a reattached UI (or a killed process's next ``world
+    status``) sees a consistent, un-truncated file. ``stream`` may be ``None``
+    for a file-only log (an inline ``world create`` that prints its own summary).
     """
 
-    def __init__(self, stream: TextIO, *, also_to: Path | None = None) -> None:
+    def __init__(self, stream: TextIO | None, *, also_to: Path | None = None) -> None:
         self._stream = stream
+        if also_to is not None:
+            also_to.parent.mkdir(parents=True, exist_ok=True)
         self._file: TextIO | None = (
             also_to.open("a", encoding="utf-8") if also_to is not None else None
         )
@@ -94,8 +98,9 @@ class JsonlSink:
         """Write ``event`` as one JSON line to the stream and the file (if any)."""
         line = json.dumps(event.to_dict(), sort_keys=True)
         with self._lock:
-            self._stream.write(line + "\n")
-            self._stream.flush()
+            if self._stream is not None:
+                self._stream.write(line + "\n")
+                self._stream.flush()
             if self._file is not None:
                 self._file.write(line + "\n")
                 self._file.flush()

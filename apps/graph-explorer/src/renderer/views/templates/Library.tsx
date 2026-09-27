@@ -4,10 +4,11 @@ import { useState } from 'react'
 import { useTemplatesStore, openAuthoringChat } from '../../store-templates.js'
 import type { TemplateKind, TemplateListEntry } from '../../../shared/templates-protocol.js'
 
-const KINDS: { id: TemplateKind; label: string }[] = [
-  { id: 'department', label: 'Department' },
-  { id: 'playbook', label: 'Playbook' },
-  { id: 'bundle', label: 'Bundle (both)' }
+const KINDS: { id: TemplateKind; label: string; hint: string }[] = [
+  { id: 'department', label: 'Department', hint: 'an org unit: its charter, team shapes and roles, and the playbooks it runs' },
+  { id: 'playbook', label: 'Playbook', hint: 'a scenario script: the events and deliverables that become documents and graph edges' },
+  { id: 'bundle', label: 'Dept + playbook', hint: 'a department together with a playbook it runs' },
+  { id: 'data_scenario', label: 'Data scenario', hint: 'structured data: a causal model sampled into tables, views and business questions' }
 ]
 
 function slugify(name: string): string {
@@ -71,11 +72,12 @@ function NewTemplateForm(): JSX.Element {
       />
       <div className="tpl-kind-row">
         {KINDS.map((k) => (
-          <button key={k.id} className={kind === k.id ? 'active' : ''} onClick={() => setKind(k.id)}>
+          <button key={k.id} className={kind === k.id ? 'active' : ''} title={k.hint} onClick={() => setKind(k.id)}>
             {k.label}
           </button>
         ))}
       </div>
+      <div className="tpl-hint muted">{KINDS.find((k) => k.id === kind)?.hint}</div>
       <textarea
         className="tpl-desc-input"
         placeholder="One-paragraph domain description…"
@@ -120,7 +122,12 @@ function TemplateCard({ entry }: { entry: TemplateListEntry }): JSX.Element {
     )
   }
 
-  const provides = [...entry.provides.archetypes, ...entry.provides.playbooks, ...entry.provides.processes]
+  const provides = [
+    ...entry.provides.archetypes,
+    ...entry.provides.playbooks,
+    ...entry.provides.processes,
+    ...(entry.provides.data_scenarios ?? [])
+  ]
 
   return (
     <div className={`tpl-card ${selectedSlug === entry.slug ? 'selected' : ''}`}>
@@ -189,6 +196,38 @@ export function TemplateLibrary(): JSX.Element {
 
   return (
     <div className="tpl-library">
+      <details className="tpl-intro" open>
+        <summary>What templates are for</summary>
+        <div className="small muted">
+          <p>
+            Templates let you add new building blocks for worlds without touching the codebase. A world has two
+            halves, and templates cover both:
+          </p>
+          <ul>
+            <li>
+              <strong>Documents + knowledge graph</strong> come from <strong>departments</strong> and{' '}
+              <strong>playbooks</strong>. A <em>department</em> is an org-unit archetype — its charter, the team shapes
+              and roles it staffs, and the playbooks it runs (built in: <span className="mono">engineering</span>,{' '}
+              <span className="mono">retail</span>). A <em>playbook</em> is the script a project follows — the ordered
+              events and deliverables (specs, reviews, tickets, decks) that become the documents in the corpus and
+              the edges in the graph (built in: <span className="mono">build_software</span>,{' '}
+              <span className="mono">sell_merchandise</span>).
+            </li>
+            <li>
+              <strong>Structured data</strong> comes from <strong>data scenarios</strong>: a causal model of one part
+              of the business (e.g. a support queue or sales pipeline) that is sampled into parquet tables and SQL
+              views, linked to the same people and projects as the graph, with business questions the data answers
+              (built in: <span className="mono">sales_pipeline</span>, <span className="mono">support_ops</span>, …).
+            </li>
+          </ul>
+          <p>
+            Pick a kind below, describe the domain, and the agent writes the plugin and a test and runs validation
+            until it passes. Once it validates, it shows up in the Worlds form — departments and playbooks under
+            Departments / Scenario instances, data scenarios under Structured data — so you can create new worlds, or
+            extend an existing one, with it.
+          </p>
+        </div>
+      </details>
       <NewTemplateForm />
       <div className="section-title">Library</div>
       {loadingList && <div className="muted small">loading…</div>}

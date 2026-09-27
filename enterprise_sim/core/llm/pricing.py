@@ -40,11 +40,13 @@ class ModelPricing:
         ) / million
 
 
-# Approximate published list prices (USD / Mtok). Override via config for a run.
+# Published Claude API list prices (USD / Mtok: input, cache read, output). Override via
+# config for a run. Keep in sync with the Claude API pricing page when models change.
 PRICING: dict[str, ModelPricing] = {
-    "claude-opus-4-8": ModelPricing(15.0, 1.5, 75.0),
+    "claude-opus-5-5": ModelPricing(4.0, 0.20, 20.0),
+    "claude-opus-4-8": ModelPricing(5.0, 0.50, 25.0),
     "claude-sonnet-4-6": ModelPricing(3.0, 0.3, 15.0),
-    "claude-haiku-4-5": ModelPricing(0.80, 0.08, 4.0),
+    "claude-haiku-4-5": ModelPricing(1.0, 0.10, 5.0),
 }
 
 # Used for any model not in :data:`PRICING` so accounting never silently zeroes.

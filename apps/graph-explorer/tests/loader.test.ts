@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { deriveLabel, loadRun } from '../src/sidecar/graph/loader.js'
+import { deriveLabel, loadWorld } from '../src/sidecar/graph/loader.js'
 import { goldenRunExists, loadGolden } from './helpers.js'
 import type { GraphModel } from '../src/shared/model.js'
 
@@ -49,13 +49,13 @@ describe('deriveLabel', () => {
   })
 })
 
-// loadRun() tolerates a malformed JSONL line — golden-independent, uses a temp run.
-describe('loadRun malformed-line tolerance', () => {
-  let runPath: string
+// loadWorld() tolerates a malformed JSONL line — golden-independent, uses a temp run.
+describe('loadWorld malformed-line tolerance', () => {
+  let worldPath: string
 
   beforeAll(() => {
-    runPath = mkdtempSync(join(tmpdir(), 'ge-loader-'))
-    const kgDir = join(runPath, 'kg')
+    worldPath = mkdtempSync(join(tmpdir(), 'ge-loader-'))
+    const kgDir = join(worldPath, 'kg')
     mkdirSync(kgDir, { recursive: true })
     // Two valid node lines straddling one malformed line; loader must skip the
     // bad line rather than throw.
@@ -68,15 +68,15 @@ describe('loadRun malformed-line tolerance', () => {
   })
 
   afterAll(() => {
-    rmSync(runPath, { recursive: true, force: true })
+    rmSync(worldPath, { recursive: true, force: true })
   })
 
   it('skips the bad line and loads the surrounding valid nodes', () => {
-    const model = loadRun(runPath)
+    const model = loadWorld(worldPath)
     expect(model.nodes.map((n) => n.id)).toEqual(['a', 'b'])
     // Missing sibling files (edges, mentions, ...) degrade to empty, not fatal.
     expect(model.edges).toEqual([])
-    expect(model.manifest).toBeNull()
+    expect(model.world).toBeNull()
   })
 })
 

@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from enterprise_sim.benchmark.generate import generate, load_world_from_run
+from enterprise_sim.benchmark.generate import generate, load_world_kg
 from enterprise_sim.benchmark.runners.rag import (
     AliasResolver,
     BM25Index,
@@ -35,7 +35,7 @@ from enterprise_sim.producers.word_docx import DocxDocument, build_docx
 
 
 @pytest.fixture(scope="session")
-def golden_run_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
+def golden_world_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
     """A real golden run on disk — corpus + answer key — built once per session.
 
     The committed ``runs/`` tree is gitignored, so tests cannot depend on a
@@ -47,7 +47,7 @@ def golden_run_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
     from enterprise_sim.benchmark.fixtures import golden_run
 
     tmp = tmp_path_factory.mktemp("golden-run")
-    return golden_run(tmp).run_dir
+    return golden_run(tmp).world_dir
 
 
 # --------------------------------------------------------------------------- #
@@ -146,9 +146,9 @@ def test_extract_eml_recovers_subject_and_body(tmp_path: Path) -> None:
 # --------------------------------------------------------------------------- #
 
 
-def test_load_corpus_tags_chunks_with_real_node_ids(golden_run_dir: Path) -> None:
-    world = load_world_from_run(golden_run_dir)
-    chunks = load_corpus(golden_run_dir, world)
+def test_load_corpus_tags_chunks_with_real_node_ids(golden_world_dir: Path) -> None:
+    world = load_world_kg(golden_world_dir)
+    chunks = load_corpus(golden_world_dir, world)
 
     assert chunks, "the golden run has artifacts to index"
     # Every chunk's artifact_id is a real Artifact node in the gold graph.
@@ -161,10 +161,10 @@ def test_load_corpus_tags_chunks_with_real_node_ids(golden_run_dir: Path) -> Non
     assert ".docx" in suffixes or ".json" in suffixes
 
 
-def test_load_corpus_is_deterministic(golden_run_dir: Path) -> None:
-    world = load_world_from_run(golden_run_dir)
-    first = load_corpus(golden_run_dir, world)
-    second = load_corpus(golden_run_dir, world)
+def test_load_corpus_is_deterministic(golden_world_dir: Path) -> None:
+    world = load_world_kg(golden_world_dir)
+    first = load_corpus(golden_world_dir, world)
+    second = load_corpus(golden_world_dir, world)
     assert first == second
 
 
@@ -264,8 +264,8 @@ def test_resolver_empty_is_safe() -> None:
     assert resolver.resolve("anything at all") == frozenset()
 
 
-def test_resolver_from_run_loads_aliases_and_mentions(golden_run_dir: Path) -> None:
-    resolver = AliasResolver.from_run(golden_run_dir)
+def test_resolver_from_run_loads_aliases_and_mentions(golden_world_dir: Path) -> None:
+    resolver = AliasResolver.from_run(golden_world_dir)
     assert resolver.by_surface, "the golden run answer key has surface forms"
     # A canonical person name resolves to that person's node id.
     ids = resolver.resolve("Ben Cho attended.")
@@ -297,9 +297,9 @@ def test_runner_resolves_the_model_answer_to_ids() -> None:
     assert "Ben Cho leads the build." in backend.prompts[0]
 
 
-def test_runner_run_produces_one_prediction_per_question(golden_run_dir: Path) -> None:
-    runner = build_runner(golden_run_dir)
-    benchmark = generate(golden_run_dir)
+def test_runner_run_produces_one_prediction_per_question(golden_world_dir: Path) -> None:
+    runner = build_runner(golden_world_dir)
+    benchmark = generate(golden_world_dir)
     subset = Benchmark.of(list(benchmark)[:3])
     client, _ = _scripted_client("Ben Cho and Cleo Costa.")
 
@@ -311,8 +311,8 @@ def test_runner_run_produces_one_prediction_per_question(golden_run_dir: Path) -
     assert report.overall.count == len(subset)
 
 
-def test_build_runner_indexes_the_corpus(golden_run_dir: Path) -> None:
-    runner = build_runner(golden_run_dir, top_k=4)
+def test_build_runner_indexes_the_corpus(golden_world_dir: Path) -> None:
+    runner = build_runner(golden_world_dir, top_k=4)
     assert runner.top_k == 4
     assert runner.index.chunks, "the runner indexed the golden corpus"
     assert runner.resolver.by_surface
@@ -324,10 +324,10 @@ def test_build_runner_indexes_the_corpus(golden_run_dir: Path) -> None:
 
 
 def test_cli_bench_run_writes_predictions(
-    tmp_path: Path, capsys: Any, golden_run_dir: Path
+    tmp_path: Path, capsys: Any, golden_world_dir: Path
 ) -> None:
     bench_path = tmp_path / "bench.jsonl"
-    generate(golden_run_dir).write_jsonl(bench_path)
+    generate(golden_world_dir).write_jsonl(bench_path)
     out_path = tmp_path / "pred.rag.jsonl"
 
     code = main(
@@ -338,8 +338,8 @@ def test_cli_bench_run_writes_predictions(
             "rag",
             "--bench",
             str(bench_path),
-            "--run",
-            str(golden_run_dir),
+            "--world",
+            str(golden_world_dir),
             "-o",
             str(out_path),
             "--backend",
@@ -365,15 +365,15 @@ def test_cli_bench_run_writes_predictions(
     reason="live RAG answer requires ANTHROPIC_API_KEY",
 )
 def test_live_rag_runner_scores_a_subset(
-    golden_run_dir: Path,
+    golden_world_dir: Path,
 ) -> None:  # pragma: no cover - needs a key
     from enterprise_sim.core.llm import build_client
 
-    benchmark = generate(golden_run_dir)
+    benchmark = generate(golden_world_dir)
     subset = Benchmark.of(list(benchmark)[:3])
     client = build_client(LLMConfig(backend="anthropic_api"))
 
-    predictions = run_rag(golden_run_dir, subset, client, top_k=5)
+    predictions = run_rag(golden_world_dir, subset, client, top_k=5)
     assert len(predictions) == len(subset)
     report = score(subset, predictions)
     assert report.overall.count == len(subset)

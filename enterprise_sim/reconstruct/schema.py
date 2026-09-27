@@ -243,7 +243,7 @@ class ReconstructedKG:
     :class:`~enterprise_sim.core.world.Edge`\\ s — the *same* dataclasses the gold
     KG uses — plus a :class:`Provenance` answer key. :meth:`write` emits
     ``nodes.jsonl`` / ``edges.jsonl`` byte-identical in schema to a golden run's,
-    so :func:`enterprise_sim.benchmark.generate.load_world_from_run` and the graph
+    so :func:`enterprise_sim.benchmark.generate.load_world_kg` and the graph
     engines load a reconstruction unchanged; ``provenance.jsonl`` rides alongside.
 
     Files are written deterministically — nodes/edges sorted by id, provenance by

@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { Rpc } from './rpc.js'
-import type { GraphModel, RunSummary } from '../shared/model.js'
-import type { LoadRunResult, DiffResult } from '../shared/protocol.js'
+import type { GraphModel, WorldSummary } from '../shared/model.js'
+import type { LoadWorldResult, DiffResult } from '../shared/protocol.js'
 import type { AgentEvent, VizEvent, FinalQuery } from '../shared/agent-events.js'
 import type { Lens, LensInput } from '../shared/lenses.js'
 
@@ -37,7 +37,7 @@ interface FocusRequest {
 }
 
 /** Top-level views (docs/EXPLORER.md §2). `explore` is the original graph explorer. */
-export type View = 'explore' | 'runs' | 'templates' | 'evals'
+export type View = 'explore' | 'worlds' | 'templates' | 'evals'
 
 interface AppState {
   /** Top-level view (docs/EXPLORER.md §2). */
@@ -45,14 +45,21 @@ interface AppState {
   setView: (v: View) => void
 
   rpc: Rpc | null
+  /** Live state of the sidecar websocket (drives the topbar reconnect chip). */
+  connection: 'connecting' | 'open' | 'reconnecting'
   connecting: boolean
   connectError: string | null
 
-  runs: RunSummary[]
-  runPath: string | null
+  /** Every world under the worlds root (the same list the Worlds tab shows). */
+  worlds: WorldSummary[]
+  refreshWorlds: () => Promise<void>
+  worldPath: string | null
   model: GraphModel | null
-  schema: LoadRunResult | null
-  loadingRun: boolean
+  schema: LoadWorldResult | null
+  loadingWorld: boolean
+  /** The world being loaded right now (drives the topbar progress + overlay), with its start time. */
+  loadingWorldPath: string | null
+  loadingStartedAt: number | null
 
   // visibility / filters
   visibleTypes: Set<string>
@@ -80,8 +87,8 @@ interface AppState {
 
   // actions
   init: () => Promise<void>
-  loadRun: (path: string) => Promise<void>
-  pickRunDir: () => Promise<void>
+  loadWorld: (path: string) => Promise<void>
+  pickWorldDir: () => Promise<void>
   select: (id: string | null) => void
   setHighlight: (nodes: string[], edges?: string[]) => void
   clearHighlight: () => void
@@ -102,13 +109,16 @@ interface AppState {
 
 export const useStore = create<AppState>((set, get) => ({
   rpc: null,
+  connection: 'connecting',
   connecting: true,
   connectError: null,
-  runs: [],
-  runPath: null,
+  worlds: [],
+  worldPath: null,
   model: null,
   schema: null,
-  loadingRun: false,
+  loadingWorld: false,
+  loadingWorldPath: null,
+  loadingStartedAt: null,
   visibleTypes: new Set(),
   visibleEdgeTypes: new Set(),
   timeCursor: null,
@@ -134,26 +144,47 @@ export const useStore = create<AppState>((set, get) => ({
         return
       }
       const rpc = new Rpc(info.port)
-      const runs = await rpc.call<RunSummary[]>('listRuns')
-      set({ rpc, connecting: false, runs })
+      let wasOpen = false
+      rpc.onStatus((connection) => {
+        set({ connection })
+        // Back after a drop (e.g. the sidecar restarted): the world list may have
+        // changed, and the sidecar reloads a world lazily on its next query.
+        if (connection === 'open' && wasOpen) void get().refreshWorlds()
+        if (connection === 'open') wasOpen = true
+      })
+      const worlds = await rpc.call<WorldSummary[]>('listWorlds')
+      set({ rpc, connecting: false, worlds })
       await get().loadLenses()
-      if (runs.length) await get().loadRun(runs[0].runPath)
+      const first = worlds.find((w) => w.has_kg)
+      if (first) await get().loadWorld(first.world_dir)
     } catch (e) {
       set({ connecting: false, connectError: (e as Error).message })
     }
   },
 
-  loadRun: async (path) => {
+  refreshWorlds: async () => {
     const rpc = get().rpc
     if (!rpc) return
-    set({ loadingRun: true, diff: null })
     try {
-      const res = await rpc.call<LoadRunResult>('loadRun', { path })
+      set({ worlds: await rpc.call<WorldSummary[]>('listWorlds') })
+    } catch {
+      /* keep the last list */
+    }
+  },
+
+  loadWorld: async (path) => {
+    const rpc = get().rpc
+    if (!rpc) return
+    set({ loadingWorld: true, loadingWorldPath: path, loadingStartedAt: Date.now(), diff: null })
+    try {
+      const res = await rpc.call<LoadWorldResult>('loadWorld', { path })
       set({
-        runPath: path,
+        worldPath: path,
         model: res.model,
         schema: res,
-        loadingRun: false,
+        loadingWorld: false,
+        loadingWorldPath: null,
+        loadingStartedAt: null,
         // CalendarEvent + has_calendar_event are noisy; start hidden but toggleable.
         visibleTypes: new Set(res.model.nodeTypes.filter((t) => t !== 'CalendarEvent')),
         visibleEdgeTypes: new Set(res.model.edgeTypes.filter((t) => t !== 'has_calendar_event')),
@@ -164,13 +195,13 @@ export const useStore = create<AppState>((set, get) => ({
         focus: { nodeIds: [], fit: true, nonce: Date.now() }
       })
     } catch (e) {
-      set({ loadingRun: false, connectError: (e as Error).message })
+      set({ loadingWorld: false, loadingWorldPath: null, loadingStartedAt: null, connectError: (e as Error).message })
     }
   },
 
-  pickRunDir: async () => {
-    const dir = await window.explorer.pickRunDir()
-    if (dir) await get().loadRun(dir)
+  pickWorldDir: async () => {
+    const dir = await window.explorer.pickWorldDir()
+    if (dir) await get().loadWorld(dir)
   },
 
   select: (id) => {
@@ -206,8 +237,8 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   sendChat: (text) => {
-    const { rpc, runPath, chat, model_id, conversationId } = get()
-    if (!rpc || !runPath || !text.trim()) return
+    const { rpc, worldPath, chat, model_id, conversationId } = get()
+    if (!rpc || !worldPath || !text.trim()) return
     const userMsg: ChatMessage = { id: `u${Date.now()}`, role: 'user', text, trace: [], done: true }
     const asstId = `a${Date.now()}`
     const asstMsg: ChatMessage = { id: asstId, role: 'assistant', text: '', trace: [], done: false }
@@ -249,7 +280,7 @@ export const useStore = create<AppState>((set, get) => ({
       }
     }
 
-    const active = rpc.chat({ runPath, prompt: text, model: model_id, conversationId }, handle)
+    const active = rpc.chat({ worldPath, prompt: text, model: model_id, conversationId }, handle)
     set({ chatActive: active })
   },
 
@@ -259,9 +290,9 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   runDiff: async (otherPath) => {
-    const { rpc, runPath } = get()
-    if (!rpc || !runPath) return
-    const diff = await rpc.call<DiffResult>('diffRuns', { pathA: runPath, pathB: otherPath })
+    const { rpc, worldPath } = get()
+    if (!rpc || !worldPath) return
+    const diff = await rpc.call<DiffResult>('diffWorlds', { pathA: worldPath, pathB: otherPath })
     set({ diff })
   },
 

@@ -11,14 +11,19 @@ from __future__ import annotations
 from enterprise_sim.core.registry.binding import BindingError, BindingMap
 from enterprise_sim.core.registry.discovery import (
     ARCHETYPES,
+    BUNDLED_TEMPLATES_DIR,
     DEFAULT_PLUGIN_PACKAGES,
     PLAYBOOKS,
     PLUGIN_PATH_ENV_VAR,
     PROCESSES,
     PRODUCERS,
+    TEMPLATE_MODULE_PREFIX,
+    default_templates_dir,
     discover,
     discover_all,
     discover_paths,
+    ensure_module,
+    load_templates,
     plugin_paths,
 )
 from enterprise_sim.core.registry.plugins import (
@@ -53,6 +58,11 @@ __all__ = [
     "discover",
     "discover_all",
     "discover_paths",
+    "BUNDLED_TEMPLATES_DIR",
+    "TEMPLATE_MODULE_PREFIX",
+    "default_templates_dir",
+    "ensure_module",
+    "load_templates",
     "plugin_paths",
     # plugin protocols
     "DepartmentArchetype",

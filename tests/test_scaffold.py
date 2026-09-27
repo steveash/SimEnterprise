@@ -12,14 +12,14 @@ def test_version_is_exposed() -> None:
 
 def test_parser_has_subcommands() -> None:
     parser = build_parser()
-    args = parser.parse_args(["run", "demo.toml"])
-    assert args.command == "run"
+    args = parser.parse_args(["world", "create", "demo.toml"])
+    assert args.command == "world"
     assert args.config == "demo.toml"
 
 
 def test_cli_subcommands_dispatch() -> None:
-    # `run`/`eval` with no argument report usage and exit non-zero; `lint` with no
+    # `world create`/`eval` with no argument report usage and exit non-zero; `lint` with no
     # target lints the reference playbooks (all clean → 0).
-    assert main(["run"]) == 2
+    assert main(["world", "create"]) == 2
     assert main(["eval"]) == 2
     assert main(["lint"]) == 0

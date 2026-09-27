@@ -34,7 +34,7 @@ function ctxFor(templatesRoot: string, params: Record<string, unknown>): OpConte
       throw new Error('unused')
     },
     stream: () => {},
-    runsRoot: '/unused',
+    worldsRoot: '/unused',
     repoRoot: REPO_ROOT
   }
 }

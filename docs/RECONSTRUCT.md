@@ -95,9 +95,9 @@ identity is a fixed coordinate of the benchmark's answer space — the same
 `artifact:…` ids the oracle and the RAG baseline name artifacts in — not a
 reconstructed fact. The reconstruction only ever observes an artifact by its
 run-relative *path* (the chunk `source_path`, equal to the gold `Artifact` node's
-`path` prop), so `reconstruct reason --run runs/<run-id>` supplies the run's gold
+`path` prop), so `reconstruct reason --world worlds/<world-id>` supplies the run's gold
 `{path → artifact id}` map and each grounding path resolves to the id the
-benchmark grades against. Omit `--run` and the derived edges are still built but
+benchmark grades against. Omit `--world` and the derived edges are still built but
 keyed by path — structurally answerable, yet a guaranteed miss against a gold key
 (this was the gap that pinned provenance answer-F1 at **0.000** even after the
 grounding edges existed). The map only names the *projected* endpoints; the
@@ -123,7 +123,7 @@ single extraction at each `--thresholds` value, scoring every rebuilt KG against
 the gold graph with the keyless fidelity scorer:
 
 ```bash
-enterprise-sim reconstruct sweep --run runs/<run-id> \
+enterprise-sim reconstruct sweep --world worlds/<world-id> \
     --thresholds 0,0.25,0.5,0.75 --backend anthropic_api \
     -o sweep.md                      # '--json' for a machine-readable curve
 ```
@@ -144,7 +144,7 @@ one extraction — each model runs its own `chunk → extract → resolve` — s
 reconstructs the corpus once per model and compares:
 
 ```bash
-enterprise-sim reconstruct sweep --run runs/<run-id> \
+enterprise-sim reconstruct sweep --world worlds/<world-id> \
     --models claude-haiku-4-5-20251001,claude-sonnet-4-6 \
     --backend anthropic_api \
     --edge-threshold 0.5 \            # single build threshold for every model
@@ -164,33 +164,33 @@ just recorded, and real per-model numbers are a keyed crew run.
 
 ## Running it
 
-The full workflow is four commands. `--run` points every step at one golden run so
+The full workflow is four commands. `--world` points every step at one golden run so
 the gold graph, the reconstruction, and the benchmark all agree; omit it and each
 step spins a fresh golden run.
 
 ```bash
 # 0. A shared benchmark + a golden run to reconstruct.
-enterprise-sim run examples/golden.toml -o runs/            # -> runs/<run-id>
-enterprise-sim bench generate --run runs/<run-id> -o bench.jsonl
+enterprise-sim world create examples/golden.toml            # -> worlds/<world-id>
+enterprise-sim bench generate --world worlds/<world-id> -o bench.jsonl
 
 # 1. BUILD — reconstruct + persist the KG once (keyless with --backend fake).
-enterprise-sim reconstruct build --run runs/<run-id> -o recon/ \
+enterprise-sim reconstruct build --world worlds/<world-id> -o recon/ \
     --backend anthropic_api          # 'fake' for a keyless smoke build
 
 # 2. FIDELITY — how faithful is the reconstruction? (keyless, no LLM)
-enterprise-sim reconstruct fidelity --reconstructed recon/ --run runs/<run-id> \
+enterprise-sim reconstruct fidelity --reconstructed recon/ --world worlds/<world-id> \
     --json -o fidelity.json          # drop --json for a markdown report
 
 # 3. REASON — answer the benchmark three ways (each writes predictions JSONL).
 #    ORACLE = graph agent on the GOLD KG (the ceiling):
-enterprise-sim bench run --runner graph --run runs/<run-id> --bench bench.jsonl \
+enterprise-sim bench run --runner graph --world worlds/<world-id> --bench bench.jsonl \
     -o pred.oracle.jsonl
 #    RECONSTRUCTED = the SAME agent on the reconstructed KG (build-once).
-#    --run names provenance answers in the benchmark's gold artifact-id coordinate.
+#    --world names provenance answers in the benchmark's gold artifact-id coordinate.
 enterprise-sim reconstruct reason --reconstructed recon/ --bench bench.jsonl \
-    --run runs/<run-id> -o pred.reconstructed.jsonl
+    --world worlds/<world-id> -o pred.reconstructed.jsonl
 #    RAG = the corpus-retrieval baseline:
-enterprise-sim bench run --runner rag --run runs/<run-id> --bench bench.jsonl \
+enterprise-sim bench run --runner rag --world worlds/<world-id> --bench bench.jsonl \
     -o pred.rag.jsonl
 
 # 4. REPORT — attribute the graph's advantage (keyless, no LLM).
@@ -291,9 +291,9 @@ report`) with every artifact landing under one `--out` dir:
 ```bash
 # Keyed crew run — fills the AFTER tables (needs a key + the bench extra):
 uv sync --extra bench
-scripts/reconstruct_eval.sh --run runs/<run-id> --backend anthropic_api -o eval/
+scripts/reconstruct_eval.sh --world worlds/<world-id> --backend anthropic_api -o eval/
 #   -> eval/attribution.md  (+ fidelity.json, recon/, pred.{oracle,reconstructed,rag}.jsonl)
-# Omit --run to spin a fresh golden run; --limit N caps the reasoners for a cheap probe.
+# Omit --world to spin a fresh golden run; --limit N caps the reasoners for a cheap probe.
 
 # Keyless wiring smoke — proves the plumbing with NO key (fake backend; a keyless
 # RAG prediction stands in for all three reasoners, so the numbers are wiring
@@ -515,5 +515,5 @@ did not just deflate a number — it mis-attributed *where the value comes from*
 > ```
 >
 > Drop `--align --reconstructed-kg kg3` from either command to reproduce the raw
-> (measurement-artifact) column. `--run DIR` supplies an explicit gold run;
+> (measurement-artifact) column. `--world DIR` supplies an explicit gold run;
 > omitted, alignment resolves against the deterministic golden fixture.

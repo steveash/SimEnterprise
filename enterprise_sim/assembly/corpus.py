@@ -41,15 +41,13 @@ from typing import Protocol, runtime_checkable
 
 from enterprise_sim.authoring.lowering import lower_playbook
 from enterprise_sim.authoring.sdk import Playbook as SdkPlaybook
-from enterprise_sim.core.config import RunConfig
+from enterprise_sim.core.config import WorldConfig
 from enterprise_sim.core.events import EventJournal
 from enterprise_sim.core.llm import LLMClient
 from enterprise_sim.core.registry import (
     PLAYBOOKS,
     UnknownPluginError,
-    discover,
-    discover_paths,
-    plugin_paths,
+    load_templates,
 )
 from enterprise_sim.core.registry.binding import BindingMap
 from enterprise_sim.core.sim.calendar import WorkingCalendar
@@ -166,7 +164,7 @@ class _ProgressCounter:
 
 def build_corpus(
     world: World,
-    config: RunConfig,
+    config: WorldConfig,
     client: LLMClient,
     *,
     calendar: WorkingCalendar | None = None,
@@ -218,8 +216,7 @@ def build_corpus(
     start = datetime.combine(config.simulation.period_start, calendar.day_start)
     end = datetime.combine(config.simulation.period_end, calendar.day_end)
 
-    discover("enterprise_sim.playbooks")  # idempotent; populates the PLAYBOOKS catalog.
-    discover_paths(plugin_paths(config.plugins))  # external templates.
+    load_templates(config.plugins)  # idempotent; every playbook, built-ins included.
 
     company_profile = _company_profile(world)
 
@@ -326,7 +323,7 @@ def _deliverable_count(journal: EventJournal) -> int:
     )
 
 
-def _estimate_render(client: LLMClient, config: RunConfig, num_artifacts: int) -> RenderEstimate:
+def _estimate_render(client: LLMClient, config: WorldConfig, num_artifacts: int) -> RenderEstimate:
     """Price the render up front and trip the ceiling before any call (D13)."""
     scale = config.scale
     estimated = client.dry_run_estimate(

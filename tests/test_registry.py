@@ -202,7 +202,8 @@ def test_discover_handles_populated_package() -> None:
     assert all(isinstance(module_name, str) for module_name in found)
 
 
-def test_discover_all_covers_four_kinds() -> None:
+def test_discover_all_covers_producers_and_templates() -> None:
+    # Archetypes/playbooks/processes are all templates now (``templates/``).
     found = discover_all()
-    assert set(found) == {"archetype", "playbook", "process", "producer"}
+    assert set(found) == {"producer", "templates"}
     assert all(isinstance(modules, list) for modules in found.values())

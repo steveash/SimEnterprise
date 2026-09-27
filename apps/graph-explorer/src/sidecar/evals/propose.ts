@@ -86,7 +86,7 @@ function previewToolResult(content: unknown): string {
 export async function runPropose(
   engines: ChatEngines,
   opts: {
-    runPath: string
+    worldPath: string
     prompt: string
     model?: string
     resume?: string | null
@@ -94,7 +94,7 @@ export async function runPropose(
     onEvent: (e: ProposeStreamEvent) => void
   }
 ): Promise<void> {
-  const seen = new Set(readQuestions(opts.runPath).map((q) => normalize(q.question)))
+  const seen = new Set(readQuestions(opts.worldPath).map((q) => normalize(q.question)))
 
   const graphServer = buildMcpServer({
     index: engines.index,

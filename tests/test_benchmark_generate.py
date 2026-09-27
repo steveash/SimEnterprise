@@ -26,7 +26,7 @@ from enterprise_sim.benchmark.generate import (
     build_benchmark,
     generate,
     load_groundings,
-    load_world_from_run,
+    load_world_kg,
 )
 from enterprise_sim.benchmark.schema import Benchmark, QAPair
 from enterprise_sim.cli import main
@@ -41,7 +41,7 @@ def gold() -> tuple[World, dict[str, list[str]]]:
     with tempfile.TemporaryDirectory(prefix="esim-bench-test-") as tmp:
         result = golden_run(tmp)
         world = result.world
-        groundings = load_groundings(result.run_dir, world)
+        groundings = load_groundings(result.world_dir, world)
         return world, groundings
 
 
@@ -172,16 +172,16 @@ def test_goal_tree_present(benchmark: Benchmark) -> None:
 # -- loaders ----------------------------------------------------------------
 
 
-def test_load_world_from_run_matches_in_memory_world(tmp_path: Path) -> None:
+def test_load_world_kg_matches_in_memory_world(tmp_path: Path) -> None:
     result = golden_run(tmp_path / "out")
-    reloaded = load_world_from_run(result.run_dir)
+    reloaded = load_world_kg(result.world_dir)
     assert reloaded.node_count == result.world.node_count
     assert reloaded.edge_count == result.world.edge_count
 
 
-def test_generate_from_run_dir_equals_fresh_run(tmp_path: Path) -> None:
+def test_generate_from_world_dir_equals_fresh_run(tmp_path: Path) -> None:
     result = golden_run(tmp_path / "out")
-    from_dir = generate(result.run_dir).to_jsonl()
+    from_dir = generate(result.world_dir).to_jsonl()
     fresh = generate().to_jsonl()
     assert from_dir == fresh
 
@@ -198,10 +198,10 @@ def test_cli_generate_writes_jsonl_file(tmp_path: Path, capsys: Any) -> None:
     assert "reasoning types" in err
 
 
-def test_cli_generate_from_run_dir(tmp_path: Path) -> None:
+def test_cli_generate_from_world_dir(tmp_path: Path) -> None:
     result = golden_run(tmp_path / "out")
     out = tmp_path / "bench.jsonl"
-    assert main(["bench", "generate", "--run", str(result.run_dir), "-o", str(out)]) == 0
+    assert main(["bench", "generate", "--world", str(result.world_dir), "-o", str(out)]) == 0
     assert Benchmark.read_jsonl(out).to_jsonl() == generate().to_jsonl()
 
 

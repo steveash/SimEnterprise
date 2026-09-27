@@ -18,19 +18,20 @@ const TABS: { id: EvalsTab; label: string }[] = [
 ]
 
 export function EvalsView(): JSX.Element {
-  const runPath = useStore((s) => s.runPath)
+  const worldPath = useStore((s) => s.worldPath)
   const hasQuestionSet = useEvalsStore((s) => s.hasQuestionSet)
   const loading = useEvalsStore((s) => s.loadingQuestions)
   const loadError = useEvalsStore((s) => s.loadError)
   const loadQuestions = useEvalsStore((s) => s.loadQuestions)
   const generateQuestions = useEvalsStore((s) => s.generateQuestions)
+  const [aiCritic, setAiCritic] = useState(false)
   const [tab, setTab] = useState<EvalsTab>('questions')
 
   useEffect(() => {
-    if (runPath) void loadQuestions(runPath)
-  }, [runPath, loadQuestions])
+    if (worldPath) void loadQuestions(worldPath)
+  }, [worldPath, loadQuestions])
 
-  if (!runPath) {
+  if (!worldPath) {
     return (
       <div className="view view-evals">
         <div className="view-empty">
@@ -47,10 +48,16 @@ export function EvalsView(): JSX.Element {
         <div className="view-empty">
           <div className="view-empty-title">No eval question set yet</div>
           <div className="muted" style={{ marginBottom: 12 }}>
-            This run has no <span className="mono">evals/questions.jsonl</span>. Derive one from its gold KG.
+            This world has no <span className="mono">evals/questions.jsonl</span>. Derive one from its gold KG — every
+            question's expected answer is then reviewed by a critic and given a confidence score you can check and
+            correct.
           </div>
           {loadError && <div className="msg-error small">⚠ {loadError}</div>}
-          <button className="btn primary" onClick={() => void generateQuestions(runPath)}>
+          <label className="small" style={{ display: 'block', marginBottom: 10 }}>
+            <input type="checkbox" checked={aiCritic} onChange={(e) => setAiCritic(e.target.checked)} /> also review the
+            answers with the AI critic (uses your Claude login; slower)
+          </label>
+          <button className="btn primary" onClick={() => void generateQuestions(worldPath, aiCritic ? 'llm' : 'structural')}>
             Generate question set
           </button>
         </div>

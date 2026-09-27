@@ -200,11 +200,11 @@ def test_sweep_report_markdown_has_a_row_per_threshold() -> None:
 # --------------------------------------------------------------------------- #
 
 
-def _golden_run_dir(root: Path) -> str:
+def _golden_world_dir(root: Path) -> str:
     """A full golden run (corpus artifacts + gold ``kg/``) the sweep can point ``--run`` at."""
     from enterprise_sim.benchmark.fixtures import golden_run
 
-    return str(golden_run(root).run_dir)
+    return str(golden_run(root).world_dir)
 
 
 def test_sweep_keyless_over_golden_run() -> None:
@@ -215,7 +215,7 @@ def test_sweep_keyless_over_golden_run() -> None:
 
     with tempfile.TemporaryDirectory(prefix="esim-sweep-test-") as tmp:
         run = golden_run(tmp)
-        extraction = extract_once(str(run.run_dir), build_client(LLMConfig(backend="fake")))
+        extraction = extract_once(str(run.world_dir), build_client(LLMConfig(backend="fake")))
         # Fake confidences clamp to [0, 1]; a threshold above 1.0 gates every edge away.
         report = sweep_thresholds(extraction, run.world, [0.0, 0.5, 1.0, 1.1])
 
@@ -262,14 +262,14 @@ def test_sweep_cli_rejects_bad_thresholds() -> None:
 
 
 def test_sweep_cli_writes_markdown_table(tmp_path: Path, capsys: Any) -> None:
-    run_dir = _golden_run_dir(tmp_path / "run")
+    world_dir = _golden_world_dir(tmp_path / "run")
     out = tmp_path / "sweep.md"
     rc = main(
         [
             "reconstruct",
             "sweep",
-            "--run",
-            run_dir,
+            "--world",
+            world_dir,
             "--thresholds",
             "0,0.5,1.1",
             "-o",
@@ -286,8 +286,8 @@ def test_sweep_cli_writes_markdown_table(tmp_path: Path, capsys: Any) -> None:
 
 
 def test_sweep_cli_json_to_stdout(tmp_path: Path, capsys: Any) -> None:
-    run_dir = _golden_run_dir(tmp_path / "run")
-    rc = main(["reconstruct", "sweep", "--run", run_dir, "--thresholds", "0,1.1", "--json"])
+    world_dir = _golden_world_dir(tmp_path / "run")
+    rc = main(["reconstruct", "sweep", "--world", world_dir, "--thresholds", "0,1.1", "--json"])
     assert rc == 0
     data = json.loads(capsys.readouterr().out)
     assert [p["threshold"] for p in data["points"]] == [0.0, 1.1]

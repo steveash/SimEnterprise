@@ -45,7 +45,7 @@ from email import message_from_bytes
 from pathlib import Path
 from xml.sax.saxutils import unescape
 
-from enterprise_sim.benchmark.generate import load_world_from_run
+from enterprise_sim.benchmark.generate import load_world_kg
 from enterprise_sim.benchmark.schema import Benchmark, QAPair
 from enterprise_sim.benchmark.score import Prediction, Predictions
 from enterprise_sim.core.llm import LLMClient, assemble_prompt
@@ -222,17 +222,17 @@ def _chunk_text(text: str, target_words: int) -> Iterator[str]:
         yield "\n\n".join(current)
 
 
-def load_corpus(run_dir: str | Path, world: World, *, target_words: int = 150) -> list[Chunk]:
+def load_corpus(world_dir: str | Path, world: World, *, target_words: int = 150) -> list[Chunk]:
     """Read every artifact in ``world`` back to text and split it into :class:`Chunk`\\ s.
 
     Iterates the gold ``Artifact`` nodes in id order (so the corpus is
     deterministic), resolves each node's ``path`` prop to its on-disk file under
-    ``run_dir``, extracts the file's text by medium (:func:`extract_text`), and
+    ``world_dir``, extracts the file's text by medium (:func:`extract_text`), and
     packs it into ~``target_words``-word chunks. Each chunk carries its source
     artifact's node id, so a retrieved passage maps straight back to a KG id.
     Artifacts with no ``path`` prop or no file on disk are skipped.
     """
-    base = Path(run_dir)
+    base = Path(world_dir)
     chunks: list[Chunk] = []
     for node in world.nodes_by_type("Artifact"):
         rel_path = node.props.get("path")
@@ -367,9 +367,9 @@ class AliasResolver:
         return cls(by_surface=by_surface, _matcher=_build_matcher(by_surface))
 
     @classmethod
-    def from_run(cls, run_dir: str | Path) -> AliasResolver:
+    def from_run(cls, world_dir: str | Path) -> AliasResolver:
         """Build from a run's ``aliases.jsonl`` and ``mentions.jsonl`` answer key."""
-        kg = Path(run_dir) / "kg"
+        kg = Path(world_dir) / "kg"
         mapping: dict[str, set[str]] = defaultdict(set)
 
         for record in _read_jsonl(kg / "aliases.jsonl"):
@@ -476,22 +476,22 @@ class RagRunner:
         return Predictions.of(self.answer(pair, client, model=model) for pair in benchmark)
 
 
-def build_runner(run_dir: str | Path, world: World | None = None, *, top_k: int = 5) -> RagRunner:
-    """Wire a :class:`RagRunner` for ``run_dir``: index the corpus + load the resolver.
+def build_runner(world_dir: str | Path, world: World | None = None, *, top_k: int = 5) -> RagRunner:
+    """Wire a :class:`RagRunner` for ``world_dir``: index the corpus + load the resolver.
 
     Reconstructs the gold :class:`~enterprise_sim.core.world.World` from the run
     (unless one is supplied), reads and indexes the artifact corpus, and builds the
     surface-form resolver from the run's answer key — the whole keyless half of the
     pipeline, ready to answer questions once given a client.
     """
-    world = world if world is not None else load_world_from_run(run_dir)
-    index = BM25Index.build(load_corpus(run_dir, world))
-    resolver = AliasResolver.from_run(run_dir)
+    world = world if world is not None else load_world_kg(world_dir)
+    index = BM25Index.build(load_corpus(world_dir, world))
+    resolver = AliasResolver.from_run(world_dir)
     return RagRunner(index=index, resolver=resolver, top_k=top_k)
 
 
 def run_rag(
-    run_dir: str | Path,
+    world_dir: str | Path,
     benchmark: Benchmark,
     client: LLMClient,
     *,
@@ -499,12 +499,12 @@ def run_rag(
     model: str | None = None,
     world: World | None = None,
 ) -> Predictions:
-    """End-to-end RAG baseline: build the runner for ``run_dir`` and answer ``benchmark``.
+    """End-to-end RAG baseline: build the runner for ``world_dir`` and answer ``benchmark``.
 
     The convenience entry point the CLI drives — equivalent to
     :func:`build_runner` followed by :meth:`RagRunner.run`. Requires a working
     ``client`` for the retrieval-augmented answer step (gated on a key for the
     ``anthropic_api`` backend); indexing and id-resolution need none.
     """
-    runner = build_runner(run_dir, world=world, top_k=top_k)
+    runner = build_runner(world_dir, world=world, top_k=top_k)
     return runner.run(benchmark, client, model=model)

@@ -21,7 +21,7 @@ import tempfile
 from pathlib import Path
 
 from enterprise_sim.assembly import RunResult, execute_run
-from enterprise_sim.core.config import RunConfig, load_config
+from enterprise_sim.core.config import WorldConfig, load_config
 from enterprise_sim.core.world import World
 
 # The committed golden config — the documented v1 vertical slice (PLAN.md §4).
@@ -29,26 +29,26 @@ from enterprise_sim.core.world import World
 GOLDEN_CONFIG: Path = Path(__file__).resolve().parents[2] / "examples" / "golden.toml"
 
 
-def golden_config(output_dir: str | Path) -> RunConfig:
-    """Load the committed golden config, redirected to ``output_dir``.
+def golden_config(worlds_root: str | Path) -> WorldConfig:
+    """Load the committed golden config, redirected to ``worlds_root``.
 
     Mirrors ``tests/test_golden_run.py``: the on-disk config is loaded unchanged
-    except for its ``output_dir``, so the run lands wherever the caller wants
+    except for its ``worlds_root``, so the run lands wherever the caller wants
     (typically a temporary directory).
     """
     config = load_config(GOLDEN_CONFIG)
-    return config.model_copy(update={"output_dir": Path(output_dir)})
+    return config.model_copy(update={"worlds_root": Path(worlds_root)})
 
 
-def golden_run(output_dir: str | Path) -> RunResult:
-    """Execute the golden run into ``output_dir`` and return its :class:`RunResult`.
+def golden_run(worlds_root: str | Path) -> RunResult:
+    """Execute the golden run into ``worlds_root`` and return its :class:`RunResult`.
 
     The run uses the default deterministic ``fake`` LLM backend (no network, no
-    cost) so the result is reproducible. The caller owns ``output_dir`` and its
+    cost) so the result is reproducible. The caller owns ``worlds_root`` and its
     lifetime; use :func:`load_gold_world` when only the in-memory gold KG is
     needed and the run directory can be discarded.
     """
-    return execute_run(golden_config(output_dir))
+    return execute_run(golden_config(worlds_root))
 
 
 def load_gold_world() -> World:

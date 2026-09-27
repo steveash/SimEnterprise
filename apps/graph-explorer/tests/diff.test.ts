@@ -13,10 +13,10 @@ function node(id: string, type: string, label: string): KGNode {
 function edge(id: string, type: string, src: string, dst: string): KGEdge {
   return { id, type, src, dst, created_at: '2026-01-01T00:00:00', props: {} }
 }
-function model(runId: string, nodes: KGNode[], edges: KGEdge[]): GraphModel {
+function model(worldId: string, nodes: KGNode[], edges: KGEdge[]): GraphModel {
   return {
-    runId,
-    runPath: `/runs/${runId}`,
+    worldId,
+    worldPath: `/runs/${worldId}`,
     nodes,
     edges,
     mentions: [],

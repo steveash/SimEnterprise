@@ -32,7 +32,7 @@ from enterprise_sim.assembly.validation import (
     OUT_OF_WINDOW,
     SCHEDULING_CONFLICT,
 )
-from enterprise_sim.core.config import RunConfig, load_config
+from enterprise_sim.core.config import WorldConfig, load_config
 
 # The consistency checks whose findings would mean the gold KG is *not* a trustworthy
 # answer key. Soft grounding findings (e.g. ``unresolved_mention``) are expected and
@@ -49,10 +49,10 @@ _HARD_ISSUE_KINDS = frozenset(
 _GOLDEN_CONFIG = Path(__file__).resolve().parents[1] / "examples" / "golden.toml"
 
 
-def _golden_config(output_dir: Path) -> RunConfig:
-    """Load the committed golden config, redirected to ``output_dir``."""
+def _golden_config(worlds_root: Path) -> WorldConfig:
+    """Load the committed golden config, redirected to ``worlds_root``."""
     config = load_config(_GOLDEN_CONFIG)
-    return config.model_copy(update={"output_dir": output_dir})
+    return config.model_copy(update={"worlds_root": worlds_root})
 
 
 def _read_jsonl(path: Path) -> list[dict[str, Any]]:
@@ -72,7 +72,7 @@ def test_golden_config_loads_and_is_tiny() -> None:
 
 def test_golden_run_has_the_documented_shape(tmp_path: Path) -> None:
     result = execute_run(_golden_config(tmp_path))
-    nodes = _read_jsonl(result.run_dir / "kg" / "nodes.jsonl")
+    nodes = _read_jsonl(result.world_dir / "kg" / "nodes.jsonl")
 
     departments = [n for n in nodes if n["type"] == "Department"]
     scenarios = [
@@ -86,24 +86,24 @@ def test_golden_run_has_the_documented_shape(tmp_path: Path) -> None:
     assert len(people) >= 3
 
     # A one-week window and a non-empty corpus + journal.
-    assert result.manifest.window == {"start": "2026-01-05", "end": "2026-01-09"}
+    assert result.world_file.window == {"start": "2026-01-05", "end": "2026-01-09"}
     assert result.corpus.artifacts
     assert result.corpus.journal
     # The corpus is mixed: markdown by default, .docx for the word-bound document kinds.
-    art_files = [p for p in (result.run_dir / "artifacts").rglob("*") if p.is_file()]
+    art_files = [p for p in (result.world_dir / "artifacts").rglob("*") if p.is_file()]
     assert len(art_files) == len(result.corpus.artifacts)
 
 
 def test_golden_kg_validates_as_the_answer_key(tmp_path: Path) -> None:
     result = execute_run(_golden_config(tmp_path))
-    run_dir = result.run_dir
+    world_dir = result.world_dir
 
-    node_ids = {n["id"] for n in _read_jsonl(run_dir / "kg" / "nodes.jsonl")}
-    edge_ids = {e["id"] for e in _read_jsonl(run_dir / "kg" / "edges.jsonl")}
+    node_ids = {n["id"] for n in _read_jsonl(world_dir / "kg" / "nodes.jsonl")}
+    edge_ids = {e["id"] for e in _read_jsonl(world_dir / "kg" / "edges.jsonl")}
     targetable = node_ids | edge_ids
     corpus_paths = {a.path for a in result.corpus.artifacts}
 
-    issues = _read_jsonl(run_dir / "validation" / "issues.jsonl")
+    issues = _read_jsonl(world_dir / "validation" / "issues.jsonl")
 
     # (1) No *hard* inconsistency: the answer key is internally sound. Any soft
     #     grounding finding is allowed but must be report-and-continue (D17/D30).
@@ -114,26 +114,26 @@ def test_golden_kg_validates_as_the_answer_key(tmp_path: Path) -> None:
     by_kind: dict[str, int] = {}
     for row in issues:
         by_kind[str(row["kind"])] = by_kind.get(str(row["kind"]), 0) + 1
-    assert result.manifest.validation["total"] == len(issues)
-    assert result.manifest.validation["by_kind"] == {k: by_kind[k] for k in sorted(by_kind)}
+    assert result.world_file.validation["total"] == len(issues)
+    assert result.world_file.validation["by_kind"] == {k: by_kind[k] for k in sorted(by_kind)}
 
     # (3) Every provenance edge targets a real node/edge and cites real artifacts;
     #     provenance covers both nodes and edges (not just entities).
-    provenance = _read_jsonl(run_dir / "kg" / "provenance.jsonl")
+    provenance = _read_jsonl(world_dir / "kg" / "provenance.jsonl")
     assert provenance, "expected a populated provenance.jsonl"
     for row in provenance:
         assert row["target_id"] in targetable, f"dangling provenance {row['target_id']}"
         assert row["artifacts"], "provenance with no supporting artifact"
         for art in row["artifacts"]:
             assert art["path"] in corpus_paths
-            assert (run_dir / art["path"]).is_file()
+            assert (world_dir / art["path"]).is_file()
     prov_targets = {row["target_id"] for row in provenance}
     assert prov_targets & node_ids, "expected node-targeted provenance"
     assert prov_targets & edge_ids, "expected edge-targeted provenance"
 
     # (4) Every mention's locator slices the rendered file to exactly its surface
     #     form, on the line it claims, and resolves to a real entity (D20).
-    mentions = _read_jsonl(run_dir / "kg" / "mentions.jsonl")
+    mentions = _read_jsonl(world_dir / "kg" / "mentions.jsonl")
     assert mentions, "expected a populated mentions.jsonl"
     # For a binary artifact (.docx) the rendered *text* is the producer's plain-text
     # projection (``artifact.body``) the tagger ran over, not the on-disk bytes.
@@ -153,7 +153,7 @@ def test_golden_kg_exports_every_canonical_artifact(tmp_path: Path) -> None:
     # The answer key is emitted in full: the canonical JSONL set, the schema +
     # whole-graph snapshot, and the Neo4j/Cypher adapter (§11.4-11.5, D19).
     result = execute_run(_golden_config(tmp_path))
-    kg = result.run_dir / "kg"
+    kg = result.world_dir / "kg"
     for name in (
         "nodes.jsonl",
         "edges.jsonl",
@@ -173,22 +173,22 @@ def test_golden_run_reproduces_byte_for_byte(tmp_path: Path) -> None:
     a = execute_run(_golden_config(tmp_path / "a"))
     b = execute_run(_golden_config(tmp_path / "b"))
 
-    def blob(run_dir: Path) -> dict[str, bytes]:
+    def blob(world_dir: Path) -> dict[str, bytes]:
         out: dict[str, bytes] = {}
         for sub in ("artifacts", "kg", "validation", "organization"):
-            for path in sorted((run_dir / sub).rglob("*")):
+            for path in sorted((world_dir / sub).rglob("*")):
                 if path.is_file():
                     # Read bytes so binary (.docx) artifacts compare byte-for-byte too.
-                    out[str(path.relative_to(run_dir))] = path.read_bytes()
+                    out[str(path.relative_to(world_dir))] = path.read_bytes()
         return out
 
-    assert a.run_id == b.run_id
-    assert blob(a.run_dir) == blob(b.run_dir)
+    assert a.world_id == b.world_id
+    assert blob(a.world_dir) == blob(b.world_dir)
 
 
-@pytest.mark.parametrize("expected_run_id", ["golden-slice-co-5b1e84522235"])
-def test_golden_run_id_is_pinned(tmp_path: Path, expected_run_id: str) -> None:
+@pytest.mark.parametrize("expected_world_id", ["golden-slice-co-5b1e84522235"])
+def test_golden_world_id_is_pinned(tmp_path: Path, expected_world_id: str) -> None:
     # The run id is a pure function of (config, seed); pinning it makes an
     # accidental change to the golden config a loud, reviewable test failure.
     result = execute_run(_golden_config(tmp_path))
-    assert result.run_id == expected_run_id
+    assert result.world_id == expected_world_id

@@ -49,7 +49,7 @@ describe.skipIf(!liveEnabled)('live propose chat (gated on ANTHROPIC_API_KEY)', 
       await runPropose(
         { index, kuzu, oxigraph },
         {
-          runPath: model.runPath,
+          worldPath: model.worldPath,
           prompt: 'Propose 2 direct_relation questions about who reports to whom.',
           model: 'haiku',
           onEvent: (e) => events.push(e)

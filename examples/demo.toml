@@ -2,7 +2,7 @@
 # Load + validate with `enterprise_sim.core.config.load_config("examples/demo.toml")`.
 
 seed = 42
-output_dir = "runs/demo"
+worlds_root = "worlds"
 
 [company]
 name = "Northwind Tools"
@@ -14,7 +14,7 @@ description = "A B2B SaaS company building developer productivity tooling."
 period_start = 2026-01-01
 period_end = 2026-01-31
 
-# `enterprise-sim run` only honors this backend when passed `--live`; by default
+# `enterprise-sim world create` only honors this backend when passed `--live`; by default
 # it renders on the deterministic `fake` backend and this block is inert.
 [model]
 backend = "anthropic_api"

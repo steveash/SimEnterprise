@@ -6,7 +6,10 @@ import { create } from 'zustand'
 import { useStore } from './store.js'
 import type {
   Aggregate,
+  CriticMode,
   EvalExecutionMeta,
+  EvalResultDetail,
+  EvalTrace,
   EvalRunner,
   EvalSelection,
   EvalStreamEvent,
@@ -18,7 +21,7 @@ import type {
   TraceEntry
 } from '../shared/evals-protocol.js'
 
-export type GroupBy = 'reasoning_type' | 'qtype' | 'difficulty' | 'source' | 'tag'
+export type GroupBy = 'confidence' | 'reasoning_type' | 'qtype' | 'difficulty' | 'source' | 'tag'
 
 export interface ProposeMessage {
   id: string
@@ -73,6 +76,19 @@ interface EvalsState {
   loadingResults: boolean
   selectedResultId: string | null
 
+  /** evalsReadResult per execution (items, labels, which questions have a transcript). */
+  resultDetails: Record<string, EvalResultDetail>
+  /** Persisted transcripts, keyed `<eval-id>/<qa-id>`; null = none recorded; 'loading' while fetching. */
+  traces: Record<string, EvalTrace | null | 'loading'>
+  /** The question drilled into on the Executions tab. */
+  selectedExecItem: string | null
+
+  // critic / human verification (#8)
+  critiquing: boolean
+  critiqueError: string | null
+  verifying: boolean
+  verifyError: string | null
+
   /** Per-question live trace + final engine/query from the most recent single-question run (§3/§5). */
   liveTraces: Record<string, { engine?: string; query?: string; trace: TraceEntry[] }>
 
@@ -85,8 +101,8 @@ interface EvalsState {
   addingToSet: boolean
 
   // actions
-  loadQuestions: (runPath: string) => Promise<void>
-  generateQuestions: (runPath: string) => Promise<void>
+  loadQuestions: (worldPath: string) => Promise<void>
+  generateQuestions: (worldPath: string, critic?: CriticMode, force?: boolean) => Promise<void>
   setSearch: (s: string) => void
   setGroupBy: (g: GroupBy) => void
   toggleSelected: (id: string) => void
@@ -101,20 +117,25 @@ interface EvalsState {
   setSampleFraction: (f: number) => void
   setSampleSeed: (s: number) => void
   setSampleStratify: (b: boolean) => void
-  runQuestions: (runPath: string, selection: EvalSelection) => void
+  runQuestions: (worldPath: string, selection: EvalSelection) => void
   cancelRun: () => void
 
-  loadResults: (runPath: string) => Promise<void>
+  loadResults: (worldPath: string) => Promise<void>
+  loadResultDetail: (worldPath: string, evalId: string, force?: boolean) => Promise<EvalResultDetail | null>
+  loadTrace: (worldPath: string, evalId: string, qaId: string, force?: boolean) => Promise<void>
+  selectExecItem: (qaId: string | null) => void
+  critiqueQuestions: (worldPath: string, critic: CriticMode) => Promise<void>
+  verifyQuestion: (worldPath: string, id: string, expectedIds?: string[], label?: string | null) => Promise<boolean>
   selectResult: (id: string | null) => void
   latestScoreFor: (qaId: string) => ItemScore | null
 
   setProposeModel: (m: string) => void
-  sendPropose: (runPath: string, text: string) => void
+  sendPropose: (worldPath: string, text: string) => void
   cancelPropose: () => void
   toggleReviewChecked: (key: string) => void
   clearReview: () => void
-  addCheckedToSet: (runPath: string) => Promise<void>
-  removeQuestions: (runPath: string, ids: string[]) => Promise<void>
+  addCheckedToSet: (worldPath: string) => Promise<void>
+  removeQuestions: (worldPath: string, ids: string[]) => Promise<void>
 }
 
 function emptyCounts(): QuestionCounts {
@@ -132,7 +153,7 @@ export const useEvalsStore = create<EvalsState>((set, get) => ({
   hasQuestionSet: false,
   loadError: null,
   search: '',
-  groupBy: 'reasoning_type',
+  groupBy: 'confidence',
   selected: new Set(),
   detailId: null,
 
@@ -150,6 +171,13 @@ export const useEvalsStore = create<EvalsState>((set, get) => ({
   loadingResults: false,
   selectedResultId: null,
   liveTraces: {},
+  resultDetails: {},
+  traces: {},
+  selectedExecItem: null,
+  critiquing: false,
+  critiqueError: null,
+  verifying: false,
+  verifyError: null,
 
   proposeChat: [],
   proposeActive: null,
@@ -158,7 +186,7 @@ export const useEvalsStore = create<EvalsState>((set, get) => ({
   reviewList: [],
   addingToSet: false,
 
-  loadQuestions: async (runPath) => {
+  loadQuestions: async (worldPath) => {
     const rpc = useStore.getState().rpc
     if (!rpc) return
     set({ loadingQuestions: true, loadError: null })
@@ -167,7 +195,7 @@ export const useEvalsStore = create<EvalsState>((set, get) => ({
         questions: QAPair[]
         counts: QuestionCounts
         expected_labels: Record<string, string>
-      }>('evalsList', { runPath })
+      }>('evalsList', { worldPath })
       set({
         questions: res.questions,
         counts: res.counts ?? emptyCounts(),
@@ -180,13 +208,13 @@ export const useEvalsStore = create<EvalsState>((set, get) => ({
     }
   },
 
-  generateQuestions: async (runPath) => {
+  generateQuestions: async (worldPath, critic = 'structural', force = false) => {
     const rpc = useStore.getState().rpc
     if (!rpc) return
     set({ loadingQuestions: true, loadError: null })
     try {
-      await rpc.call('evalsGenerate', { runPath })
-      await get().loadQuestions(runPath)
+      await rpc.call('evalsGenerate', { worldPath, critic, force })
+      await get().loadQuestions(worldPath)
     } catch (e) {
       set({ loadingQuestions: false, loadError: (e as Error).message })
     }
@@ -218,7 +246,7 @@ export const useEvalsStore = create<EvalsState>((set, get) => ({
   setSampleSeed: (s) => set({ sampleSeed: Math.round(s) }),
   setSampleStratify: (b) => set({ sampleStratify: b }),
 
-  runQuestions: (runPath, selection) => {
+  runQuestions: (worldPath, selection) => {
     const rpc = useStore.getState().rpc
     if (!rpc) return
     const { runner, model, concurrency } = get()
@@ -226,7 +254,7 @@ export const useEvalsStore = create<EvalsState>((set, get) => ({
     set({ runProgress: null, runError: null })
     const handle = rpc.stream<EvalStreamEvent, EvalExecutionMeta>(
       'evalsRun',
-      { runPath, selection, runner, model, concurrency },
+      { worldPath, selection, runner, model, concurrency },
       (e) => {
         switch (e.kind) {
           case 'progress':
@@ -253,7 +281,12 @@ export const useEvalsStore = create<EvalsState>((set, get) => ({
             set({ runError: e.message })
             break
           case 'done':
-            void get().loadResults(runPath)
+            void get().loadResults(worldPath)
+            // A finished run changes its own detail + transcripts: drop any cached copy.
+            set((st) => ({
+              resultDetails: Object.fromEntries(Object.entries(st.resultDetails).filter(([, d]) => d.meta.status !== 'running')),
+              traces: Object.fromEntries(Object.entries(st.traces).filter(([, t]) => t !== null))
+            }))
             break
           default:
             break
@@ -266,7 +299,7 @@ export const useEvalsStore = create<EvalsState>((set, get) => ({
       .catch((e: Error) => set({ runError: e.message }))
       .finally(() => {
         set({ activeRun: null })
-        void get().loadResults(runPath)
+        void get().loadResults(worldPath)
       })
   },
 
@@ -274,19 +307,81 @@ export const useEvalsStore = create<EvalsState>((set, get) => ({
     get().activeRun?.cancel()
   },
 
-  loadResults: async (runPath) => {
+  loadResults: async (worldPath) => {
     const rpc = useStore.getState().rpc
     if (!rpc) return
     set({ loadingResults: true })
     try {
-      const results = await rpc.call<EvalExecutionMeta[]>('evalsListResults', { runPath })
+      const results = await rpc.call<EvalExecutionMeta[]>('evalsListResults', { worldPath })
       set({ results, loadingResults: false })
     } catch {
       set({ loadingResults: false })
     }
   },
 
-  selectResult: (id) => set({ selectedResultId: id }),
+  selectResult: (id) => set({ selectedResultId: id, selectedExecItem: null }),
+
+  loadResultDetail: async (worldPath, evalId, force = false) => {
+    const rpc = useStore.getState().rpc
+    if (!rpc) return null
+    const cached = get().resultDetails[evalId]
+    if (cached && !force && cached.meta.status !== 'running') return cached
+    try {
+      const detail = await rpc.call<EvalResultDetail>('evalsReadResult', { worldPath, evalId })
+      set((st) => ({ resultDetails: { ...st.resultDetails, [evalId]: detail } }))
+      return detail
+    } catch {
+      return null
+    }
+  },
+
+  loadTrace: async (worldPath, evalId, qaId, force = false) => {
+    const rpc = useStore.getState().rpc
+    if (!rpc) return
+    const key = `${evalId}/${qaId}`
+    const cached = get().traces[key]
+    if (cached !== undefined && cached !== 'loading' && !force) return
+    if (cached === 'loading') return
+    set((st) => ({ traces: { ...st.traces, [key]: 'loading' } }))
+    try {
+      const trace = await rpc.call<EvalTrace | null>('evalsReadTrace', { worldPath, evalId, qaId })
+      set((st) => ({ traces: { ...st.traces, [key]: trace } }))
+    } catch {
+      set((st) => ({ traces: { ...st.traces, [key]: null } }))
+    }
+  },
+
+  selectExecItem: (qaId) => set({ selectedExecItem: qaId }),
+
+  critiqueQuestions: async (worldPath, critic) => {
+    const rpc = useStore.getState().rpc
+    if (!rpc) return
+    set({ critiquing: true, critiqueError: null })
+    try {
+      await rpc.call('evalsCritique', { worldPath, critic })
+      await get().loadQuestions(worldPath)
+    } catch (e) {
+      set({ critiqueError: (e as Error).message })
+    } finally {
+      set({ critiquing: false })
+    }
+  },
+
+  verifyQuestion: async (worldPath, id, expectedIds, label) => {
+    const rpc = useStore.getState().rpc
+    if (!rpc) return false
+    set({ verifying: true, verifyError: null })
+    try {
+      await rpc.call('evalsVerify', { worldPath, id, expectedIds, label })
+      await get().loadQuestions(worldPath)
+      return true
+    } catch (e) {
+      set({ verifyError: (e as Error).message })
+      return false
+    } finally {
+      set({ verifying: false })
+    }
+  },
 
   latestScoreFor: (qaId) => {
     for (const r of get().results) {
@@ -299,7 +394,7 @@ export const useEvalsStore = create<EvalsState>((set, get) => ({
 
   setProposeModel: (m) => set({ proposeModel: m }),
 
-  sendPropose: (runPath, text) => {
+  sendPropose: (worldPath, text) => {
     const rpc = useStore.getState().rpc
     if (!rpc || !text.trim()) return
     const { proposeChat, proposeModel, proposeConversationId } = get()
@@ -313,7 +408,7 @@ export const useEvalsStore = create<EvalsState>((set, get) => ({
 
     const handle = rpc.stream<ProposeStreamEvent, { finished: boolean }>(
       'evalsPropose',
-      { runPath, prompt: text, model: proposeModel, conversationId: proposeConversationId },
+      { worldPath, prompt: text, model: proposeModel, conversationId: proposeConversationId },
       (e) => {
         switch (e.kind) {
           case 'text':
@@ -355,26 +450,26 @@ export const useEvalsStore = create<EvalsState>((set, get) => ({
 
   clearReview: () => set({ reviewList: [] }),
 
-  addCheckedToSet: async (runPath) => {
+  addCheckedToSet: async (worldPath) => {
     const rpc = useStore.getState().rpc
     if (!rpc) return
     const chosen = get().reviewList.filter((r) => r.checked && r.valid)
     if (chosen.length === 0) return
     set({ addingToSet: true })
     try {
-      await rpc.call('evalsAdd', { runPath, proposals: chosen.map((r) => r.proposal) })
+      await rpc.call('evalsAdd', { worldPath, proposals: chosen.map((r) => r.proposal) })
       set({ reviewList: get().reviewList.filter((r) => !chosen.includes(r)) })
-      await get().loadQuestions(runPath)
+      await get().loadQuestions(worldPath)
     } finally {
       set({ addingToSet: false })
     }
   },
 
-  removeQuestions: async (runPath, ids) => {
+  removeQuestions: async (worldPath, ids) => {
     const rpc = useStore.getState().rpc
     if (!rpc || ids.length === 0) return
-    await rpc.call('evalsRemove', { runPath, ids })
-    await get().loadQuestions(runPath)
+    await rpc.call('evalsRemove', { worldPath, ids })
+    await get().loadQuestions(worldPath)
     set({ selected: new Set() })
   }
 }))

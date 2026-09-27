@@ -8,18 +8,18 @@ import threading
 from pathlib import Path
 
 from enterprise_sim.assembly import execute_run
-from enterprise_sim.core.config import RunConfig, load_config_from_mapping
+from enterprise_sim.core.config import WorldConfig, load_config_from_mapping
 from enterprise_sim.jobs.progress import JsonlSink, NullSink, ProgressEvent
 from enterprise_sim.world_builders import build_world
 
 
-def _config(output_dir: Path, *, seed: int = 7) -> RunConfig:
+def _config(worlds_root: Path, *, seed: int = 7) -> WorldConfig:
     return load_config_from_mapping(
         {
             "company": {"name": "Acme Corp", "vertical": "software", "size": "small"},
             "simulation": {"period_start": "2026-01-01", "period_end": "2026-01-31"},
             "seed": seed,
-            "output_dir": str(output_dir),
+            "worlds_root": str(worlds_root),
         }
     )
 
@@ -42,7 +42,7 @@ class _ListSink:
 def test_default_progress_is_none_and_run_is_unaffected(tmp_path: Path) -> None:
     # Passing nothing keeps execute_run's byte-identical contract (no progress hook).
     result = execute_run(_config(tmp_path))
-    assert result.run_dir.is_dir()
+    assert result.world_dir.is_dir()
 
 
 def test_execute_run_emits_the_documented_event_kinds(tmp_path: Path) -> None:
@@ -117,8 +117,8 @@ def test_done_event_matches_the_result(tmp_path: Path) -> None:
     done_events = sink.of_kind("done")
     assert done_events  # execute_run always emits exactly one "done".
     done = done_events[-1]
-    assert done.data["run_id"] == result.run_id
-    assert done.data["run_dir"] == str(result.run_dir)
+    assert done.data["world_id"] == result.world_id
+    assert done.data["world_dir"] == str(result.world_dir)
     assert done.data["artifacts"] == len(result.corpus.artifacts)
     assert done.data["events"] == len(result.corpus.journal)
     assert done.data["cost_usd_segment"] == done.data["cost_usd_total"]
@@ -184,3 +184,18 @@ def test_jsonl_sink_is_thread_safe(tmp_path: Path) -> None:
     assert len(lines) == n
     for line in lines:
         json.loads(line)
+
+
+def test_rerender_is_all_cache_hits_with_the_world_local_cache(tmp_path: Path) -> None:
+    # No explicit scale.cache_dir at all: the cache lives inside the world, so a
+    # rebuild of the same config into the same world is free (D31, portability).
+    config = _config(tmp_path)
+    assert config.scale.cache_dir is None
+    first = execute_run(config)
+    assert (first.world_dir / ".cache" / "llm").is_dir()
+
+    sink = _ListSink()
+    execute_run(config, progress=sink)
+    artifact_events = sink.of_kind("artifact")
+    assert artifact_events
+    assert all(e.data["cached"] is True for e in artifact_events)

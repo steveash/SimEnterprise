@@ -10,7 +10,7 @@ from enterprise_sim.core.config import (
     CompanySize,
     ConfigError,
     LLMBackend,
-    RunConfig,
+    WorldConfig,
     load_config,
     load_config_from_mapping,
 )
@@ -28,11 +28,11 @@ def _minimal_mapping() -> dict[str, object]:
 
 def test_sample_config_loads_and_validates() -> None:
     config = load_config(_EXAMPLE)
-    assert isinstance(config, RunConfig)
+    assert isinstance(config, WorldConfig)
     assert config.company.name == "Northwind Tools"
     assert config.company.size is CompanySize.SMALL
     assert config.seed == 42
-    assert config.output_dir == Path("runs/demo")
+    assert config.worlds_root == Path("worlds")
     assert config.simulation.period_start == date(2026, 1, 1)
     assert config.model.backend is LLMBackend.ANTHROPIC_API
     assert len(config.projects) == 2
@@ -42,7 +42,7 @@ def test_sample_config_loads_and_validates() -> None:
 def test_defaults_applied_for_minimal_config() -> None:
     config = load_config_from_mapping(_minimal_mapping())
     assert config.seed == 0
-    assert config.output_dir == Path("runs")
+    assert config.worlds_root == Path("worlds")
     assert config.projects == ()
     assert config.model.backend is LLMBackend.ANTHROPIC_API
     assert config.model.realism == pytest.approx(0.7)

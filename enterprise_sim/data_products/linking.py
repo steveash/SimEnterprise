@@ -29,7 +29,7 @@ __all__ = [
     "LinkageError",
     "assign_dimension",
     "bind_identity",
-    "load_world_from_run",
+    "load_world_kg",
     "match_nodes",
 ]
 
@@ -38,15 +38,15 @@ class LinkageError(Exception):
     """Raised when a KG binding cannot be satisfied by the supplied world."""
 
 
-def load_world_from_run(run_dir: str | Path) -> World:
+def load_world_kg(world_dir: str | Path) -> World:
     """Load the exported gold KG of a completed enterprise-sim run.
 
-    Reads ``<run_dir>/kg/nodes.jsonl`` (required) and ``kg/edges.jsonl``
+    Reads ``<world_dir>/kg/nodes.jsonl`` (required) and ``kg/edges.jsonl``
     (optional — dimensions only need nodes, but edges are loaded when present
     so future bindings can traverse relationships).
     """
-    run_dir = Path(run_dir)
-    nodes_path = run_dir / "kg" / "nodes.jsonl"
+    world_dir = Path(world_dir)
+    nodes_path = world_dir / "kg" / "nodes.jsonl"
     if not nodes_path.is_file():
         raise LinkageError(f"no exported KG at {nodes_path} (is this a completed run directory?)")
     world = World()
@@ -55,7 +55,7 @@ def load_world_from_run(run_dir: str | Path) -> World:
             line = line.strip()
             if line:
                 world.add_node(Node.from_dict(json.loads(line)))
-    edges_path = run_dir / "kg" / "edges.jsonl"
+    edges_path = world_dir / "kg" / "edges.jsonl"
     if edges_path.is_file():
         with edges_path.open(encoding="utf-8") as handle:
             for line in handle:

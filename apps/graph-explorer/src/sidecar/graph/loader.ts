@@ -48,11 +48,11 @@ export function deriveLabel(n: { props: Record<string, unknown>; aliases: string
 }
 
 /**
- * Load a gold KG run directory into the canonical GraphModel.
- * `runPath` is the run root (the dir containing `kg/`, `manifest.json`, ...).
+ * Load a world directory's gold KG into the canonical GraphModel.
+ * `worldPath` is the world root (the dir containing `.world`, `kg/`, ...).
  */
-export function loadRun(runPath: string): GraphModel {
-  const kgDir = join(runPath, 'kg')
+export function loadWorld(worldPath: string): GraphModel {
+  const kgDir = join(worldPath, 'kg')
   const rawNodes = readJsonl<Omit<KGNode, 'label'>>(join(kgDir, 'nodes.jsonl'))
   const nodes: KGNode[] = rawNodes.map((n) => ({ ...n, label: deriveLabel(n) }))
   const edges = readJsonl<KGEdge>(join(kgDir, 'edges.jsonl'))
@@ -60,15 +60,15 @@ export function loadRun(runPath: string): GraphModel {
   const events = readJsonl<KGEvent>(join(kgDir, 'events.jsonl'))
   const provenance = readJsonl<KGProvenance>(join(kgDir, 'provenance.jsonl'))
   const aliases = readJsonl<KGAlias>(join(kgDir, 'aliases.jsonl'))
-  const validation = readJsonl<ValidationIssue>(join(runPath, 'validation', 'issues.jsonl'))
-  const manifest = readJson<Record<string, unknown>>(join(runPath, 'manifest.json'))
+  const validation = readJsonl<ValidationIssue>(join(worldPath, 'validation', 'issues.jsonl'))
+  const world = readJson<Record<string, unknown>>(join(worldPath, '.world'))
 
   const nodeTypes = [...new Set(nodes.map((n) => n.type))].sort()
   const edgeTypes = [...new Set(edges.map((e) => e.type))].sort()
 
-  // Time window: prefer manifest.window, else min/max of event timestamps.
+  // Time window: prefer the .world's window, else min/max of event timestamps.
   let timeRange: GraphModel['timeRange'] = null
-  const win = (manifest?.window ?? null) as { start?: string; end?: string } | null
+  const win = (world?.window ?? null) as { start?: string; end?: string } | null
   if (win?.start && win?.end) {
     timeRange = { start: win.start, end: win.end }
   } else if (events.length) {
@@ -77,8 +77,8 @@ export function loadRun(runPath: string): GraphModel {
   }
 
   return {
-    runId: basename(runPath),
-    runPath,
+    worldId: typeof world?.world_id === 'string' ? world.world_id : basename(worldPath),
+    worldPath,
     nodes,
     edges,
     mentions,
@@ -86,7 +86,7 @@ export function loadRun(runPath: string): GraphModel {
     provenance,
     aliases,
     validation,
-    manifest,
+    world,
     nodeTypes,
     edgeTypes,
     timeRange

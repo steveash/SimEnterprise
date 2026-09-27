@@ -60,6 +60,18 @@ class QAPair:
             pair's id.
         tags: Free-form labels (e.g. the proposal chat's theme). Also excluded
             from identity for the same reason.
+        confidence: How much the expected answer can be trusted, in ``[0, 1]``,
+            as assessed by the eval critic (:mod:`enterprise_sim.evals.critic`);
+            ``None`` when the pair has not been critiqued. ``1.0`` once a human
+            verified it.
+        critique: The critic's notes on why the confidence is what it is.
+        critic: Who set ``confidence``: ``"structural"`` (graph checks only),
+            ``"llm"`` (graph checks + a model's review) or ``"human"``.
+        verified: A human confirmed (or corrected) the expected answer.
+
+    ``confidence``/``critique``/``critic``/``verified`` are review metadata, not
+    part of a pair's identity, and are omitted from the JSONL when unset — so a
+    benchmark nobody has critiqued serializes exactly as before.
     """
 
     id: str
@@ -71,6 +83,10 @@ class QAPair:
     difficulty: str = "medium"
     source: str = "generated"
     tags: tuple[str, ...] = ()
+    confidence: float | None = None
+    critique: str | None = None
+    critic: str | None = None
+    verified: bool = False
 
     def __post_init__(self) -> None:
         if self.reasoning_type not in REASONING_TYPES:
@@ -85,7 +101,7 @@ class QAPair:
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-serializable dict (``expected_ids``/``tags`` as lists)."""
-        return {
+        payload: dict[str, Any] = {
             "id": self.id,
             "question": self.question,
             "qtype": self.qtype,
@@ -96,6 +112,15 @@ class QAPair:
             "source": self.source,
             "tags": list(self.tags),
         }
+        if self.confidence is not None:
+            payload["confidence"] = self.confidence
+        if self.critique is not None:
+            payload["critique"] = self.critique
+        if self.critic is not None:
+            payload["critic"] = self.critic
+        if self.verified:
+            payload["verified"] = True
+        return payload
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> QAPair:
@@ -114,6 +139,10 @@ class QAPair:
             difficulty=data.get("difficulty", "medium"),
             source=data.get("source", "generated"),
             tags=tuple(data.get("tags", ())),
+            confidence=data.get("confidence"),
+            critique=data.get("critique"),
+            critic=data.get("critic"),
+            verified=bool(data.get("verified", False)),
         )
 
     def to_jsonl(self) -> str:

@@ -6,26 +6,75 @@ const nextId = () => `r${++counter}`
 
 type Pending = { resolve: (v: unknown) => void; reject: (e: Error) => void }
 
-/** Thin WebSocket RPC client to the sidecar. */
+export type ConnectionStatus = 'connecting' | 'open' | 'reconnecting'
+
+/**
+ * Thin WebSocket RPC client to the sidecar, with automatic reconnection.
+ *
+ * If the socket drops (the sidecar restarted, the laptop slept, a port-forward
+ * blipped), every request still waiting on a reply is rejected with a clear
+ * error — never left hanging — and the client reconnects with backoff. Requests
+ * made while disconnected are queued and sent as soon as the socket reopens.
+ * `onStatus` lets the UI show the connection state.
+ */
 export class Rpc {
   private ws: WebSocket | null = null
   private pending = new Map<string, Pending>()
   private streams = new Map<string, (e: unknown) => void>()
   private ready: Promise<void>
   private queue: string[] = []
+  private status: ConnectionStatus = 'connecting'
+  private statusListeners = new Set<(s: ConnectionStatus) => void>()
+  private everOpened = false
+  private retryMs = 500
 
-  constructor(port: number) {
-    this.ready = new Promise((res, rej) => {
-      const ws = new WebSocket(`ws://127.0.0.1:${port}`)
-      this.ws = ws
-      ws.onopen = () => {
-        for (const m of this.queue) ws.send(m)
-        this.queue = []
-        res()
-      }
-      ws.onerror = () => rej(new Error('failed to connect to sidecar'))
-      ws.onmessage = (ev) => this.onMessage(JSON.parse(ev.data as string) as ServerMessage)
-    })
+  constructor(private readonly port: number) {
+    this.ready = new Promise((res, rej) => this.connect(res, rej))
+  }
+
+  /** Subscribe to connection-state changes; returns an unsubscribe function. */
+  onStatus(cb: (s: ConnectionStatus) => void): () => void {
+    this.statusListeners.add(cb)
+    cb(this.status)
+    return () => this.statusListeners.delete(cb)
+  }
+
+  private setStatus(s: ConnectionStatus): void {
+    this.status = s
+    for (const cb of this.statusListeners) cb(s)
+  }
+
+  private connect(onFirstOpen?: () => void, onFirstFail?: (e: Error) => void): void {
+    const ws = new WebSocket(`ws://127.0.0.1:${this.port}`)
+    this.ws = ws
+    ws.onopen = () => {
+      this.everOpened = true
+      this.retryMs = 500
+      this.setStatus('open')
+      for (const m of this.queue) ws.send(m)
+      this.queue = []
+      onFirstOpen?.()
+    }
+    ws.onerror = () => {
+      // The very first connection failing is a startup error the app reports;
+      // after that, errors are followed by `onclose`, which reconnects.
+      if (!this.everOpened) onFirstFail?.(new Error('failed to connect to sidecar'))
+    }
+    ws.onclose = () => {
+      if (this.ws !== ws) return
+      if (!this.everOpened) return // startup failure: surfaced via onFirstFail
+      const lost = new Error('lost the connection to the graph engine (sidecar); reconnecting — try again')
+      for (const p of this.pending.values()) p.reject(lost)
+      this.pending.clear()
+      this.streams.clear()
+      // Their promises were just rejected: never send these later (e.g. start a build twice).
+      this.queue = []
+      this.setStatus('reconnecting')
+      const wait = this.retryMs
+      this.retryMs = Math.min(this.retryMs * 2, 5000)
+      setTimeout(() => this.connect(), wait)
+    }
+    ws.onmessage = (ev) => this.onMessage(JSON.parse(ev.data as string) as ServerMessage)
   }
 
   private onMessage(msg: ServerMessage): void {

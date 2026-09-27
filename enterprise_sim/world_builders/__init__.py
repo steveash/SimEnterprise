@@ -1,7 +1,7 @@
 """Layer A generators: build the world (company → people → projects) + markdown.
 
 :func:`build_world` invents a deterministic company from a
-:class:`~enterprise_sim.core.config.RunConfig` and writes it into the KG;
+:class:`~enterprise_sim.core.config.WorldConfig` and writes it into the KG;
 :func:`write_organization` renders that world to ``organization/`` markdown
 reference data. See :mod:`enterprise_sim.world_builders.builder`.
 """

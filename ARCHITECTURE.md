@@ -47,7 +47,7 @@
 │  renders files, records provenance back into the KG                        │
 └────────────────────────────────────────────────────────────────────────────┘
 ┌─ Layer D: Assembly ───────────────────────────────────────────────────────┐
-│  directory hierarchy · manifest.json · GOLD KG export (entities +          │
+│  directory hierarchy · .world file · GOLD KG export (entities +          │
 │  relations + events, each edge → the artifacts that express it)            │
 └────────────────────────────────────────────────────────────────────────────┘
 
@@ -215,7 +215,7 @@ Producers physically cannot reference the future or non-existent entities.
    deliverable/medium; render files from the timestamped projection; record provenance.
    *(LLM-heavy, parallelizable phase.)*
 5. **Layer D — assemble:** write the directory hierarchy + per-person calendars +
-   `manifest.json`; export the **gold KG** (entities + relations + events with provenance);
+   the `.world` file (`enterprise_sim.worlds`); export the **gold KG** (entities + relations + events with provenance);
    snapshot config + seed; run the **consistency validator**.
 
 ---
@@ -237,11 +237,11 @@ A single internal interface — `complete(system, messages, model, *, cache_hint
   sample raises `TransientLLMError` so the client resamples rather than failing the run.
 
 All callers (world-builders and producers) see only the interface. Backend, model, and a
-realism/cost dial are config — but backend selection is two-level for `enterprise-sim run`:
+realism/cost dial are config — but backend selection is two-level for `enterprise-sim world create`:
 the config *names* the provider and `--live` *enables* it. Without `--live` the run renders on
 the deterministic `fake` backend and the config's `[model] backend` is deliberately ignored, so
 a run is free and network-free by default (`execute_run()` / `estimate_run()` take
-`live: bool = False`). `enterprise-sim data run` has no such gate: it honors `[model] backend`
+`live: bool = False`). `enterprise-sim world data` has no such gate: it honors `[model] backend`
 directly, since its default is already `fake`.
 
 ### Determinism
@@ -706,7 +706,7 @@ One `LLMClient` over api / bedrock / cli with cross-cutting concerns:
   re-runs; only changed artifacts regenerate.
 - **`fake`/echo backend** (D31) — deterministic templated placeholder content so the §13 test
   kit runs with **no real LLM calls** (free, fast, deterministic). It is also the *default* for
-  `enterprise-sim run`, not just a test fixture: reaching a real provider takes `--live` (§7).
+  `enterprise-sim world create`, not just a test fixture: reaching a real provider takes `--live` (§7).
 - **Determinism caveat** — we never rely on LLM determinism; the *structure* (which calls, what
   context, what order) is deterministic, content varies. Prompt + response caches aid repeatability.
 

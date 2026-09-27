@@ -486,13 +486,13 @@ def _write_align_inputs(tmp_path: Path) -> dict[str, Path]:
         _preds(mapping).write_jsonl(path)
         paths[name] = path
 
-    run_dir = tmp_path / "gold"
-    (run_dir / "kg").mkdir(parents=True)
-    (run_dir / "kg" / "nodes.jsonl").write_text(
+    world_dir = tmp_path / "gold"
+    (world_dir / "kg").mkdir(parents=True)
+    (world_dir / "kg" / "nodes.jsonl").write_text(
         json.dumps(artifact.to_dict()) + "\n", encoding="utf-8"
     )
-    (run_dir / "kg" / "edges.jsonl").write_text("", encoding="utf-8")
-    paths["run"] = run_dir
+    (world_dir / "kg" / "edges.jsonl").write_text("", encoding="utf-8")
+    paths["run"] = world_dir
 
     recon_dir = tmp_path / "recon"
     kg = ReconstructedKG()
@@ -563,7 +563,7 @@ def test_report_cli_align_credits_path_named_reconstructed(tmp_path: Path, capsy
             "--align",
             "--reconstructed-kg",
             str(inputs["recon"]),
-            "--run",
+            "--world",
             str(inputs["run"]),
             "-o",
             str(out),

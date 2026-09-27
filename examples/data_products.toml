@@ -5,12 +5,13 @@
 # partitioned parquet, materialized DuckDB views, and up to three question-loop
 # iterations that patch the spec to close answerability gaps.
 #
-#   enterprise-sim data run examples/data_products.toml
+#   enterprise-sim world data examples/data_products.toml
 #
 # Scale up with `--scale N` (multiplies every population) or point [world] at a
-# completed enterprise-sim run to link dimensions against its exported KG:
+# completed world to link dimensions against its exported KG (the data then
+# lands under that world's data/):
 #   [world]
-#   run_dir = "runs/golden/golden-slice-co-5b1e84522235"
+#   world_dir = "worlds/golden-slice-co-5b1e84522235"
 
 scenarios = [
     "product_growth",
@@ -20,7 +21,6 @@ scenarios = [
     "marketing_attribution",
 ]
 seed = 11
-output_dir = "runs/data"
 
 [world.company]
 name = "Northwind Tools"

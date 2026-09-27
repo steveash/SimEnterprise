@@ -242,7 +242,7 @@ def test_reason_subcommand_registered() -> None:
             "recon",
             "--bench",
             "b.jsonl",
-            "--run",
+            "--world",
             "runs/r",
             "-o",
             "p.jsonl",
@@ -250,7 +250,7 @@ def test_reason_subcommand_registered() -> None:
     )
     assert args.reconstructed == Path("recon")
     assert args.bench == Path("b.jsonl")
-    assert args.run == Path("runs/r")
+    assert args.world == Path("runs/r")
     assert args.output == Path("p.jsonl")
     assert args.func is not None
 
@@ -260,7 +260,7 @@ def test_reason_run_flag_defaults_to_none() -> None:
     args = build_parser().parse_args(
         ["reconstruct", "reason", "--reconstructed", "recon", "--bench", "b.jsonl"]
     )
-    assert args.run is None
+    assert args.world is None
 
 
 def test_reason_cli_requires_api_key(tmp_path: Path, capsys: Any, monkeypatch: Any) -> None:

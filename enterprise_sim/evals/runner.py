@@ -21,7 +21,7 @@ from collections.abc import Iterator, Sequence
 from pathlib import Path
 from typing import Any
 
-from enterprise_sim.benchmark.generate import load_groundings, load_world_from_run
+from enterprise_sim.benchmark.generate import load_groundings, load_world_kg
 from enterprise_sim.benchmark.schema import Benchmark, QAPair
 from enterprise_sim.benchmark.score import (
     Aggregate,
@@ -90,7 +90,7 @@ def report_to_dict(report: Report) -> dict[str, Any]:
 
 
 def _run_rag(
-    run_dir: str | Path,
+    world_dir: str | Path,
     pairs: Sequence[QAPair],
     *,
     world: World,
@@ -101,7 +101,7 @@ def _run_rag(
     from enterprise_sim.benchmark.runners.rag import build_runner
     from enterprise_sim.core.llm import LLMConfig, build_client
 
-    rag_runner = build_runner(run_dir, world=world, top_k=top_k)
+    rag_runner = build_runner(world_dir, world=world, top_k=top_k)
     client = build_client(LLMConfig(backend=backend))
     for pair in pairs:
         prediction = rag_runner.answer(pair, client, model=model)
@@ -109,7 +109,7 @@ def _run_rag(
 
 
 def _run_graph(
-    run_dir: str | Path,
+    world_dir: str | Path,
     pairs: Sequence[QAPair],
     *,
     world: World,
@@ -121,7 +121,7 @@ def _run_graph(
         run_benchmark,
     )
 
-    groundings = load_groundings(run_dir, world)
+    groundings = load_groundings(world_dir, world)
     graph_runner = GraphRunner.from_world(world, groundings)
     try:
         for pair in pairs:
@@ -134,7 +134,7 @@ def _run_graph(
 
 
 def run_eval(
-    run_dir: str | Path,
+    world_dir: str | Path,
     pairs: Sequence[QAPair],
     *,
     runner: str,
@@ -151,11 +151,11 @@ def run_eval(
     fails partway.
     """
     check_prereqs(runner)
-    world = load_world_from_run(run_dir)
+    world = load_world_kg(world_dir)
     stream = (
-        _run_graph(run_dir, pairs, world=world, model=model)
+        _run_graph(world_dir, pairs, world=world, model=model)
         if runner == "graph"
-        else _run_rag(run_dir, pairs, world=world, backend=backend, top_k=top_k, model=model)
+        else _run_rag(world_dir, pairs, world=world, backend=backend, top_k=top_k, model=model)
     )
 
     rows: dict[str, tuple[str, ...]] = {}

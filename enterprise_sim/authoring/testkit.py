@@ -37,6 +37,7 @@ from __future__ import annotations
 import ast
 import inspect
 import os
+import sys
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -897,8 +898,11 @@ def _dotted_name(node: ast.expr) -> str | None:
 def _impl_source(impl: str) -> str | None:
     """Load the source of an ``impl`` ``pkg.module:ClassName`` ref, or ``None`` if absent."""
     module_path, _, _ = impl.partition(":")
+    from enterprise_sim.core.registry import ensure_module
+
+    ensure_module(module_path)  # a template process's impl lives in its template module
     try:
-        module = __import__(module_path, fromlist=["_"])
+        module = sys.modules.get(module_path) or __import__(module_path, fromlist=["_"])
         return inspect.getsource(module)
     except (ImportError, OSError, TypeError):
         return None

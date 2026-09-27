@@ -6,7 +6,7 @@ Covers the foundation the reconstruct pipeline builds on:
   round-trip to/from a dict;
 * :class:`ReconstructedKG` writes ``nodes.jsonl`` / ``edges.jsonl`` in the exact
   gold KG schema — loadable by
-  :func:`enterprise_sim.benchmark.generate.load_world_from_run` and projectable by
+  :func:`enterprise_sim.benchmark.generate.load_world_kg` and projectable by
   :meth:`~enterprise_sim.benchmark.runners.projection.GraphModel.from_world` —
   plus a ``provenance.jsonl`` sidecar, and round-trips byte-stably; and
 * ``enterprise-sim reconstruct --help`` lists the command group.
@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from enterprise_sim.benchmark.generate import load_world_from_run
+from enterprise_sim.benchmark.generate import load_world_kg
 from enterprise_sim.benchmark.runners.projection import GraphModel
 from enterprise_sim.cli import build_parser, main
 from enterprise_sim.core.world import Edge, Node
@@ -166,7 +166,7 @@ def test_nodes_edges_match_gold_kg_schema(tmp_path: Path) -> None:
 def test_reconstruction_loads_via_benchmark_world_loader(tmp_path: Path) -> None:
     """A reconstruction is loadable by the benchmark's gold-run world loader."""
     _sample_kg().write(tmp_path / "kg")
-    world = load_world_from_run(tmp_path)
+    world = load_world_kg(tmp_path)
     assert world.node_count == 2
     assert world.edge_count == 1
     assert world.get_node("person:ada-lovelace") is not None

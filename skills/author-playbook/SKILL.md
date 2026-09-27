@@ -160,9 +160,9 @@ reads `declares`. So `declares` must match reality:
 
 ## 2. Authoring workflow
 
-Work top-down, then wire bottom-up. Put your playbook in
-`enterprise_sim/playbooks/<name>.py` (or a plugin package) as a function returning
-a `Playbook`, mirroring `enterprise_sim/authoring/patterns.py`.
+Work top-down, then wire bottom-up. Put your playbook in a
+template, `templates/<name>/plugin.py`, as a function returning a `Playbook` (see
+`templates/build_software/plugin.py`), mirroring `enterprise_sim/authoring/patterns.py`.
 
 1. **Describe the domain & goal.** One sentence: *"Keep {sku} in stock by reordering
    from {supplier} when low."* That becomes `Playbook.goal_template`. Pick the
@@ -372,7 +372,7 @@ supplier = Role("supplier", select=Selector(type="Supplier", external=True, coun
 
 purchase_order = Process(
     name="purchase_order", roles=(buyer, supplier),
-    impl="enterprise_sim.processes.purchase_order:PurchaseOrder",   # escape hatch
+    impl="enterprise_sim_templates.sell_merchandise:PurchaseOrder",   # escape hatch
     declares=Declares(
         events=("PODrafted", "POApproved", "POSent", "POReceived"),
         deliverables=("purchase_order",), effects=("mutate:stock_level",)),

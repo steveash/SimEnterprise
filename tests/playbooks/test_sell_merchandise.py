@@ -15,18 +15,28 @@ Regenerate the golden files (after an intended change) with::
 from __future__ import annotations
 
 import inspect
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
-from types import ModuleType
 
 import pytest
 from enterprise_sim.authoring import sdk
 from enterprise_sim.authoring import testkit as tk
 from enterprise_sim.authoring.lint import lint_playbook, scan_impl_source
-from enterprise_sim.playbooks.sell_merchandise import REORDER_POINT, SKU, sell_merchandise
-from enterprise_sim.processes import inventory, purchase_order
-from enterprise_sim.processes.inventory import InventoryMonitor
-from enterprise_sim.processes.purchase_order import TRANSITION_EVENTS, POState, PurchaseOrder
+from enterprise_sim.core.registry import PLAYBOOKS, PROCESSES
+
+from tests._templates import template_module
+
+# The playbook (and its two ``impl`` process classes) is a template
+# (``templates/sell_merchandise``); resolve it via the registry.
+_MODULE = template_module(PLAYBOOKS, "sell_merchandise")
+REORDER_POINT: int = _MODULE.REORDER_POINT
+SKU: str = _MODULE.SKU
+TRANSITION_EVENTS = _MODULE.TRANSITION_EVENTS
+InventoryMonitor = _MODULE.InventoryMonitor
+POState = _MODULE.POState
+PurchaseOrder = _MODULE.PurchaseOrder
+sell_merchandise: Callable[[], sdk.Playbook] = _MODULE.sell_merchandise
 
 GOLDEN_DIR = Path(__file__).parent / "golden"
 START = datetime(2026, 1, 5, 9, 0)
@@ -157,9 +167,14 @@ def test_sell_merchandise_run_is_deterministic() -> None:
 # --------------------------------------------------------------------------- #
 
 
-@pytest.mark.parametrize("module", [inventory, purchase_order])
-def test_impl_source_is_deterministic(module: ModuleType) -> None:
-    assert scan_impl_source(inspect.getsource(module)) == []
+def test_impl_source_is_deterministic() -> None:
+    assert scan_impl_source(inspect.getsource(_MODULE)) == []
+
+
+def test_playbook_and_all_processes_register() -> None:
+    assert PLAYBOOKS.get("sell_merchandise").build().name == "sell_merchandise"  # type: ignore[attr-defined]
+    for activation in sell_merchandise().activations:
+        assert PROCESSES.origin(activation.process.name) == _MODULE.__name__
 
 
 def test_inventory_monitor_emits_low_stock_edge_triggered() -> None:

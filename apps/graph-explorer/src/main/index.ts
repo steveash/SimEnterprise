@@ -22,10 +22,10 @@ if (existsSync(ENV_FILE)) {
     /* ignore */
   }
 }
-// In dev, runs auto-discover under the repo's runs/. In a packaged app there is
-// no repo, so default to the user's home — they pick a run dir via the dialog.
-const DEFAULT_RUNS_ROOT =
-  process.env.GRAPH_EXPLORER_RUNS_ROOT ?? (app.isPackaged ? app.getPath('home') : join(REPO_ROOT, 'runs'))
+// In dev, worlds auto-discover under the repo's worlds/. In a packaged app there is
+// no repo, so default to the user's home — they pick a world dir via the dialog.
+const DEFAULT_WORLDS_ROOT =
+  process.env.GRAPH_EXPLORER_WORLDS_ROOT ?? (app.isPackaged ? app.getPath('home') : join(REPO_ROOT, 'worlds'))
 
 /**
  * Resolve the command + args used to launch the sidecar.
@@ -65,7 +65,7 @@ function startSidecar(): Promise<number> {
       cwd: resolved.cwd,
       env: {
         ...process.env,
-        GRAPH_EXPLORER_RUNS_ROOT: DEFAULT_RUNS_ROOT,
+        GRAPH_EXPLORER_WORLDS_ROOT: DEFAULT_WORLDS_ROOT,
         GRAPH_EXPLORER_PORT: '0'
       },
       stdio: ['ignore', 'pipe', 'pipe']
@@ -122,14 +122,14 @@ function createWindow(): void {
 
 ipcMain.handle('sidecar-info', () => ({
   port: sidecarPort,
-  runsRoot: DEFAULT_RUNS_ROOT,
+  worldsRoot: DEFAULT_WORLDS_ROOT,
   error: sidecarStartError
 }))
 
-ipcMain.handle('pick-run-dir', async () => {
+ipcMain.handle('pick-world-dir', async () => {
   const res = await dialog.showOpenDialog({
-    title: 'Select a run directory (the folder containing kg/)',
-    defaultPath: DEFAULT_RUNS_ROOT,
+    title: 'Select a world directory (the folder containing a .world file)',
+    defaultPath: DEFAULT_WORLDS_ROOT,
     properties: ['openDirectory']
   })
   return res.canceled ? null : res.filePaths[0]

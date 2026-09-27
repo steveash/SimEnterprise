@@ -63,8 +63,8 @@ function syntheticModel(): GraphModel {
     edge('collaborates_with', 'p-bob', 'p-carol')
   ]
   return {
-    runId: 'synthetic',
-    runPath: '',
+    worldId: 'synthetic',
+    worldPath: '',
     nodes,
     edges,
     mentions: [],

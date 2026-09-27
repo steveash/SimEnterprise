@@ -17,7 +17,7 @@ from enterprise_sim.assembly.validation import (
     OUT_OF_WINDOW,
     SCHEDULING_CONFLICT,
 )
-from enterprise_sim.core.config import RunConfig, load_config_from_mapping
+from enterprise_sim.core.config import WorldConfig, load_config_from_mapping
 from enterprise_sim.core.events import Event
 from enterprise_sim.core.world import Edge, Node, World
 
@@ -176,13 +176,13 @@ def test_summarize_issue_rows_tallies_by_kind() -> None:
 # --------------------------------------------------------------------------- #
 
 
-def _config(output_dir: Path) -> RunConfig:
+def _config(worlds_root: Path) -> WorldConfig:
     return load_config_from_mapping(
         {
             "company": {"name": "Acme Corp", "vertical": "software", "size": "small"},
             "simulation": {"period_start": "2026-01-01", "period_end": "2026-01-31"},
             "seed": 7,
-            "output_dir": str(output_dir),
+            "worlds_root": str(worlds_root),
         }
     )
 
@@ -197,8 +197,8 @@ def test_clean_run_emits_no_consistency_issues(tmp_path: Path) -> None:
 
 def test_run_summarizes_issues_in_the_manifest(tmp_path: Path) -> None:
     result = execute_run(_config(tmp_path))
-    validation = result.manifest.validation
-    lines = (result.run_dir / "validation" / "issues.jsonl").read_text().splitlines()
+    validation = result.world_file.validation
+    lines = (result.world_dir / "validation" / "issues.jsonl").read_text().splitlines()
     # The manifest summary is an exact tally of what landed on disk.
     assert validation["total"] == len(lines)
     assert sum(validation["by_kind"].values()) == len(lines)

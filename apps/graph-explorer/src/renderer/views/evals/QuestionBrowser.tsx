@@ -4,8 +4,10 @@ import { useMemo } from 'react'
 import { useStore } from '../../store.js'
 import { useEvalsStore, type GroupBy } from '../../store-evals.js'
 import type { QAPair } from '../../../shared/evals-protocol.js'
+import { BAND_LABEL, BAND_ORDER, ConfidenceMeter, confidenceBand } from './Confidence.js'
 
 const GROUP_BYS: { id: GroupBy; label: string }[] = [
+  { id: 'confidence', label: 'Answer confidence' },
   { id: 'reasoning_type', label: 'Reasoning type' },
   { id: 'qtype', label: 'Question type' },
   { id: 'difficulty', label: 'Difficulty' },
@@ -15,6 +17,7 @@ const GROUP_BYS: { id: GroupBy; label: string }[] = [
 
 function groupKeysFor(q: QAPair, groupBy: GroupBy): string[] {
   if (groupBy === 'tag') return q.tags.length ? q.tags : ['(untagged)']
+  if (groupBy === 'confidence') return [BAND_LABEL[confidenceBand(q)]]
   return [String((q as unknown as Record<string, unknown>)[groupBy] ?? '—')]
 }
 
@@ -27,7 +30,7 @@ function matches(q: QAPair, search: string, labels: Record<string, string>): boo
 }
 
 export function QuestionBrowser(): JSX.Element {
-  const runPath = useStore((s) => s.runPath)
+  const worldPath = useStore((s) => s.worldPath)
   const questions = useEvalsStore((s) => s.questions)
   const expectedLabels = useEvalsStore((s) => s.expectedLabels)
   const loading = useEvalsStore((s) => s.loadingQuestions)
@@ -44,6 +47,14 @@ export function QuestionBrowser(): JSX.Element {
   const latestScoreFor = useEvalsStore((s) => s.latestScoreFor)
   const runQuestions = useEvalsStore((s) => s.runQuestions)
   const activeRun = useEvalsStore((s) => s.activeRun)
+  const critiqueQuestions = useEvalsStore((s) => s.critiqueQuestions)
+  const critiquing = useEvalsStore((s) => s.critiquing)
+  const critiqueError = useEvalsStore((s) => s.critiqueError)
+  const bands = useMemo(() => {
+    const c: Record<string, number> = {}
+    for (const q of questions) c[confidenceBand(q)] = (c[confidenceBand(q)] ?? 0) + 1
+    return c
+  }, [questions])
 
   const filtered = useMemo(() => questions.filter((q) => matches(q, search, expectedLabels)), [questions, search, expectedLabels])
 
@@ -55,6 +66,13 @@ export function QuestionBrowser(): JSX.Element {
         if (arr) arr.push(q)
         else m.set(key, [q])
       }
+    }
+    if (groupBy === 'confidence') {
+      // Lowest confidence first: those are the answers worth a human look.
+      const rank = (label: string) => BAND_ORDER.findIndex((b) => BAND_LABEL[b] === label)
+      return [...m.entries()]
+        .map(([k, v]) => [k, [...v].sort((a, b) => (a.confidence ?? 1) - (b.confidence ?? 1))] as [string, QAPair[]])
+        .sort((a, b) => rank(a[0]) - rank(b[0]))
     }
     return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0]))
   }, [filtered, groupBy])
@@ -82,6 +100,39 @@ export function QuestionBrowser(): JSX.Element {
             ))}
           </select>
         </div>
+        <div className="conf-summary small">
+          {BAND_ORDER.filter((b) => bands[b]).map((b) => (
+            <span key={b} className={`conf-pill conf-${b}`} title={BAND_LABEL[b]}>
+              {BAND_LABEL[b]}: {bands[b]}
+            </span>
+          ))}
+        </div>
+        <details className="review-answers">
+          <summary className="small">Review expected answers…</summary>
+          <div className="small muted">
+            Every expected answer is derived mechanically from the graph; the critic scores how far each can be trusted
+            (ambiguous names, answers of the wrong kind, huge answer sets, conflicting duplicates). The AI critic also
+            has a model judge each answer against the graph facts (uses your Claude login). Human-verified answers are
+            never changed.
+          </div>
+          <div className="btn-row">
+            <button
+              className="mini-btn"
+              disabled={critiquing || !worldPath}
+              onClick={() => worldPath && void critiqueQuestions(worldPath, 'structural')}
+            >
+              {critiquing ? 'reviewing…' : 'Re-check (graph rules)'}
+            </button>
+            <button
+              className="mini-btn"
+              disabled={critiquing || !worldPath}
+              onClick={() => worldPath && void critiqueQuestions(worldPath, 'llm')}
+            >
+              {critiquing ? 'reviewing…' : 'Re-check with AI critic'}
+            </button>
+          </div>
+          {critiqueError && <div className="msg-error small">⚠ {critiqueError}</div>}
+        </details>
         <div className="btn-row">
           <label className="evals-check-all">
             <input
@@ -117,6 +168,7 @@ export function QuestionBrowser(): JSX.Element {
                     onClick={(e) => e.stopPropagation()}
                     onChange={() => toggleSelected(q.id)}
                   />
+                  <ConfidenceMeter q={q} />
                   <div className="evals-row-body">
                     <div className="evals-row-text">{q.question}</div>
                     <div className="evals-row-badges">
@@ -133,10 +185,10 @@ export function QuestionBrowser(): JSX.Element {
                   </div>
                   <button
                     className="mini-btn"
-                    disabled={!!activeRun || !runPath}
+                    disabled={!!activeRun || !worldPath}
                     onClick={(e) => {
                       e.stopPropagation()
-                      if (runPath) runQuestions(runPath, { kind: 'ids', ids: [q.id] })
+                      if (worldPath) runQuestions(worldPath, { kind: 'ids', ids: [q.id] })
                     }}
                   >
                     Run

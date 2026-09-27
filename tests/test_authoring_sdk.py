@@ -156,12 +156,12 @@ def test_process_declarative_round_trips() -> None:
 def test_process_impl_hatch_round_trips() -> None:
     p = Process(
         name="purchase_order",
-        impl="enterprise_sim.processes.purchase_order:PurchaseOrder",
+        impl="enterprise_sim_templates.sell_merchandise:PurchaseOrder",
         declares=Declares(events=("PODrafted",), deliverables=("purchase_order",)),
     )
     restored = Process.from_dict(p.to_dict())
     assert restored == p
-    assert restored.impl == "enterprise_sim.processes.purchase_order:PurchaseOrder"
+    assert restored.impl == "enterprise_sim_templates.sell_merchandise:PurchaseOrder"
     assert restored.steps == ()
 
 

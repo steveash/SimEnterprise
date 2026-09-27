@@ -1,17 +1,17 @@
 # Structured data products for the Haiku quarter — the companion to
 # examples/haiku_quarter.toml (docs/DATA_PRODUCTS.md).
 #
-# [world] points at the completed corpus run, so the sampled dimensions link
-# against that run's exported KG: the parquet tables and the document corpus
+# [world] points at the completed world, so the sampled dimensions link
+# against its exported KG: the parquet tables and the document corpus
 # describe the same company over the same quarter, which is what makes the pair
-# a single structured + unstructured environment rather than two unrelated runs.
+# a single structured + unstructured environment rather than two unrelated worlds.
 #
 # Authoring is `llm` mode on Haiku (via the local `claude` CLI, no API key), so
 # the causal specs and the question loop are model-authored rather than
 # templated. Unlike examples/data_products.toml this run is NOT reproducible.
 #
-#   enterprise-sim run examples/haiku_quarter.toml --live
-#   enterprise-sim data run examples/haiku_quarter_data.toml
+#   enterprise-sim world create examples/haiku_quarter.toml --live
+#   enterprise-sim world data examples/haiku_quarter_data.toml
 
 scenarios = [
     "product_growth",
@@ -21,14 +21,13 @@ scenarios = [
     "marketing_attribution",
 ]
 seed = 11
-output_dir = "runs/haiku-quarter-data"
 
 # The corpus run to link dimensions against. The id is a digest of that config
 # *and its render backend*, so the `--live` render below has a different id than
-# a default (fake) render of the same file — paste whichever `enterprise-sim run`
+# a default (fake) render of the same file — paste whichever `enterprise-sim world create`
 # actually printed. For `examples/haiku_quarter.toml --live` that is:
 [world]
-run_dir = "runs/haiku-quarter/northwind-tools-c731b0bf2393"
+world_dir = "worlds/northwind-tools-c731b0bf2393"
 
 # Matches examples/haiku_quarter.toml's simulation window.
 [window]
@@ -41,7 +40,7 @@ mode = "llm"
 [model]
 backend = "claude_cli"
 name = "claude-haiku-4-5"
-cache_dir = ".runtime/llm-cache/haiku-quarter-data"
+# cache_dir defaults to the world's own .cache/llm, so the cache travels with the world.
 
 [scale]
 factor = 1.0

@@ -271,7 +271,7 @@ def test_impl_and_steps_is_flagged() -> None:
     proc = Process(
         name="p",
         roles=(_role(),),
-        impl="enterprise_sim.processes.thing:Thing",
+        impl="enterprise_sim_templates.thing:Thing",
         steps=(Step(id="go", by="author", at="day 0", emits=(EmittedEvent("E"),)),),
         declares=Declares(events=("E",)),
     )
@@ -357,7 +357,7 @@ def test_impl_process_declares_is_trusted() -> None:
     proc = Process(
         name="p",
         roles=(_role(),),
-        impl="enterprise_sim.processes.missing:Missing",
+        impl="enterprise_sim_templates.missing:Missing",
         declares=Declares(events=("Anything",), deliverables=("doc",), effects=("mutate:x",)),
     )
     codes = lint_process(proc).codes()

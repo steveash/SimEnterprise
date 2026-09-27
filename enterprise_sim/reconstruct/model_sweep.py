@@ -184,7 +184,7 @@ class ModelSweepReport:
 
 
 def sweep_models(
-    run_dir: str,
+    world_dir: str,
     gold: World,
     models: Iterable[str],
     client: LLMClient,
@@ -193,7 +193,7 @@ def sweep_models(
     answer_scorer: AnswerScorer | None = None,
     backend: str = "fake",
 ) -> ModelSweepReport:
-    """Reconstruct + score ``run_dir``'s corpus once per model and compare them.
+    """Reconstruct + score ``world_dir``'s corpus once per model and compare them.
 
     For each (de-duplicated, input-ordered) model, runs the gated chunk → extract →
     resolve prefix (:func:`~enterprise_sim.reconstruct.build.extract_once`) through
@@ -216,7 +216,7 @@ def sweep_models(
     gold_edge_count = 0
     benchmark_size: int | None = None
     for model in ordered:
-        extraction = extract_once(run_dir, client, model=model)
+        extraction = extract_once(world_dir, client, model=model)
         kg = extraction.build(config=build_config)
         fidelity = score_fidelity(kg, gold)
         gold_node_count = fidelity.gold_node_count

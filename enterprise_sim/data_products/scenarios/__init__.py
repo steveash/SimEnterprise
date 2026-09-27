@@ -38,20 +38,15 @@ class DataScenario(Protocol):
 
 DATA_SCENARIOS: Registry[DataScenario] = Registry("data scenario")
 
-_DISCOVERED = False
-
 
 def discover_scenarios() -> Registry[DataScenario]:
-    """Import the built-in scenario modules so their plugins register."""
-    global _DISCOVERED
-    if not _DISCOVERED:
-        from enterprise_sim.data_products.scenarios import (  # noqa: F401
-            marketing_attribution,
-            product_growth,
-            sales_pipeline,
-            subscription_finance,
-            support_ops,
-        )
+    """Load every template so the data scenarios among them register.
 
-        _DISCOVERED = True
+    The built-in scenarios (``sales_pipeline``, ``support_ops``, …) are ordinary
+    ``data_scenario`` templates in ``templates/`` — see
+    :func:`enterprise_sim.core.registry.load_templates`.
+    """
+    from enterprise_sim.core.registry import load_templates
+
+    load_templates()
     return DATA_SCENARIOS
