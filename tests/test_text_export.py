@@ -201,7 +201,10 @@ def test_prose_backend_classification(backend: str, prose: str) -> None:
         (1e-05, "0.00001"),
         (2.0, "2"),
         (-0.0, "0"),
-        (3191.068163337267, "3191.068163337267"),
+        (3191.068163337267, "3191.068163"),
+        (0.3415926535897932, "0.341593"),
+        (12345678.123456789, "12345678.1235"),
+        (0.0000004, "0"),
         (1.5e16, "15000000000000000"),
         (-12.50, "-12.5"),
         (0.1, "0.1"),
@@ -245,6 +248,8 @@ def test_long_names_never_collide() -> None:
         ("ssn 123-45-6789", "SSN"),
         ("card 4111 1111 1111 1111", "card number"),
         ("card 4111111111111111", "card number"),
+        ("0.4111111111111111", "card number"),
+        ("card 3782-822463-10005", "card number"),
     ],
 )
 def test_identity_shapes_are_found(text: str, shape: str) -> None:
@@ -257,7 +262,8 @@ def test_identity_shapes_are_found(text: str, shape: str) -> None:
         "2026-01-05,0.3415926535897932,139",
         "agent-000004,person:esme-acosta,Esme Acosta,0.766691172642268",
         "sha256 9cc7203abeadae2184537a752ce3aa7487df840188246128e222eb42c4090257",
-        "rows 1234567890123456,7",
+        "rows 12345678901234,7",
+        "0.766691172642260",
         "2026-01-05T09:00:00",
     ],
 )
@@ -289,7 +295,8 @@ def test_table_cells_follow_the_package_rules(world_dir: Path, tmp_path: Path) -
                 if not cell:
                     continue
                 if kind == "decimal":
-                    assert re.fullmatch(r"-?(0|[1-9]\d*)(\.\d*[1-9])?", cell), cell
+                    assert re.fullmatch(r"-?(0|[1-9]\d*)(\.\d{0,5}[1-9])?", cell), cell
+                    assert len(re.sub(r"\D", "", cell)) <= 12, cell
                 elif kind == "integer":
                     assert re.fullmatch(r"-?(0|[1-9]\d*)", cell), cell
                 elif kind == "date":

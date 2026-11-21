@@ -37,7 +37,7 @@ import subprocess
 import zipfile
 from dataclasses import dataclass
 from datetime import UTC, datetime, time
-from decimal import Decimal
+from decimal import ROUND_HALF_EVEN, Decimal
 from pathlib import Path
 from typing import Any
 from xml.etree import ElementTree
@@ -235,13 +235,25 @@ def _column_type(arrow_type: Any) -> str:
     return "text"
 
 
-def canonical_decimal(value: float | Decimal) -> str:
-    """Fixed notation, no exponent, no trailing zeros, no ``-0`` (``1e-05`` → ``0.00001``).
+#: Decimal cells keep at most this many fraction digits and this many digits in
+#: all, so no cell is a long digit run (the consumer's privacy pack reads long
+#: runs as card numbers) and the text stays a faithful rounding of the sample.
+_MAX_FRACTION_DIGITS = 6
+_MAX_DIGITS = 12
 
-    Built from the shortest round-trip ``repr`` so the text is exactly the float
-    that was sampled, never a longer binary expansion.
+
+def canonical_decimal(value: float | Decimal) -> str:
+    """Fixed notation, rounded, no exponent, no trailing zeros, no ``-0``.
+
+    Built from the shortest round-trip ``repr``; rounded half-even to at most
+    :data:`_MAX_FRACTION_DIGITS` fraction digits and :data:`_MAX_DIGITS` digits
+    in all (``1e-05`` → ``0.00001``, ``3191.068163337267`` → ``3191.068163``).
     """
-    text = format(Decimal(repr(value)) if isinstance(value, float) else value, "f")
+    number = Decimal(repr(value)) if isinstance(value, float) else value
+    int_digits = len(str(abs(int(number)))) if abs(number) >= 1 else 0
+    places = max(0, min(_MAX_FRACTION_DIGITS, _MAX_DIGITS - int_digits))
+    number = number.quantize(Decimal(1).scaleb(-places), rounding=ROUND_HALF_EVEN)
+    text = format(number, "f")
     if "." in text:
         text = text.rstrip("0").rstrip(".")
     if text in ("-0", "", "-"):
@@ -390,7 +402,15 @@ _IDENTITY_SHAPES: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("phone number", re.compile(r"(?<![\w-])\+?\(?\d{3}\)?[ .-]\d{3}[ .-]\d{4}(?![\w-])")),
     ("SSN", re.compile(r"(?<![\w-])\d{3}-\d{2}-\d{4}(?![\w-])")),
 )
-_CARD = re.compile(r"(?<![\w.,-])(?:\d{13,19}|\d{4}(?:[ -]\d{4}){2,3}(?:[ -]\d{1,3})?)(?![\w.-])")
+#: Card shapes, as the consumer's privacy pack reads them: one maximal digit run
+#: of 15 or 16 digits (whatever surrounds it, a decimal point included), or a
+#: card grouping with one consistent separator; either must pass Luhn.
+_CARD_RUN = re.compile(r"\d+")
+_CARD_GROUPED = re.compile(
+    r"(?<!\d)(?:\d{4}([ -])\d{4}\1\d{4}\1\d{1,4}"
+    r"|\d{4}([ -])\d{4}\2\d{4}\2\d{4}\2\d{1,3}"
+    r"|\d{4}([ -])\d{6}\3\d{4,5})(?!\d)"
+)
 
 
 def _luhn(digits: str) -> bool:
@@ -406,11 +426,10 @@ def _luhn(digits: str) -> bool:
 def identity_shapes(text: str) -> list[str]:
     """Names of the identity shapes found in ``text`` (empty when clean)."""
     found = [name for name, pattern in _IDENTITY_SHAPES if pattern.search(text)]
-    for match in _CARD.finditer(text):
-        digits = re.sub(r"\D", "", match.group(0))
-        if 13 <= len(digits) <= 19 and _luhn(digits):
-            found.append("card number")
-            break
+    runs = (m.group(0) for m in _CARD_RUN.finditer(text) if len(m.group(0)) in (15, 16))
+    grouped = (re.sub(r"\D", "", m.group(0)) for m in _CARD_GROUPED.finditer(text))
+    if any(_luhn(digits) for digits in (*runs, *grouped)):
+        found.append("card number")
     return found
 
 
