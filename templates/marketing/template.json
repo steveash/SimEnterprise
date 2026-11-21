@@ -1,0 +1,30 @@
+{
+  "created_at": "2026-11-21T00:00:00+00:00",
+  "description": "A marketing org unit: demand generation, content and product marketing.",
+  "kind": "department",
+  "name": "Marketing",
+  "provides": {
+    "archetypes": [
+      "marketing"
+    ],
+    "data_scenarios": [],
+    "playbooks": [
+      "run_marketing"
+    ],
+    "processes": [
+      "marketing__kickoff",
+      "marketing__campaign",
+      "marketing__calendar",
+      "marketing__launch",
+      "marketing__results",
+      "marketing__status"
+    ]
+  },
+  "slug": "marketing",
+  "updated_at": "2026-11-21T00:00:00+00:00",
+  "validation": {
+    "checked_at": "2026-11-21T00:00:00+00:00",
+    "status": "unvalidated",
+    "summary": "not validated yet"
+  }
+}

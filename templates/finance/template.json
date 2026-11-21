@@ -1,0 +1,32 @@
+{
+  "created_at": "2026-11-21T00:00:00+00:00",
+  "description": "A finance org unit: planning and analysis, accounting and procurement.",
+  "kind": "department",
+  "name": "Finance",
+  "provides": {
+    "archetypes": [
+      "finance"
+    ],
+    "data_scenarios": [],
+    "playbooks": [
+      "run_finance"
+    ],
+    "processes": [
+      "finance__kickoff",
+      "finance__variance",
+      "finance__forecast",
+      "finance__invoice",
+      "finance__purchase",
+      "finance__close",
+      "finance__board",
+      "finance__status"
+    ]
+  },
+  "slug": "finance",
+  "updated_at": "2026-11-21T00:00:00+00:00",
+  "validation": {
+    "checked_at": "2026-11-21T00:00:00+00:00",
+    "status": "unvalidated",
+    "summary": "not validated yet"
+  }
+}

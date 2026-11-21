@@ -1,0 +1,30 @@
+{
+  "created_at": "2026-11-21T00:00:00+00:00",
+  "description": "A legal org unit: commercial contracts, privacy and corporate matters.",
+  "kind": "department",
+  "name": "Legal",
+  "provides": {
+    "archetypes": [
+      "legal"
+    ],
+    "data_scenarios": [],
+    "playbooks": [
+      "run_legal"
+    ],
+    "processes": [
+      "legal__kickoff",
+      "legal__contract",
+      "legal__dpa",
+      "legal__memo",
+      "legal__hold",
+      "legal__status"
+    ]
+  },
+  "slug": "legal",
+  "updated_at": "2026-11-21T00:00:00+00:00",
+  "validation": {
+    "checked_at": "2026-11-21T00:00:00+00:00",
+    "status": "unvalidated",
+    "summary": "not validated yet"
+  }
+}

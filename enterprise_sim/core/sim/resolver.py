@@ -274,7 +274,7 @@ class Resolver:
         Returns:
             A :class:`Resolution` with the picks and any written edge ids.
         """
-        candidates = self._candidates(selector, anchor)
+        candidates = [n for n in self._candidates(selector, anchor) if _employed(n, at)]
         ranked = self._rank(candidates, selector, anchor)
         selected = self._draw(ranked, selector, rng)
 
@@ -482,3 +482,16 @@ def _weighted_pop(pool: list[tuple[Node, float]], rng: random.Random) -> Node:
             return pool.pop(index)[0]
     # Floating-point guard: return the last element if rounding overshoots.
     return pool.pop()[0]
+
+
+def _employed(node: Node, at: datetime) -> bool:
+    """Whether ``node`` is on staff at ``at`` (``[org]`` turnover; see world_builders.turnover).
+
+    Only nodes that carry ``joined_at``/``left_at`` are ever excluded, so a
+    world without turnover resolves exactly as before.
+    """
+    joined = node.props.get("joined_at")
+    if joined is not None and datetime.fromisoformat(str(joined)) > at:
+        return False
+    left = node.props.get("left_at")
+    return not (left is not None and datetime.fromisoformat(str(left)) <= at)

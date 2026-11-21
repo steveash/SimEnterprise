@@ -1,0 +1,31 @@
+{
+  "created_at": "2026-11-21T00:00:00+00:00",
+  "description": "A sales org unit: account executives, sales engineering and revenue operations.",
+  "kind": "department",
+  "name": "Sales",
+  "provides": {
+    "archetypes": [
+      "sales"
+    ],
+    "data_scenarios": [],
+    "playbooks": [
+      "run_sales"
+    ],
+    "processes": [
+      "sales__kickoff",
+      "sales__deal",
+      "sales__forecast",
+      "sales__account",
+      "sales__winloss",
+      "sales__pricing",
+      "sales__status"
+    ]
+  },
+  "slug": "sales",
+  "updated_at": "2026-11-21T00:00:00+00:00",
+  "validation": {
+    "checked_at": "2026-11-21T00:00:00+00:00",
+    "status": "unvalidated",
+    "summary": "not validated yet"
+  }
+}

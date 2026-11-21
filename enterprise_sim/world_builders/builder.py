@@ -49,6 +49,7 @@ from enterprise_sim.world_builders.names import (
     pick,
     slugify,
 )
+from enterprise_sim.world_builders.turnover import apply_turnover
 
 __all__ = ["build_world"]
 
@@ -150,6 +151,18 @@ _SUBGOAL_BANK: tuple[str, ...] = (
 
 _SENIORITY_BANK: tuple[str, ...] = ("senior", "mid", "mid", "junior")
 
+#: Call-sign suffixes for the second and later squads of one team shape.
+_SQUAD_NAMES: tuple[str, ...] = (
+    "Alpha",
+    "Bravo",
+    "Charlie",
+    "Delta",
+    "Echo",
+    "Foxtrot",
+    "Golf",
+    "Hotel",
+)
+
 # Maps a team title to a believable individual-contributor noun.
 _IC_NOUNS: tuple[tuple[str, str], ...] = (
     ("engineering", "Engineer"),
@@ -226,6 +239,7 @@ class _WorldBuilder:
         for index, spec in enumerate(archetypes):
             self._build_department(index, spec)
         self._write_affinities()
+        apply_turnover(self._world, self._config, self._ctx, self._slugs)
         return self._world
 
     # -- archetype selection ------------------------------------------------
@@ -263,10 +277,23 @@ class _WorldBuilder:
         vertical = self._config.company.vertical.strip().lower()
         primary = _VERTICAL_ALIASES.get(vertical)
         if primary not in registered:
-            primary = sorted(registered)[0]
+            claimed = sorted(
+                name
+                for name, spec in registered.items()
+                if vertical in getattr(spec, "verticals", ())
+            )
+            primary = claimed[0] if claimed else sorted(registered)[0]
 
-        ordered = [primary] + [name for name in sorted(registered) if name != primary]
-        limit = min(self._profile().max_departments, len(ordered))
+        # The legacy built-ins keep their place right after the primary, so a
+        # size band's first two departments are what they always were; any
+        # further archetype (reached only with [org] max_departments) follows in
+        # a seeded order.
+        legacy = [n for n in sorted(registered) if n in _LEAD_ROLE and n != primary]
+        rest = sorted(n for n in registered if n not in _LEAD_ROLE and n != primary)
+        self._ctx.rng("dept_order").shuffle(rest)
+        ordered = [primary, *legacy, *rest]
+        cap = self._config.org.max_departments or self._profile().max_departments
+        limit = min(cap, len(ordered))
         return [_as_spec(registered[name]) for name in ordered[:limit]]
 
     def _validate_project_departments(self, archetypes: list[DepartmentArchetypeSpec]) -> None:
@@ -355,23 +382,44 @@ class _WorldBuilder:
         team_leads: list[str] = []
         dept_head: str | None = None
         for shape in spec.team_shapes:
-            team_id, members, lead_id = self._build_team(spec, dept_id, shape, t)
-            people_by_team[team_id] = members
-            team_leads.append(lead_id)
-            if dept_head is None:
-                dept_head = lead_id
+            for squad in self._squads(spec, shape, t):
+                team_id, members, lead_id = self._build_team(spec, dept_id, squad, t)
+                people_by_team[team_id] = members
+                team_leads.append(lead_id)
+                if dept_head is None:
+                    dept_head = lead_id
 
         assert dept_head is not None  # every archetype declares ≥1 team shape.
         # Reporting + leadership lines: head leads the department; other team
         # leads report to the head.
         self._add_edge(E_LEADS, dept_head, dept_id)
-        self._mark_role(dept_head, _LEAD_ROLE.get(spec.name))
+        self._mark_role(dept_head, spec.lead_role or _LEAD_ROLE.get(spec.name))
         for lead_id in team_leads:
             if lead_id != dept_head:
                 self._add_edge(E_REPORTS_TO, lead_id, dept_head)
 
         self._build_initiatives(spec, dept_id, dept_head, goal_ids, people_by_team)
         self._seed_team_affinities(people_by_team)
+
+    def _squads(self, spec: DepartmentArchetypeSpec, shape: TeamShape, t: float) -> list[TeamShape]:
+        """The squads one team shape staffs (``[org] squads_per_team``; default one).
+
+        The size band biases the pick toward the high end like head-counts do;
+        a second and later squad is the same shape with a call-sign suffix.
+        """
+        lo, hi = self._config.org.squads_range
+        if hi <= 1:
+            return [shape]
+        rng = self._ctx.rng("squads", spec.name, shape.title)
+        count = max(lo, min(hi, round(lo + t * (hi - lo)) + rng.choice((-1, 0, 0, 1))))
+        if count <= 1:
+            return [shape]
+        return [
+            TeamShape(
+                f"{shape.title} {_SQUAD_NAMES[i % len(_SQUAD_NAMES)]}", shape.count, shape.skills
+            )
+            for i in range(count)
+        ]
 
     def _build_team(
         self, spec: DepartmentArchetypeSpec, dept_id: str, shape: TeamShape, t: float
@@ -423,7 +471,7 @@ class _WorldBuilder:
         if is_lead:
             title = f"{shape.title} Lead"
         else:
-            title = f"{seniority.title()} {_ic_noun(shape.title)}"
+            title = f"{seniority.title()} {spec.ic_noun or _ic_noun(shape.title)}"
 
         expertise = self._expertise(shape, rng)
         self._add_node(

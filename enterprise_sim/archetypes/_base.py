@@ -54,3 +54,11 @@ class DepartmentArchetypeSpec:
     team_shapes: tuple[TeamShape, ...]
     #: names of playbooks this archetype typically runs (the protocol field).
     playbooks: Sequence[str]
+    #: the ``role`` prop given to the department head, which the archetype's
+    #: playbooks select their lead on (``None``: the builder's built-in table).
+    lead_role: str | None = None
+    #: company verticals this archetype is the primary department for.
+    verticals: tuple[str, ...] = ()
+    #: individual-contributor title noun for this department's people
+    #: (``None``: derived from the team title, default ``Specialist``).
+    ic_noun: str | None = None
