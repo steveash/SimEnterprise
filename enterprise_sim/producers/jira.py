@@ -155,6 +155,7 @@ class JiraProducer:
             path=path,
             cache_hits=cache_hits,
         )
+        description = ctx.messy(description, key=_artifact_id_for(event), roster=roster)
         comments = self._build_comments(
             commenters=commenters,
             client=client,
@@ -333,6 +334,7 @@ class JiraProducer:
                 at=at,
             )
             cache_hits.append(hit)
+            text = ctx.messy(text, key=f"{_artifact_id_for(event)}#c{i}", roster=roster)
             comments.append(
                 {
                     "author": {"displayName": _display_name(person), "accountId": person.id},

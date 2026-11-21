@@ -39,6 +39,7 @@ from dataclasses import dataclass, replace
 from datetime import datetime
 from typing import Protocol, runtime_checkable
 
+from enterprise_sim.assembly.messy_docs import apply_document_messiness
 from enterprise_sim.authoring.lowering import lower_playbook
 from enterprise_sim.authoring.sdk import Playbook as SdkPlaybook
 from enterprise_sim.core.config import WorldConfig
@@ -66,6 +67,7 @@ from enterprise_sim.jobs.progress import NullSink, ProgressEvent, ProgressSink
 from enterprise_sim.producers.artifact import ProducedArtifact, apply_to_world
 from enterprise_sim.producers.jira import JiraProducer
 from enterprise_sim.producers.markdown import MarkdownProducer, ProducerContext
+from enterprise_sim.producers.noise import ProseNoise, is_clean
 from enterprise_sim.producers.word import WordProducer
 
 
@@ -253,6 +255,9 @@ def build_corpus(
                     company_profile=company_profile,
                     scenario_context=_scenario_context(initiative),
                     artifacts_dir=f"artifacts/{_slug(initiative.id)}",
+                    noise=None
+                    if is_clean(config.messiness)
+                    else ProseNoise(config.messiness, seed=config.seed),
                 ),
             )
         )
@@ -558,10 +563,12 @@ def _render_scenario(
         view = world.projection(at=event.timestamp)
         producers = _producers_for(event.deliverable.kind)
         produced = [producer.produce(event, view, client, ctx) for producer in producers]
+        if ctx.noise is not None:
+            produced += apply_document_messiness(produced, ctx.noise)
         apply_to_world(world, produced)
         rendered.extend(produced)
         cost = client.cost
-        for producer, artifact in zip(producers, produced, strict=True):
+        for producer, artifact in zip(producers, produced[: len(producers)], strict=True):
             done, total = counter.increment()
             progress.emit(
                 ProgressEvent.now(

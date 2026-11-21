@@ -62,9 +62,9 @@ _OPENERS: dict[str, tuple[str, ...]] = {
     ),
 }
 _GENERIC_OPENERS: tuple[str, ...] = (
-    "This {kind} covers {topic}.",
-    "Below is the {kind} on {topic}.",
-    "The purpose of this {kind} is to record {topic}.",
+    "Goal of this {kind}: {topic}.",
+    "Scope of this {kind}: {topic}.",
+    "Purpose: {topic}.",
 )
 _COMMENT_OPENERS: tuple[str, ...] = (
     "Looks reasonable overall.",
@@ -135,7 +135,7 @@ def _fact_sentences(brief: ParsedBrief, rng: random.Random) -> list[str]:
 
 def compose(brief: ParsedBrief, rng: random.Random) -> str:
     """Compose the prose for ``brief`` (pure in ``brief`` and the rng state)."""
-    kind = brief.kind or "document"
+    kind = (brief.kind or "document").lower()
     topic = _lower_topic(brief.topic, brief.title)
     if brief.is_comment:
         opener = rng.choice(_REPLY_OPENERS if brief.replying else _COMMENT_OPENERS)

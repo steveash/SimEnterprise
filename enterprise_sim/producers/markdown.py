@@ -47,6 +47,7 @@ from enterprise_sim.producers.grounding import (
     detect_unresolved_names,
     tag_mentions,
 )
+from enterprise_sim.producers.noise import ProseNoise
 
 __all__ = ["MarkdownProducer", "ProducerContext"]
 
@@ -75,6 +76,19 @@ class ProducerContext:
     company_profile: str = ""
     scenario_context: str = ""
     artifacts_dir: str = "artifacts"
+    #: ``[messiness]`` for this scenario's prose (``None``: clean).
+    noise: ProseNoise | None = None
+
+    def messy(self, text: str, *, key: str, roster: Roster) -> str:
+        """``text`` with this scenario's messiness applied (quirks logged under ``key``).
+
+        The one place every producer passes generated prose through; a clean
+        context returns ``text`` unchanged.
+        """
+        if self.noise is None:
+            return text
+        people = [(e.entity_id, e.canonical) for e in roster.entries if e.entity_type == "Person"]
+        return self.noise.apply(text, key=key, people=people)
 
 
 class MarkdownProducer:
@@ -130,6 +144,7 @@ class MarkdownProducer:
             ctx=ctx,
             path=path,
         )
+        prose = ctx.messy(prose, key=artifact_id, roster=roster)
 
         body = _render_markdown(
             title=title,

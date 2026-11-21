@@ -120,6 +120,7 @@ class WordProducer:
             path=path,
             cache_hits=cache_hits,
         )
+        prose = ctx.messy(prose, key=artifact_id, roster=roster)
 
         paragraphs, anchor_idx = _body_paragraphs(
             title=title,
@@ -303,6 +304,7 @@ class WordProducer:
                 replying=i > 0,
             )
             cache_hits.append(hit)
+            text = ctx.messy(text, key=f"{_artifact_id_for(event)}#c{i}", roster=roster)
             name = _display_name(person)
             thread.append(
                 DocxComment(
