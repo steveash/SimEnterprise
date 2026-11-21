@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from enterprise_sim.benchmark.schema import REASONING_TYPES, QAPair
+from enterprise_sim.benchmark.schema import ALL_REASONING_TYPES, QAPair
 from enterprise_sim.evals.store import read_questions
 
 # Mirrors enterprise_sim.benchmark.generate._qid exactly, so a proposal that
@@ -67,7 +67,7 @@ def validate_proposals(
 
     A proposal is rejected when: a required field (``question``,
     ``reasoning_type``, ``expected_ids``) is missing or empty;
-    ``reasoning_type`` is not one of :data:`REASONING_TYPES`; an
+    ``reasoning_type`` is not one of :data:`ALL_REASONING_TYPES`; an
     ``expected_ids`` entry is not a real node id in
     ``<run>/kg/nodes.jsonl``; or its content-hash id (:func:`qid`) duplicates a
     question already in the run's set or earlier in this same batch. Accepted
@@ -92,11 +92,12 @@ def validate_proposals(
         if not question:
             rejected.append(Rejection(question, "empty question"))
             continue
-        if reasoning_type not in REASONING_TYPES:
+        if reasoning_type not in ALL_REASONING_TYPES:
             rejected.append(
                 Rejection(
                     question,
-                    f"reasoning_type {reasoning_type!r} is not one of {sorted(REASONING_TYPES)}",
+                    f"reasoning_type {reasoning_type!r} is not one of "
+                    f"{sorted(ALL_REASONING_TYPES)}",
                 )
             )
             continue

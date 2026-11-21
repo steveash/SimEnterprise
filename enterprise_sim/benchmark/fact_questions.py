@@ -75,8 +75,7 @@ def fact_drafts(world: World) -> Iterator[_Draft]:
                 reasoning_type="temporal",
                 qtype="as_of",
                 question=(
-                    f"What was the {label} of {subject} on {day}, "
-                    f"before it changed on {changed}?"
+                    f"What was the {label} of {subject} on {day}, before it changed on {changed}?"
                 ),
                 expected_ids=(first[1],),
                 expected_label=first[2],
