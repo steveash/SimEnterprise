@@ -967,3 +967,7 @@ def add_world_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentPar
         "--patch", required=True, metavar="JSON", help='e.g. \'{"scale": {"cost_ceiling_usd": 5}}\''
     )
     configure_parser.set_defaults(func=_cmd_world_configure)
+
+    from enterprise_sim.worlds.export_cli import add_export_parser
+
+    add_export_parser(world_subparsers)
