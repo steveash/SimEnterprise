@@ -32,9 +32,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import subprocess
 import zipfile
 from dataclasses import dataclass
+from datetime import UTC, datetime, time
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 from xml.etree import ElementTree
@@ -47,6 +50,9 @@ __all__ = [
     "ExportError",
     "ExportResult",
     "export_world",
+    "canonical_decimal",
+    "export_path",
+    "identity_shapes",
     "prose_backend_of",
 ]
 
@@ -216,6 +222,8 @@ def _column_type(arrow_type: Any) -> str:
     """Map an arrow type to the export's column types."""
     import pyarrow as pa
 
+    if pa.types.is_boolean(arrow_type):
+        return "boolean"
     if pa.types.is_integer(arrow_type):
         return "integer"
     if pa.types.is_floating(arrow_type) or pa.types.is_decimal(arrow_type):
@@ -224,35 +232,66 @@ def _column_type(arrow_type: Any) -> str:
         return "date"
     if pa.types.is_timestamp(arrow_type):
         return "timestamp"
-    # strings, booleans (written as ``true``/``false``) and anything else.
     return "text"
 
 
-def _cell(value: Any) -> str:
+def canonical_decimal(value: float | Decimal) -> str:
+    """Fixed notation, no exponent, no trailing zeros, no ``-0`` (``1e-05`` → ``0.00001``).
+
+    Built from the shortest round-trip ``repr`` so the text is exactly the float
+    that was sampled, never a longer binary expansion.
+    """
+    text = format(Decimal(repr(value)) if isinstance(value, float) else value, "f")
+    if "." in text:
+        text = text.rstrip("0").rstrip(".")
+    if text in ("-0", "", "-"):
+        return "0"
+    return text
+
+
+def _cell(value: Any, column_type: str, where: str) -> str:
     if value is None:
         return ""
-    if isinstance(value, bool):
+    if column_type == "boolean":
         return "true" if value else "false"
-    if isinstance(value, float):
-        if value != value or value in (float("inf"), float("-inf")):
+    if column_type == "decimal":
+        if isinstance(value, float) and (value != value or value in (_INF, -_INF)):
             return ""
-        return repr(value)
-    if hasattr(value, "isoformat"):
+        return canonical_decimal(value)
+    if column_type == "integer":
+        return str(int(value))
+    if column_type == "date":
+        if isinstance(value, datetime):
+            value = value.date()
         return str(value.isoformat())
-    return str(value)
+    if column_type == "timestamp":
+        stamp = value if value.tzinfo is None else value.astimezone(UTC).replace(tzinfo=None)
+        return str(stamp.strftime("%Y-%m-%dT%H:%M:%SZ"))
+    text = str(value)
+    if "\n" in text or "\r" in text:
+        raise ExportError(f"{where}: a cell holds a line break")
+    return text
+
+
+_INF = float("inf")
 
 
 def _csv_line(cells: list[str]) -> str:
+    """One RFC 4180 row: quote a cell only when it holds a comma or a quote."""
     out: list[str] = []
     for cell in cells:
-        if any(ch in cell for ch in (",", '"', "\n", "\r")):
+        if "," in cell or '"' in cell:
             cell = '"' + cell.replace('"', '""') + '"'
         out.append(cell)
     return ",".join(out)
 
 
-def _table_csv(directory: Path) -> tuple[str, list[dict[str, str]]]:
-    """Render every parquet part under ``directory`` as one CSV (header row first)."""
+def _table_csv(directory: Path, where: str) -> tuple[str, list[dict[str, str]]]:
+    """Render every parquet part under ``directory`` as one CSV (header row first).
+
+    A timestamp column whose every value is a midnight is a date column (weekly
+    and monthly rollups truncate to the day) and is typed and written as one.
+    """
     import pyarrow.parquet as pq
 
     parts = sorted(directory.rglob("*.parquet"))
@@ -260,11 +299,17 @@ def _table_csv(directory: Path) -> tuple[str, list[dict[str, str]]]:
         raise ExportError(f"{directory}: no parquet parts")
     tables = [pq.read_table(part) for part in parts]
     schema = tables[0].schema
-    columns = [{"name": f.name, "type": _column_type(f.type)} for f in schema]
+    rows = [row for table in tables for row in table.to_pylist()]
+    types = {f.name: _column_type(f.type) for f in schema}
+    for name, kind in types.items():
+        if kind == "timestamp":
+            stamps = [row[name] for row in rows if row[name] is not None]
+            if all(s.time() == time(0, 0) for s in stamps):
+                types[name] = "date"
+    columns = [{"name": f.name, "type": types[f.name]} for f in schema]
     lines = [_csv_line([f.name for f in schema])]
-    for table in tables:
-        for row in table.to_pylist():
-            lines.append(_csv_line([_cell(row[f.name]) for f in schema]))
+    for row in rows:
+        lines.append(_csv_line([_cell(row[f.name], types[f.name], where) for f in schema]))
     return "\n".join(lines) + "\n", columns
 
 
@@ -308,19 +353,91 @@ def _table_keys(spec: dict[str, Any], table: str) -> tuple[list[str], list[dict[
 # -- the export ---------------------------------------------------------------- #
 
 
+#: Export paths: this charset, file names <= 90 bytes, paths <= 160 bytes (the
+#: consumer's limit is 200 including its own prefix; ustar names fit).
+_PATH_CHARS = re.compile(r"[^A-Za-z0-9._/-]")
+_MAX_NAME = 90
+_MAX_PATH = 160
+
+
+def export_path(rel: str) -> str:
+    """A short, stable export path for world path ``rel`` (``rel`` itself if it fits).
+
+    Over-long or out-of-charset names keep a readable prefix and gain a hash of
+    the full world path, so two long names never collide and the mapping is a
+    pure function of the path.
+    """
+    if not _PATH_CHARS.search(rel) and len(rel) <= _MAX_PATH:
+        if all(len(part) <= _MAX_NAME for part in rel.split("/")):
+            return rel
+    tag = _sha256(rel.encode("utf-8"))[:10]
+    *dirs, name = rel.split("/")
+    short_dirs = [_PATH_CHARS.sub("-", d)[:40] for d in dirs]
+    dot = name.find(".", 1)
+    stem, suffix = (name[:dot], name[dot:]) if dot > 0 else (name, "")
+    suffix = _PATH_CHARS.sub("-", suffix)[:20]
+    stem = _PATH_CHARS.sub("-", stem)[:40].rstrip("-.")
+    return "/".join([*short_dirs, f"{stem}-{tag}{suffix}"])
+
+
+#: Identity shapes no exported file may carry (the consumer's privacy pack
+#: refuses them too; failing here names the world file that holds one).
+_IDENTITY_SHAPES: tuple[tuple[str, re.Pattern[str]], ...] = (
+    (
+        "email address",
+        re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}"),
+    ),
+    ("phone number", re.compile(r"(?<![\w-])\+?\(?\d{3}\)?[ .-]\d{3}[ .-]\d{4}(?![\w-])")),
+    ("SSN", re.compile(r"(?<![\w-])\d{3}-\d{2}-\d{4}(?![\w-])")),
+)
+_CARD = re.compile(r"(?<![\w.,-])(?:\d{13,19}|\d{4}(?:[ -]\d{4}){2,3}(?:[ -]\d{1,3})?)(?![\w.-])")
+
+
+def _luhn(digits: str) -> bool:
+    total = 0
+    for i, ch in enumerate(reversed(digits)):
+        d = int(ch)
+        if i % 2 == 1:
+            d = d * 2 - 9 if d > 4 else d * 2
+        total += d
+    return total % 10 == 0
+
+
+def identity_shapes(text: str) -> list[str]:
+    """Names of the identity shapes found in ``text`` (empty when clean)."""
+    found = [name for name, pattern in _IDENTITY_SHAPES if pattern.search(text)]
+    for match in _CARD.finditer(text):
+        digits = re.sub(r"\D", "", match.group(0))
+        if 13 <= len(digits) <= 19 and _luhn(digits):
+            found.append("card number")
+            break
+    return found
+
+
 class _Writer:
     def __init__(self, root: Path) -> None:
         self.root = root
         self.files: list[dict[str, Any]] = []
         self.tables: list[dict[str, Any]] = []
+        self.paths: set[str] = set()
 
-    def write(self, rel: str, data: bytes, media: str, **extra: Any) -> None:
+    def write(self, rel: str, data: bytes, media: str, **extra: Any) -> str:
         if b"\r" in data:
             raise ExportError(f"{rel}: carriage return in exported text")
         try:
             data.decode("utf-8")
         except UnicodeDecodeError as exc:
             raise ExportError(f"{rel}: not UTF-8 text") from exc
+        shapes = identity_shapes(data.decode("utf-8"))
+        if shapes:
+            raise ExportError(f"{rel}: holds a value shaped like {', '.join(shapes)}")
+        source = rel
+        rel = export_path(rel)
+        if rel != source:
+            extra.setdefault("source_path", source)
+        if rel in self.paths:
+            raise ExportError(f"{source}: export path {rel} is taken")
+        self.paths.add(rel)
         target = self.root / rel
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(data)
@@ -329,10 +446,11 @@ class _Writer:
             "media_type": media,
             "sha256": _sha256(data),
             "bytes": len(data),
-            "role": _role(rel),
+            "role": _role(source),
         }
         entry.update(extra)
         self.files.append(entry)
+        return rel
 
 
 def _world_files(world_dir: Path) -> list[Path]:
@@ -396,9 +514,9 @@ def export_world(world_dir: Path | str, out_root: Path | str) -> ExportResult:
         scenario, kind, name = directory.relative_to(world_dir / "data").parts
         spec_path = world_dir / "data" / scenario / "spec.json"
         spec = json.loads(spec_path.read_text(encoding="utf-8")) if spec_path.is_file() else {}
-        csv_text, columns = _table_csv(directory)
         rel = f"data/{scenario}/{kind}/{name}.csv"
-        writer.write(rel, csv_text.encode("utf-8"), "text/csv")
+        csv_text, columns = _table_csv(directory, rel)
+        rel = writer.write(rel, csv_text.encode("utf-8"), "text/csv")
         primary, foreign = _table_keys(spec, name) if kind == "tables" else ([], [])
         for fk in foreign:
             fk["table"] = f"{scenario}.{fk['table']}"

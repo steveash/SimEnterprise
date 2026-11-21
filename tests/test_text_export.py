@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import csv
 import hashlib
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -11,7 +13,10 @@ from enterprise_sim.cli import main
 from enterprise_sim.exporters.text_export import (
     EXPORT_FORMAT,
     ExportError,
+    canonical_decimal,
+    export_path,
     export_world,
+    identity_shapes,
     prose_backend_of,
 )
 
@@ -86,10 +91,10 @@ def test_export_has_no_binary_or_bookkeeping_and_renders_documents(
     assert docx, "the fixture world renders at least one .docx"
     for source in docx:
         rel = source.relative_to(world_dir).as_posix()
-        entry = files[f"{rel}.md"]
-        assert entry["rendered_from"] == rel
+        (entry,) = [f for f in files.values() if f.get("rendered_from") == rel]
+        assert entry["path"].endswith(".docx.md")
         assert entry["source_sha256"] == hashlib.sha256(source.read_bytes()).hexdigest()
-        text = (result.directory / f"{rel}.md").read_text(encoding="utf-8")
+        text = (result.directory / entry["path"]).read_text(encoding="utf-8")
         assert text.startswith("# ")
 
 
@@ -138,6 +143,7 @@ def test_export_tables_carry_schema_and_keys(world_dir: Path, tmp_path: Path) ->
             "decimal",
             "date",
             "timestamp",
+            "boolean",
         }
         if table["kind"] == "view":
             assert table["primary_key"] == [] and table["foreign_keys"] == []
@@ -187,3 +193,111 @@ def test_world_export_cli(
 )
 def test_prose_backend_classification(backend: str, prose: str) -> None:
     assert prose_backend_of(backend) == prose
+
+
+@pytest.mark.parametrize(
+    ("value", "text"),
+    [
+        (1e-05, "0.00001"),
+        (2.0, "2"),
+        (-0.0, "0"),
+        (3191.068163337267, "3191.068163337267"),
+        (1.5e16, "15000000000000000"),
+        (-12.50, "-12.5"),
+        (0.1, "0.1"),
+    ],
+)
+def test_decimals_are_fixed_notation(value: float, text: str) -> None:
+    assert canonical_decimal(value) == text
+
+
+@pytest.mark.parametrize(
+    "rel",
+    [
+        "organization/company.md",
+        "artifacts/" + "x" * 150 + "/" + "y" * 168 + ".docx.md",
+        "artifacts/a/" + "z" * 120 + ".jira.json",
+        "artifacts/a/name with spaces (1).md",
+    ],
+)
+def test_export_paths_fit_the_package_limits(rel: str) -> None:
+    out = export_path(rel)
+    assert re.fullmatch(r"[A-Za-z0-9._/-]+", out)
+    assert len(out.encode()) <= 160
+    assert all(len(part.encode()) <= 90 for part in out.split("/"))
+    assert out.endswith(Path(rel).suffix)
+    assert export_path(rel) == out  # stable
+    if rel == "organization/company.md":
+        assert out == rel
+
+
+def test_long_names_never_collide() -> None:
+    a = export_path("artifacts/s/" + "n" * 120 + "-a.md")
+    b = export_path("artifacts/s/" + "n" * 120 + "-b.md")
+    assert a != b
+
+
+@pytest.mark.parametrize(
+    ("text", "shape"),
+    [
+        ("write to someone@example.com today", "email address"),
+        ("call +1 555-123-4567", "phone number"),
+        ("ssn 123-45-6789", "SSN"),
+        ("card 4111 1111 1111 1111", "card number"),
+        ("card 4111111111111111", "card number"),
+    ],
+)
+def test_identity_shapes_are_found(text: str, shape: str) -> None:
+    assert shape in identity_shapes(text)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "2026-01-05,0.3415926535897932,139",
+        "agent-000004,person:esme-acosta,Esme Acosta,0.766691172642268",
+        "sha256 9cc7203abeadae2184537a752ce3aa7487df840188246128e222eb42c4090257",
+        "rows 1234567890123456,7",
+        "2026-01-05T09:00:00",
+    ],
+)
+def test_ordinary_values_are_not_identity_shapes(text: str) -> None:
+    assert identity_shapes(text) == []
+
+
+def test_export_refuses_an_identity_shaped_value(world_dir: Path, tmp_path: Path) -> None:
+    (world_dir / "organization" / "contact.md").write_text("Mail ops@example.com\n")
+    with pytest.raises(ExportError, match="email address"):
+        export_world(world_dir, tmp_path / "out")
+
+
+def test_table_cells_follow_the_package_rules(world_dir: Path, tmp_path: Path) -> None:
+    result = export_world(world_dir, tmp_path / "out")
+    tables = {t["name"]: t for t in _manifest(result.directory)["tables"]}
+    types = {c["name"]: c["type"] for c in tables["support_ops.fact_ticket"]["columns"]}
+    assert types["escalated"] == "boolean"
+    weekly = {c["name"]: c["type"] for c in tables["support_ops.csat_weekly"]["columns"]}
+    assert weekly["week"] == "date"
+    for table in tables.values():
+        lines = (result.directory / table["path"]).read_text(encoding="utf-8").splitlines()
+        kinds = [c["type"] for c in table["columns"]]
+        for line in lines[1:]:
+            cells = line.split(",")
+            if len(cells) != len(kinds):
+                continue  # a quoted comma; checked by the csv round-trip below
+            for cell, kind in zip(cells, kinds, strict=True):
+                if not cell:
+                    continue
+                if kind == "decimal":
+                    assert re.fullmatch(r"-?(0|[1-9]\d*)(\.\d*[1-9])?", cell), cell
+                elif kind == "integer":
+                    assert re.fullmatch(r"-?(0|[1-9]\d*)", cell), cell
+                elif kind == "date":
+                    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", cell), cell
+                elif kind == "timestamp":
+                    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", cell), cell
+                elif kind == "boolean":
+                    assert cell in ("true", "false")
+        with (result.directory / table["path"]).open(newline="", encoding="utf-8") as fh:
+            rows = list(csv.reader(fh))
+        assert all(len(row) == len(kinds) for row in rows)
