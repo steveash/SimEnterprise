@@ -57,7 +57,7 @@ def test_world_catalog_shape(capsys: pytest.CaptureFixture[str]) -> None:
     for playbook in payload["playbooks"]:
         assert {"name", "vertical", "deliverables"} <= set(playbook)
     assert isinstance(payload["producers"], list)
-    assert set(payload["backends"]) == {"anthropic_api", "bedrock", "claude_cli", "fake"}
+    assert set(payload["backends"]) == {"anthropic_api", "bedrock", "claude_cli", "fake", "synth"}
     assert "claude-sonnet-4-6" in payload["models"]
     for pricing in payload["models"].values():
         assert {"input_per_mtok", "cached_input_per_mtok", "output_per_mtok"} <= set(pricing)

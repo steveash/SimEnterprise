@@ -38,6 +38,7 @@ from datetime import datetime, timedelta
 
 from enterprise_sim.core.events import Event
 from enterprise_sim.core.llm import LLMClient, Prompt, assemble_prompt
+from enterprise_sim.core.llm.brief import facts_block_for
 from enterprise_sim.core.registry import PRODUCERS
 from enterprise_sim.core.world import Edge, Node, WorldView
 from enterprise_sim.producers.artifact import Mention, ProducedArtifact, ValidationIssue
@@ -385,6 +386,10 @@ def _task_brief(
     ]
     if reporter is not None:
         lines.append(f"Reported by: {_display_name(reporter)}.")
+    facts = facts_block_for(event.payload)
+    if facts:
+        lines.append("")
+        lines.append(facts)
     lines.append("")
     lines.append(roster.roster_block())
     if candidates:

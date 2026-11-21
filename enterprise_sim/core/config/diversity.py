@@ -1,0 +1,189 @@
+"""Benchmark-diversity knobs of a world config (``[facts]``, ``[messiness]``, ``[org]``).
+
+These sections widen the distribution of worlds SimEnterprise can generate for
+retrieval/memory benchmarks:
+
+* :class:`FactsConfig` — a **fact ledger**: per-project facts (target dates,
+  owners, budgets, datastores, pipeline schedules, metric definitions, ...) that
+  change over the window, asserted by the documents — some of them stale,
+  conflicting or hedged — with every assertion labelled in the gold KG.
+* :class:`MessinessConfig` — surface noise in the rendered corpus (typos,
+  nickname and initial aliases, mixed date formats, near-duplicate copies,
+  dropped headers), each injection labelled in the gold KG.
+* :class:`OrgConfig` — org-shape overrides: more departments than the size band
+  allows, several squads per team shape, and people turnover over the window.
+
+Every section defaults to *off*, and a section left at its default contributes
+nothing to the config digest, so existing worlds (notably the pinned golden
+world) keep their ids.
+"""
+
+from __future__ import annotations
+
+from enum import StrEnum
+
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+
+class _Frozen(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+
+class OfflineBackend(StrEnum):
+    """The render backend a build uses without ``--live``.
+
+    ``fake`` echoes the prompt (structure only, no facts in the prose); ``synth``
+    composes deterministic, fact-bearing prose from the brief, at no cost.
+    """
+
+    FAKE = "fake"
+    SYNTH = "synth"
+
+
+def _range(text: str) -> tuple[int, int]:
+    lo_s, _, hi_s = text.partition("..")
+    lo, hi = int(lo_s), int(hi_s or lo_s)
+    if lo < 0 or hi < lo:
+        raise ValueError(f"bad range {text!r}: expected 'lo..hi' with 0 <= lo <= hi")
+    return lo, hi
+
+
+class FactsConfig(_Frozen):
+    """The fact ledger: facts per project, how they change, how documents state them."""
+
+    per_project: int = Field(
+        default=0, ge=0, le=40, description="Facts per project; 0 disables the ledger."
+    )
+    change_rate: float = Field(
+        default=0.3,
+        ge=0.0,
+        le=1.0,
+        description="Probability a fact gets a new version at each of up to max_versions-1 draws.",
+    )
+    max_versions: int = Field(default=3, ge=1, le=8, description="Most versions one fact can have.")
+    per_artifact: str = Field(
+        default="1..3", description="Facts a document asserts, as 'lo..hi' (0 allowed)."
+    )
+    stale_rate: float = Field(
+        default=0.15,
+        ge=0.0,
+        le=1.0,
+        description="Probability a document states a superseded value of a changed fact.",
+    )
+    conflict_rate: float = Field(
+        default=0.05,
+        ge=0.0,
+        le=1.0,
+        description="Probability a document states a value that was never true.",
+    )
+    hedge_rate: float = Field(
+        default=0.1,
+        ge=0.0,
+        le=1.0,
+        description="Probability a correct statement is hedged ('I believe ...').",
+    )
+    cross_team: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Probability a project depends on a project of another department, whose "
+            "facts its documents then cite (stale more often: cross_team_stale_boost)."
+        ),
+    )
+    cross_team_stale_boost: float = Field(
+        default=2.0, ge=1.0, le=10.0, description="Multiplier on stale_rate for cited facts."
+    )
+
+    @model_validator(mode="after")
+    def _check(self) -> FactsConfig:
+        _range(self.per_artifact)
+        return self
+
+    @property
+    def per_artifact_range(self) -> tuple[int, int]:
+        return _range(self.per_artifact)
+
+
+class MessinessConfig(_Frozen):
+    """Surface noise injected into rendered documents (0 everywhere = clean)."""
+
+    typo_rate: float = Field(
+        default=0.0, ge=0.0, le=0.2, description="Per-word probability of a typo."
+    )
+    alias_rate: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+        description="Probability a person mention is written as a nickname or initials.",
+    )
+    date_format_mix: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+        description="Probability a date in prose is written in a non-ISO format.",
+    )
+    duplicate_rate: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+        description="Probability a document also exists as a near-duplicate copy ('-v2-final').",
+    )
+    drop_header_rate: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+        description="Probability a document loses its templated author/date header line.",
+    )
+    filler_rate: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+        description="Probability of an off-topic filler paragraph (chatter, boilerplate).",
+    )
+
+
+class OrgConfig(_Frozen):
+    """Org-shape overrides over the size band."""
+
+    max_departments: int | None = Field(
+        default=None,
+        ge=1,
+        le=40,
+        description="Department cap when [[departments]] is not given (default: the size band).",
+    )
+    squads_per_team: str = Field(
+        default="1..1",
+        description="How many squads each team shape staffs, 'lo..hi' (size biases the pick).",
+    )
+    turnover_rate: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=0.8,
+        description="Share of non-lead people who leave during the window (a successor joins).",
+    )
+    transfer_rate: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=0.5,
+        description="Share of non-lead people who move to another team during the window.",
+    )
+
+    @model_validator(mode="after")
+    def _check(self) -> OrgConfig:
+        lo, _ = _range(self.squads_per_team)
+        if lo < 1:
+            raise ValueError("squads_per_team must start at 1 or more")
+        return self
+
+    @property
+    def squads_range(self) -> tuple[int, int]:
+        return _range(self.squads_per_team)
+
+
+__all__ = [
+    "FactsConfig",
+    "MessinessConfig",
+    "OfflineBackend",
+    "OrgConfig",
+]

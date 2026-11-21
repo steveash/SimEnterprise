@@ -19,6 +19,13 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from enterprise_sim.core.config.diversity import (
+    FactsConfig,
+    MessinessConfig,
+    OfflineBackend,
+    OrgConfig,
+)
+
 
 class _Frozen(BaseModel):
     """Base for config models: immutable, strict, and typo-proof."""
@@ -130,6 +137,13 @@ class ModelConfig(_Frozen):
         ge=0.0,
         le=1.0,
         description="Realism/cost dial in [0,1]; higher trades cost for fidelity.",
+    )
+    offline_backend: OfflineBackend = Field(
+        default=OfflineBackend.FAKE,
+        description=(
+            "Render backend without --live: fake (prompt echo, structure only) or "
+            "synth (deterministic fact-bearing prose)."
+        ),
     )
 
 
@@ -252,6 +266,18 @@ class WorldConfig(_Frozen):
             "it does not change the corpus or graph, so adding data never changes "
             "a world's id."
         ),
+    )
+    facts: FactsConfig = Field(
+        default_factory=FactsConfig,
+        description="The fact ledger: changing per-project facts, stale/conflicting assertions.",
+    )
+    messiness: MessinessConfig = Field(
+        default_factory=MessinessConfig,
+        description="Surface noise injected into rendered documents, labelled in the gold KG.",
+    )
+    org: OrgConfig = Field(
+        default_factory=OrgConfig,
+        description="Org-shape overrides: department cap, squads per team shape, turnover.",
     )
     plugins: tuple[str, ...] = Field(
         default=(),

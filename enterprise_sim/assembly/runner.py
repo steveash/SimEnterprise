@@ -151,7 +151,7 @@ def effective_backend(config: WorldConfig, client: LLMClient | None, *, live: bo
     """
     if client is not None:
         return client.config.backend
-    return config.model.backend.value if live else _DEFAULT_BACKEND
+    return render_backend_for(config, live=live)
 
 
 def _client_for(
@@ -211,10 +211,39 @@ def compute_config_digest(config: WorldConfig, *, backend: str | None = None) ->
     payload.pop("scale", None)
     payload.pop("plugins", None)
     payload.pop("data", None)
+    _drop_default_sections(payload)
     if backend is not None and backend != _DEFAULT_BACKEND:
         payload["render_backend"] = backend
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def _drop_default_sections(payload: dict[str, object]) -> None:
+    """Remove the diversity knobs left at their defaults from a digest payload.
+
+    ``[facts]``, ``[messiness]``, ``[org]`` and ``[model] offline_backend`` were
+    added after worlds were pinned by id; at their defaults they change nothing,
+    so they contribute nothing and every existing id stays byte-stable. The
+    effective offline backend reaches the digest as ``render_backend``.
+    """
+    from enterprise_sim.core.config.diversity import FactsConfig, MessinessConfig, OrgConfig
+
+    defaults = {
+        "facts": FactsConfig().model_dump(mode="json"),
+        "messiness": MessinessConfig().model_dump(mode="json"),
+        "org": OrgConfig().model_dump(mode="json"),
+    }
+    for key, default in defaults.items():
+        if payload.get(key) == default:
+            payload.pop(key, None)
+    model = payload.get("model")
+    if isinstance(model, dict):
+        model.pop("offline_backend", None)
+
+
+def render_backend_for(config: WorldConfig, *, live: bool) -> str:
+    """The backend a build renders with: the provider under ``live``, else the offline one."""
+    return config.model.backend.value if live else config.model.offline_backend.value
 
 
 def compute_world_id(

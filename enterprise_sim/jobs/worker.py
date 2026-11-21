@@ -19,7 +19,7 @@ import threading
 from datetime import UTC, datetime
 from pathlib import Path
 
-from enterprise_sim.assembly.runner import execute_run, llm_config_for
+from enterprise_sim.assembly.runner import execute_run, llm_config_for, render_backend_for
 from enterprise_sim.core.config import WorldConfig
 from enterprise_sim.core.llm import CostCeilingExceeded, LLMClient, build_client
 from enterprise_sim.jobs.control import RunControl, RunPaused, install_signal_handlers
@@ -82,7 +82,7 @@ def run_job(world_dir: Path, *, progress: ProgressSink | None = None) -> JobStat
     client: LLMClient | None = None
 
     try:
-        backend = config.model.backend.value if world.live else "fake"
+        backend = render_backend_for(config, live=world.live)
         client = build_client(llm_config_for(config, backend=backend, world_dir=world_dir))
         result = execute_run(
             config, client=client, progress=sink, control=control, world_dir=world_dir

@@ -547,6 +547,10 @@ def build_backend(name: str, **kwargs: Any) -> Backend:
     """
     if name == "fake":
         return FakeBackend()
+    if name == "synth":
+        from enterprise_sim.core.llm.synth import SynthBackend
+
+        return SynthBackend()
     if name == "anthropic_api":
         return AnthropicAPIBackend(**kwargs)
     if name == "bedrock":
@@ -555,7 +559,7 @@ def build_backend(name: str, **kwargs: Any) -> Backend:
         return ClaudeCLIBackend(**kwargs)
     raise ValueError(
         f"unknown LLM backend {name!r}; expected one of "
-        "['anthropic_api', 'bedrock', 'claude_cli', 'fake']"
+        "['anthropic_api', 'bedrock', 'claude_cli', 'fake', 'synth']"
     )
 
 

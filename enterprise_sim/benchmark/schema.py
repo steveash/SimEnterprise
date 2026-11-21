@@ -30,6 +30,8 @@ REASONING_TYPES: frozenset[str] = frozenset(
         "provenance",  # the answer key: "which artifact states this fact?"
         "aggregation",  # a count/filter over many nodes: "how many … ?"
         "goal_tree",  # a goal/sub-goal decomposition walk.
+        "temporal",  # a fact's value now / at a date / its change count (fact ledger).
+        "conflict",  # which documents state a stale, never-true or changed value.
     }
 )
 

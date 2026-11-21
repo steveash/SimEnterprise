@@ -54,6 +54,13 @@ from enterprise_sim.core.sim.calendar import WorkingCalendar
 from enterprise_sim.core.sim.scheduler import Scheduler, ValidationIssue
 from enterprise_sim.core.sim.spec import Activation, Scenario
 from enterprise_sim.core.world import Node, World
+from enterprise_sim.facts import (
+    assertion_edges,
+    assign_assertions,
+    attach,
+    build_ledger,
+    ledger_graph,
+)
 from enterprise_sim.jobs.control import RunControl, RunPaused
 from enterprise_sim.jobs.progress import NullSink, ProgressEvent, ProgressSink
 from enterprise_sim.producers.artifact import ProducedArtifact, apply_to_world
@@ -250,6 +257,24 @@ def build_corpus(
             )
         )
 
+    # -- Phase 1b: the fact ledger (off unless [facts] per_project > 0). -------
+    # Facts and their versions join the KG; each deliverable event learns which
+    # facts its document states (payload["facts"]), in global render order.
+    ledger = build_ledger(
+        world,
+        config.facts,
+        seed=config.seed,
+        start=config.simulation.period_start,
+        end=config.simulation.period_end,
+    )
+    if ledger:
+        ledger_graph(world, ledger)
+        people_of = _people_by_department(world)
+        assertions = assign_assertions(
+            ledger, journal.ordered(), config.facts, seed=config.seed, people_of=people_of
+        )
+        attach(journal.ordered(), assertions)
+
     num_artifacts = sum(_deliverable_count(plan.journal) for plan in plans)
     progress.emit(
         ProgressEvent.now(
@@ -299,6 +324,13 @@ def build_corpus(
     for scenario_artifacts in rendered:
         apply_to_world(world, scenario_artifacts)
         artifacts.extend(scenario_artifacts)
+    if ledger:
+        by_id = {event.id: event for event in journal.ordered()}
+        for artifact in artifacts:
+            source = by_id.get(str(artifact.node.props.get("event", "")))
+            if source is not None:
+                for edge in assertion_edges(artifact.artifact_id, source):
+                    world.add_edge(edge)
 
     return CorpusResult(
         journal=journal,
@@ -306,6 +338,16 @@ def build_corpus(
         issues=tuple(issues),
         estimate=estimate,
     )
+
+
+def _people_by_department(world: World) -> dict[str, tuple[str, ...]]:
+    """Display names of each department's people (for owner-style fact values)."""
+    out: dict[str, list[str]] = {}
+    for node in world.nodes_by_type("Person"):
+        name = node.props.get("name")
+        if name:
+            out.setdefault(str(node.props.get("department", "")), []).append(str(name))
+    return {dept: tuple(sorted(names)) for dept, names in out.items()}
 
 
 def _deliverable_count(journal: EventJournal) -> int:

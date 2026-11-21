@@ -338,6 +338,8 @@ def build_benchmark(world: World, groundings: Mapping[str, list[str]]) -> Benchm
     content-hashed ids, so the same inputs always yield a byte-identical
     benchmark.
     """
+    from enterprise_sim.benchmark.fact_questions import fact_drafts
+
     drafts: list[_Draft] = [
         *_direct_relations(world),
         *_management_chains(world),
@@ -345,6 +347,7 @@ def build_benchmark(world: World, groundings: Mapping[str, list[str]]) -> Benchm
         *_provenance(world, groundings),
         *_aggregations(world),
         *_goal_trees(world),
+        *fact_drafts(world),
     ]
     drafts.sort(key=_Draft.sort_key)
     return Benchmark.of(draft.to_pair() for draft in drafts)

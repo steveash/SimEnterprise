@@ -191,7 +191,7 @@ def _cmd_world_catalog(args: argparse.Namespace) -> int:
         "playbooks": playbooks,
         "data_scenarios": _data_scenarios_catalog(),
         "producers": PRODUCERS.names(),
-        "backends": [b.value for b in LLMBackend] + ["fake"],
+        "backends": [b.value for b in LLMBackend] + ["fake", "synth"],
         "models": models,
         "company_sizes": [s.value for s in CompanySize],
         "schema": _WorldConfig.model_json_schema(),
@@ -232,7 +232,7 @@ def _data_scenarios_catalog() -> list[dict[str, Any]]:
 def _cmd_world_estimate(args: argparse.Namespace) -> int:
     """Print JSON: the RenderEstimate fields + world counts + event count (dry-run, keyless)."""
     from enterprise_sim.assembly.corpus import build_corpus
-    from enterprise_sim.assembly.runner import llm_config_for
+    from enterprise_sim.assembly.runner import llm_config_for, render_backend_for
     from enterprise_sim.core.llm import CostCeilingExceeded, build_client
     from enterprise_sim.world_builders import build_world
 
@@ -243,7 +243,7 @@ def _cmd_world_estimate(args: argparse.Namespace) -> int:
     config = _load_config(config_path, command="estimate")
     if config is None:
         return 2
-    backend = config.model.backend.value if args.live else "fake"
+    backend = render_backend_for(config, live=args.live)
     client = build_client(llm_config_for(config, backend=backend))
     world = build_world(config)
     try:
@@ -299,7 +299,7 @@ def _cmd_world_create(args: argparse.Namespace) -> int:
         f"({config.company.vertical}, {config.company.size.value}); "
         f"seed={config.seed}, window={config.simulation.period_start.isoformat()}"
         f"..{config.simulation.period_end.isoformat()}, projects={len(config.projects)}; "
-        f"backend={config.model.backend.value if args.live else 'fake'}"
+        f"backend={config.model.backend.value if args.live else config.model.offline_backend.value}"
         f"{'' if args.live else ' (deterministic; pass --live for the real provider)'}",
         file=say,
     )
@@ -326,9 +326,10 @@ def _cmd_world_create(args: argparse.Namespace) -> int:
         return 0
 
     from enterprise_sim.assembly import build_world_file, compute_config_digest, compute_world_id
+    from enterprise_sim.assembly.runner import render_backend_for
     from enterprise_sim.worlds.file import read_world, write_world
 
-    backend = config.model.backend.value if args.live else "fake"
+    backend = render_backend_for(config, live=args.live)
     digest = compute_config_digest(config, backend=backend)
     world_id = compute_world_id(config, digest=digest)
     world_dir = Path(config.worlds_root) / world_id
@@ -357,6 +358,7 @@ def _cmd_world_create(args: argparse.Namespace) -> int:
 def _cmd_world_extend(args: argparse.Namespace) -> int:
     """Grow a world in place: later ``period_end`` and/or more projects; then build it."""
     from enterprise_sim.assembly import canonical_config, compute_config_digest
+    from enterprise_sim.assembly.runner import render_backend_for
     from enterprise_sim.core.config import WorldConfig
     from enterprise_sim.jobs.extend import ExtendError, extend_config
     from enterprise_sim.worlds.file import WorldFile, read_world, update_world
@@ -393,7 +395,7 @@ def _cmd_world_extend(args: argparse.Namespace) -> int:
         return 2
 
     live = True if args.live else world.live
-    backend = child.model.backend.value if live else "fake"
+    backend = render_backend_for(child, live=live)
     digest = compute_config_digest(child, backend=backend)
     changes = {
         "period_end": [
@@ -435,6 +437,7 @@ def _cmd_world_extend(args: argparse.Namespace) -> int:
 def _cmd_world_fork(args: argparse.Namespace) -> int:
     """Create a parallel world from an existing one (with lineage + a seeded cache)."""
     from enterprise_sim.assembly import build_world_file, compute_config_digest, compute_world_id
+    from enterprise_sim.assembly.runner import render_backend_for
     from enterprise_sim.core.config import WorldConfig
     from enterprise_sim.jobs.extend import ExtendError, copy_cache, extend_config
     from enterprise_sim.worlds.file import cache_dir, read_world, write_world
@@ -469,7 +472,7 @@ def _cmd_world_fork(args: argparse.Namespace) -> int:
         )
 
     live = True if args.live else world.live
-    backend = child.model.backend.value if live else "fake"
+    backend = render_backend_for(child, live=live)
     digest = compute_config_digest(child, backend=backend)
     if digest == world.config_digest:
         print(
