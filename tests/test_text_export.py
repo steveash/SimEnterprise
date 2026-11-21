@@ -104,6 +104,7 @@ def test_export_has_no_binary_or_bookkeeping_and_renders_documents(
         ("data/support_ops/spec.json", "gold"),
         ("data/support_ops/questions.json", "gold"),
         ("data/support_ops/lineage.json", "gold"),
+        ("data/support_ops/spec.iteration-1.json", "gold"),
         ("organization/company.md", "data"),
         ("data/support_ops/tables/dim_agent.csv", "data"),
     ],

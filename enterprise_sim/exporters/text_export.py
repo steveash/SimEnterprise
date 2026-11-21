@@ -68,7 +68,6 @@ _SKIP_PREFIXES: tuple[str, ...] = ("kg/neo4j/",)
 
 #: Paths (relative, POSIX) that are the answer key and must stay controller-only.
 _GOLD_PREFIXES: tuple[str, ...] = ("kg/", "evals/", "validation/")
-_GOLD_DATA_FILES: frozenset[str] = frozenset({"spec.json", "lineage.json", "questions.json"})
 
 _W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 
@@ -116,7 +115,9 @@ def _role(rel: str) -> str:
     if rel.startswith(_GOLD_PREFIXES):
         return "gold"
     parts = rel.split("/")
-    if parts[0] == "data" and len(parts) == 3 and parts[2] in _GOLD_DATA_FILES:
+    # data/<scenario>/<file>: the causal spec (every iteration), lineage and
+    # questions with their SQL answers; only tables/ and views/ are data.
+    if parts[0] == "data" and len(parts) == 3:
         return "gold"
     if rel == "config.json":
         return "gold"
