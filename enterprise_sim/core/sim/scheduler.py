@@ -573,7 +573,7 @@ class Scheduler:
             subjects=subjects,
             deliverable=step.produces,
             parent_event=parent_event,
-            payload={**dict(act.params), **dict(step.payload)},
+            payload={**dict(act.params), **dict(step.payload), **_performer(step)},
         )
         state.journal.append(event)
         self._dispatch_event(state, event)
@@ -815,3 +815,15 @@ def _event_fields(event: Event) -> dict[str, object]:
     for key, value in event.payload.items():
         fields[f"payload.{key}"] = value
     return fields
+
+
+def _performer(step: Step) -> dict[str, str]:
+    """``{"performed_by": <role>}`` for a step that produces a deliverable.
+
+    The event's ``actors`` carry every role of the process; this names the one
+    whose people did the step, so producers can credit the document's authors
+    (see :func:`enterprise_sim.producers.grounding.author_roles`).
+    """
+    if step.produces is None or not step.by:
+        return {}
+    return {"performed_by": step.by}

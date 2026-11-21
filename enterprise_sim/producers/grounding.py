@@ -27,6 +27,7 @@ import re
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, field
 
+from enterprise_sim.core.events import Event
 from enterprise_sim.core.world import WorldView
 from enterprise_sim.producers.artifact import Locator, Mention, aliases_for
 
@@ -353,3 +354,16 @@ def _line_of(offset: int, line_starts: Sequence[int]) -> int:
         else:
             hi = mid - 1
     return line + 1
+
+
+def author_roles(event: Event, roles: Sequence[str]) -> tuple[str, ...]:
+    """``roles`` plus the role that performed ``event``'s step (``payload['performed_by']``).
+
+    Playbooks name their roles freely (``lead``, ``engineers``, ``member``), so
+    a producer looking only for ``author``/``authors`` credits nobody; the
+    scheduler records the step's role on every deliverable event.
+    """
+    performer = event.payload.get("performed_by")
+    if isinstance(performer, str) and performer and performer not in roles:
+        return (*roles, performer)
+    return tuple(roles)

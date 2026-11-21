@@ -43,6 +43,7 @@ from enterprise_sim.producers.artifact import (
 )
 from enterprise_sim.producers.grounding import (
     Roster,
+    author_roles,
     detect_unresolved_names,
     tag_mentions,
 )
@@ -112,7 +113,7 @@ class MarkdownProducer:
         artifact_id = _artifact_id_for(event)
         path = f"{ctx.artifacts_dir}/{_slug(artifact_id)}.md"
 
-        authors = _resolve_people(event, view, _AUTHOR_ROLES)
+        authors = _resolve_people(event, view, author_roles(event, _AUTHOR_ROLES))
         reviewers = _resolve_people(event, view, _REVIEWER_ROLES)
         candidates = _candidate_references(view, exclude=artifact_id)
 

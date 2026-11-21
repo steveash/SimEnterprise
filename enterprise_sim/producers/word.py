@@ -38,7 +38,12 @@ from enterprise_sim.core.llm.brief import facts_block_for
 from enterprise_sim.core.registry import PRODUCERS
 from enterprise_sim.core.world import Edge, Node, WorldView
 from enterprise_sim.producers.artifact import Mention, ProducedArtifact, ValidationIssue
-from enterprise_sim.producers.grounding import Roster, detect_unresolved_names, tag_mentions
+from enterprise_sim.producers.grounding import (
+    Roster,
+    author_roles,
+    detect_unresolved_names,
+    tag_mentions,
+)
 from enterprise_sim.producers.markdown import ProducerContext
 from enterprise_sim.producers.word_docx import DocxComment, DocxDocument, build_docx
 
@@ -97,7 +102,7 @@ class WordProducer:
         artifact_id = _artifact_id_for(event)
         path = f"{ctx.artifacts_dir}/{_slug(artifact_id)}.docx"
 
-        authors = _resolve_people(event, view, _AUTHOR_ROLES)
+        authors = _resolve_people(event, view, author_roles(event, _AUTHOR_ROLES))
         reviewers = _resolve_people(event, view, _REVIEWER_ROLES)
         candidates = _candidate_references(view, exclude=artifact_id)
 
