@@ -370,6 +370,19 @@ def _table_keys(spec: dict[str, Any], table: str) -> tuple[list[str], list[dict[
     return primary, foreign
 
 
+def _duplicated_tables(scenario_dir: Path) -> set[str]:
+    """Raw tables of a scenario that ``[data.messiness]`` gave duplicate rows."""
+    path = scenario_dir / "quirks.json"
+    if not path.is_file():
+        return set()
+    report = json.loads(path.read_text(encoding="utf-8"))
+    return {
+        table
+        for table, quirks in report.get("tables", {}).items()
+        if any(q.get("kind") == "duplicate_row" for q in quirks)
+    }
+
+
 # -- the export ---------------------------------------------------------------- #
 
 
@@ -421,6 +434,34 @@ _CARD_GROUPED = re.compile(
 )
 
 
+#: JSON keys and column names that read as secret assignments to a privacy scan
+#: (``"token": "..."``): a name whose last word is one of these, or one of the
+#: compound names. Plain ``key`` (a Jira issue key, ``primary_key``) is not one.
+_SECRET_WORDS = frozenset(
+    {"token", "tokens", "secret", "secrets", "password", "passwd", "credential", "credentials"}
+)
+_SECRET_NAMES = frozenset(
+    {"apikey", "api_key", "access_key", "auth_token", "private_key", "secret_key", "auth"}
+)
+
+
+def _secret_name(name: str) -> bool:
+    lowered = name.casefold()
+    words = [w for w in re.split(r"[^a-z0-9]+", lowered) if w]
+    return lowered in _SECRET_NAMES or (bool(words) and words[-1] in _SECRET_WORDS)
+
+
+def secret_names(text: str, media: str) -> list[str]:
+    """Secret-sounding JSON keys (json/jsonl) or CSV header names in ``text``."""
+    if media == "text/csv":
+        header = text.split("\n", 1)[0]
+        return sorted({c for c in header.split(",") if _secret_name(c)})
+    if media in ("application/json", "application/x-ndjson"):
+        keys = re.findall(r'"((?:[^"\\]|\\.)*)"\s*:', text)
+        return sorted({k for k in keys if _secret_name(k)})
+    return []
+
+
 def _luhn(digits: str) -> bool:
     total = 0
     for i, ch in enumerate(reversed(digits)):
@@ -455,6 +496,9 @@ class _Writer:
             data.decode("utf-8")
         except UnicodeDecodeError as exc:
             raise ExportError(f"{rel}: not UTF-8 text") from exc
+        names = secret_names(data.decode("utf-8"), media)
+        if names:
+            raise ExportError(f"{rel}: secret-like key or column names {names[:3]}")
         shapes = identity_shapes(data.decode("utf-8"))
         if shapes:
             raise ExportError(f"{rel}: holds a value shaped like {', '.join(shapes)}")
@@ -545,6 +589,12 @@ def export_world(world_dir: Path | str, out_root: Path | str) -> ExportResult:
         csv_text, columns = _table_csv(directory, rel)
         rel = writer.write(rel, csv_text.encode("utf-8"), "text/csv")
         primary, foreign = _table_keys(spec, name) if kind == "tables" else ([], [])
+        duplicated = _duplicated_tables(world_dir / "data" / scenario)
+        if kind == "tables" and name in duplicated:
+            # [data.messiness] loaded some rows twice: the raw table has no key.
+            primary = []
+        # a reference into a table without a key is no foreign key either.
+        foreign = [fk for fk in foreign if fk["table"] not in duplicated]
         for fk in foreign:
             fk["table"] = f"{scenario}.{fk['table']}"
         writer.tables.append(
@@ -559,7 +609,9 @@ def export_world(world_dir: Path | str, out_root: Path | str) -> ExportResult:
         )
 
     from enterprise_sim.worlds.slice import (
+        REGISTRY_COLUMNS,
         TRAIL_COLUMNS,
+        project_registry,
         project_slices,
         project_trail,
         slice_name,
@@ -592,6 +644,27 @@ def export_world(world_dir: Path | str, out_root: Path | str) -> ExportResult:
                 "kind": "table",
                 "columns": [{"name": c, "type": t} for c, t in TRAIL_COLUMNS],
                 "primary_key": [],
+                "foreign_keys": [],
+            }
+        )
+        entry["files"] = sorted([*entry["files"], rel])
+    for project in sorted(projects):
+        registry = project_registry(world_dir, project)
+        entry = by_name.get(slice_name(project))
+        if not registry or entry is None:
+            continue
+        names = [c for c, _ in REGISTRY_COLUMNS]
+        body = "\n".join([_csv_line(names), *(_csv_line([r[c] for c in names]) for r in registry)])
+        rel = writer.write(
+            f"registry/{entry['name']}.csv", (body + "\n").encode("utf-8"), "text/csv"
+        )
+        writer.tables.append(
+            {
+                "name": f"registry.{entry['name'].replace('-', '_')}",
+                "path": rel,
+                "kind": "table",
+                "columns": [{"name": c, "type": t} for c, t in REGISTRY_COLUMNS],
+                "primary_key": ["attribute", "version"],
                 "foreign_keys": [],
             }
         )

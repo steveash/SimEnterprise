@@ -219,6 +219,8 @@ def build_ledger(world: World, cfg: FactsConfig, *, seed: int, start: date, end:
                 following = froms[i + 1] if i + 1 < len(froms) else None
                 valid_to = following if following is not None and following <= t1 else None
                 record.versions.append(Version(i + 1, value, valid_from, valid_to))
+            if attr.name == "owner":
+                _follow_departures(world, record, t1)
             ledger.facts[fact_id] = record
             ids.append(fact_id)
         ledger.by_project[project.id] = ids
@@ -232,6 +234,38 @@ def build_ledger(world: World, cfg: FactsConfig, *, seed: int, start: date, end:
         if others and rng.random() < cfg.cross_team:
             ledger.depends_on[project.id] = [rng.choice(others)]
     return ledger
+
+
+def _follow_departures(world: World, record: FactRecord, t1: datetime) -> None:
+    """Hand an owner fact to the leaver's manager on the day the owner leaves.
+
+    ``[org] turnover_rate`` makes people leave mid-window; an owner who leaves
+    stops owning. The new version starts at ``left_at`` and names the leaver's
+    manager (team leads never leave), so it is stable whatever the window: a
+    departure only exists once its date is inside the window.
+    """
+    by_name = {
+        str(n.props.get("name")): n for n in world.nodes_by_type("Person") if n.props.get("name")
+    }
+    out: list[Version] = []
+    for version in record.versions:
+        person = by_name.get(version.value)
+        left = person.props.get("left_at") if person is not None else None
+        out.append(version)
+        if person is None or left is None:
+            continue
+        left_at = datetime.fromisoformat(str(left))
+        end = version.valid_to or t1
+        if not (version.valid_from < left_at < end):
+            continue
+        managers = world.out_edges(person.id, "reports_to")
+        manager = world.get_node(managers[0].dst) if managers else None
+        if manager is None or not manager.props.get("name"):
+            continue
+        out[-1] = Version(version.number, version.value, version.valid_from, left_at)
+        out.append(Version(0, str(manager.props["name"]), left_at, version.valid_to))
+    record.versions = [Version(i + 1, v.value, v.valid_from, v.valid_to) for i, v in enumerate(out)]
+    record.horizon_values.update(v.value for v in record.versions)
 
 
 # -- assigning ---------------------------------------------------------------- #
@@ -407,7 +441,7 @@ def ledger_graph(world: World, ledger: Ledger) -> None:
                         "fact": record.id,
                         "version": version.number,
                         "value": version.value,
-                        "token": value_token(version.value),
+                        "canonical": value_token(version.value),
                         "valid_from": version.valid_from.isoformat(),
                         "valid_to": version.valid_to.isoformat() if version.valid_to else None,
                     },

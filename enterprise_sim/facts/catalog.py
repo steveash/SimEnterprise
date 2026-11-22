@@ -518,8 +518,9 @@ def value_token(value: str) -> str:
     """The value's most specific whitespace-free run (>= 3 characters).
 
     A test set that asks a persona to find a value declares a canonical string
-    with no whitespace (the gym's discovered-knowledge rule); the token is that
-    string, and it occurs verbatim inside every statement of the value.
+    with no whitespace (the gym's discovered-knowledge rule); this is that
+    string (``FactVersion.props["canonical"]``), and it occurs verbatim inside
+    every statement of the value.
     """
     runs = [r.strip(".,;:") for r in value.split()]
     runs = [r for r in runs if len(r) >= 3]

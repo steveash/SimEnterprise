@@ -367,3 +367,40 @@ def test_money_values_have_no_grouping_separator() -> None:
     for _ in range(20):
         value = _money_mutate(rng, value, None)  # type: ignore[arg-type]
         assert "," not in value
+
+
+def test_an_owner_who_leaves_hands_the_fact_to_their_manager() -> None:
+    handed = 0
+    for seed in range(1, 16):
+        config = WorldConfig.model_validate(
+            {
+                **_BASE,
+                "seed": seed,
+                "simulation": {"period_start": "2026-01-05", "period_end": "2026-06-26"},
+                "facts": {"per_project": 12, "change_rate": 0.0},
+                "org": {"turnover_rate": 0.8},
+            }
+        )
+        world = build_world(config)
+        ledger = build_ledger(
+            world,
+            config.facts,
+            seed=seed,
+            start=config.simulation.period_start,
+            end=config.simulation.period_end,
+        )
+        people = {str(n.props["name"]): n for n in world.nodes_by_type("Person")}
+        for record in ledger.facts.values():
+            if record.attribute.name != "owner":
+                continue
+            numbers = [v.number for v in record.versions]
+            assert numbers == list(range(1, len(numbers) + 1))
+            for a, b in zip(record.versions, record.versions[1:], strict=False):
+                assert a.valid_to == b.valid_from
+                leaver = people[a.value]
+                left = leaver.props.get("left_at")
+                if left is not None and b.valid_from == datetime.fromisoformat(str(left)):
+                    (edge,) = world.out_edges(leaver.id, "reports_to")
+                    assert people[b.value].id == edge.dst
+                    handed += 1
+    assert handed > 0

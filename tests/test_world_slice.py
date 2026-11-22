@@ -94,14 +94,14 @@ def test_knowledge_drafts_point_at_materialized_paths_that_state_the_value(
     for fact in answers["facts"]:
         assert fact["current"]["value"] == fact["history"][-1]["value"]
         assert fact["valid_from"] == fact["history"][-1]["valid_from"]
-        assert fact["value_kind"] in ("person", "token")
+        assert fact["value_kind"] in ("person", "canonical")
         # the leak report finds the current value on every line that states it.
         for occurrence in fact["occurrences"]:
             text = (export / occurrence["path"].removeprefix(f"{MATERIALIZED_DOCS}/")).read_text(
                 encoding="utf-8"
             )
             line = text.splitlines()[occurrence["line"] - 1]
-            assert fact["current"]["token"].casefold() in line.casefold()
+            assert fact["current"]["canonical"].casefold() in line.casefold()
         for stale in fact["stale_values"]:
             assert stale["value"] != fact["current"]["value"]
             assert stale["stance"] in ("stale", "conflicting") and stale["documents"]
@@ -198,3 +198,46 @@ def test_a_misleading_value_is_clean_only_if_no_current_reader_meets_it() -> Non
 )
 def test_canonical_tokens_follow_ts_discovered(token: str, ok: bool) -> None:
     assert canonical_token(token) is ok
+
+
+def test_each_project_slice_carries_its_fact_registry(world_dir: Path, tmp_path: Path) -> None:
+    import csv
+
+    result = export_world(world_dir, tmp_path / "out")
+    manifest = json.loads((result.directory / "export.json").read_text(encoding="utf-8"))
+    registries = [t for t in manifest["tables"] if t["path"].startswith("registry/")]
+    assert registries
+    slices = {s["name"]: s for s in manifest["slices"]}
+    for table in registries:
+        assert table["kind"] == "table" and table["primary_key"] == ["attribute", "version"]
+        assert table["path"] in slices[Path(table["path"]).stem]["files"]
+        with (result.directory / table["path"]).open(encoding="utf-8", newline="") as fh:
+            rows = list(csv.DictReader(fh))
+        keys = [(r["attribute"], r["version"]) for r in rows]
+        assert len(keys) == len(set(keys))
+        for row in rows:
+            assert row["canonical"] in row["value"].replace(";", ",")
+            assert re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", row["valid_from"])
+
+
+@pytest.mark.parametrize(
+    ("name", "words"),
+    [
+        ("Search Platform", "search"),
+        ("sessions", "session"),
+        ("Release Notes", "note"),
+        ("Build Software Delivery", None),
+        ("text_search", "search"),
+    ],
+)
+def test_vocabulary_conflicts(name: str, words: str | None) -> None:
+    from enterprise_sim.worlds.slice import vocabulary_conflicts
+
+    found = vocabulary_conflicts([name])
+    assert (found[0]["words"] if found else None) == words
+
+
+def test_slice_answers_report_vocabulary_conflicts(world_dir: Path, tmp_path: Path) -> None:
+    slice_world(world_dir, _PROJECT, tmp_path / "v")
+    answers = json.loads((tmp_path / "v" / "answers.json").read_text(encoding="utf-8"))
+    assert isinstance(answers["vocabulary_conflicts"], list)

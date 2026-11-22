@@ -98,3 +98,25 @@ def test_a_messy_world_exports_with_the_union_of_drifted_columns(
         if t["kind"] == "table" and any(c["name"].endswith("_v2") for c in t["columns"])
     ]
     assert drifted
+
+
+def test_duplicated_raw_tables_declare_no_key(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from enterprise_sim.exporters.text_export import export_world
+
+    world_dir = _build(tmp_path, capsys, "[data.messiness]\nduplicate_rate = 0.2\n")
+    report = json.loads((world_dir / "data" / "support_ops" / "quirks.json").read_text())
+    duplicated = {
+        t for t, q in report["tables"].items() if any(x["kind"] == "duplicate_row" for x in q)
+    }
+    assert duplicated
+    manifest = json.loads(
+        (export_world(world_dir, tmp_path / "out").directory / "export.json").read_text()
+    )
+    for table in manifest["tables"]:
+        scenario, _, name = table["name"].partition(".")
+        if scenario == "support_ops" and name in duplicated:
+            assert table["primary_key"] == []
+        for fk in table["foreign_keys"]:
+            assert fk["table"].partition(".")[2] not in duplicated

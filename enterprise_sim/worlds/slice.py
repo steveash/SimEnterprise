@@ -40,14 +40,18 @@ from enterprise_sim.exporters.text_export import export_path
 __all__ = [
     "MATERIALIZED_DOCS",
     "canonical_token",
+    "REGISTRY_COLUMNS",
+    "TOOL_VOCABULARY",
     "TRAIL_COLUMNS",
     "SliceError",
     "materialized_doc_path",
     "project_slices",
+    "project_registry",
     "project_trail",
     "slice_documents",
     "slice_name",
     "slice_world",
+    "vocabulary_conflicts",
 ]
 
 #: Where ``spindle-datasets materialize`` puts a slice's documents in a test set.
@@ -246,19 +250,21 @@ def slice_world(
         label = str(fact["props"].get("label", fact["props"].get("attribute")))
         subject_node = nodes.get(str(fact["props"]["subject"]), {})
         subject = str(subject_node.get("props", {}).get("name", ""))
-        token = str(current.get("token", current["value"]))
+        token = str(current.get("canonical", current["value"]))
         answers["facts"].append(
             {
                 "fact": fact["id"],
                 "question": fact["props"].get("question"),
-                "current": {"value": current["value"], "token": token},
+                "current": {"value": current["value"], "canonical": token},
                 "history": [
                     {"version": v["version"], "value": v["value"], "valid_from": v["valid_from"]}
                     for v in true
                 ],
                 "documents": {s: sorted(p) for s, p in sorted(by_stance.items())},
                 "valid_from": current["valid_from"],
-                "value_kind": "person" if fact["props"].get("attribute") == "owner" else "token",
+                "value_kind": "person"
+                if fact["props"].get("attribute") == "owner"
+                else "canonical",
                 "stale_values": _stale_values(asserts.get(fact["id"], []), paths, current),
                 "occurrences": _occurrences(token, texts),
             }
@@ -282,6 +288,14 @@ def slice_world(
             "",
         ]
     answers["undiscoverable"] = undiscoverable
+    scope_names = [str(nodes[p]["props"].get("name", p)) for p in scope]
+    scope_names += [
+        str(n["props"].get("name", ""))
+        for n in nodes.values()
+        if n["type"] in ("Team", "Department")
+    ]
+    scope_names += [str(f["props"].get("attribute", "")) for f in facts]
+    answers["vocabulary_conflicts"] = vocabulary_conflicts([n for n in scope_names if n])
     answers["quirks"] = {
         paths[d["id"]]: d["props"]["quirks"]
         for d in docs
@@ -429,3 +443,65 @@ def project_trail(world_dir: Path | str, project: str) -> list[dict[str, str]]:
                 }
             )
     return sorted(rows, key=lambda r: (r["logged_at"], r["document"], r["summary"]))
+
+
+#: Columns of a project's registry table (``registry/<slice>.csv``).
+REGISTRY_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("attribute", "text"),
+    ("version", "integer"),
+    ("value", "text"),
+    ("canonical", "text"),
+    ("valid_from", "timestamp"),
+)
+
+
+def project_registry(world_dir: Path | str, project: str) -> list[dict[str, str]]:
+    """The authoritative change log of one project's facts: every version, one row each.
+
+    The system of record beside the documents (a config or ownership registry): a
+    test set can let ``sql`` read the current value here while a ``text_search``
+    reader meets stale statements in the documents. Rows carry the attribute
+    name, never the gold stance labels.
+    """
+    world_dir = Path(world_dir)
+    nodes = {n["id"]: n for n in _jsonl(world_dir / "kg" / "nodes.jsonl")}
+    facts = {
+        i: n
+        for i, n in nodes.items()
+        if n["type"] == "Fact" and n["props"].get("subject") == project
+    }
+    rows: list[dict[str, str]] = []
+    for node in nodes.values():
+        if node["type"] != "FactVersion" or node["props"]["fact"] not in facts:
+            continue
+        props = node["props"]
+        rows.append(
+            {
+                "attribute": str(facts[props["fact"]]["props"]["attribute"]),
+                "version": str(props["version"]),
+                "value": str(props["value"]).replace(",", ";"),
+                "canonical": str(props.get("canonical", props["value"])),
+                "valid_from": f"{str(props['valid_from'])[:19]}Z",
+            }
+        )
+    return sorted(rows, key=lambda r: (r["attribute"], int(r["version"])))
+
+
+#: Words of the gym's tool and prompt vocabulary; names holding one as a whole
+#: token get rewritten by test-set generators (sets-cc: ``search`` once rewrote
+#: ``text_search``).
+TOOL_VOCABULARY: frozenset[str] = frozenset(
+    {"search", "files", "shell", "publish", "sql", "python", "note", "session"}
+)
+
+
+def vocabulary_conflicts(names: list[str]) -> list[dict[str, str]]:
+    """Each name holding a tool-vocabulary word as a whole token (case folded)."""
+    found: list[dict[str, str]] = []
+    for name in sorted(set(names)):
+        tokens = {t for t in re.split(r"[^a-z0-9]+", name.casefold()) if t}
+        tokens |= {t.rstrip("s") for t in tokens}
+        hits = sorted(tokens & TOOL_VOCABULARY)
+        if hits:
+            found.append({"name": name, "words": ", ".join(hits)})
+    return found

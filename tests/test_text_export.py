@@ -326,3 +326,30 @@ def test_world_profile_summarizes_a_world(world_dir: Path) -> None:
 def test_world_profile_cli(world_dir: Path, capsys: pytest.CaptureFixture[str]) -> None:
     assert main(["world", "profile", str(world_dir)]) == 0
     assert json.loads(capsys.readouterr().out)["world_id"] == world_dir.name
+
+
+@pytest.mark.parametrize(
+    ("text", "media", "found"),
+    [
+        ('{"canonical": "v2.3", "value": "x"}', "application/json", []),
+        ('{"token": "v2.3"}', "application/json", ["token"]),
+        ('{"props": {"api_key": "x"}}\n', "application/x-ndjson", ["api_key"]),
+        ("attribute,version,canonical\n", "text/csv", []),
+        ("id,api_token\n", "text/csv", ["api_token"]),
+        ("a token in prose", "text/markdown", []),
+        (
+            '{"authoring": "x", "est_input_tokens_per_artifact": 1, "key": "BSD-1"}',
+            "application/json",
+            [],
+        ),
+        (
+            '{"auth_token": "x", "session_secret": "y"}',
+            "application/json",
+            ["auth_token", "session_secret"],
+        ),
+    ],
+)
+def test_secret_like_names_are_found(text: str, media: str, found: list[str]) -> None:
+    from enterprise_sim.exporters.text_export import secret_names
+
+    assert secret_names(text, media) == found
