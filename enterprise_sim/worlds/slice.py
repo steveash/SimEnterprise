@@ -39,6 +39,7 @@ from enterprise_sim.exporters.text_export import export_path
 
 __all__ = [
     "MATERIALIZED_DOCS",
+    "canonical_token",
     "TRAIL_COLUMNS",
     "SliceError",
     "materialized_doc_path",
@@ -54,6 +55,8 @@ MATERIALIZED_DOCS = "environment/docs/simx"
 _TRUE_STANCES = ("current", "update", "hedged")
 #: The gym's discovered-knowledge rule: a value is at least 3 characters, no whitespace.
 _MIN_TOKEN = 3
+#: TS-DISCOVERED's grouping separators: a declared value may hold none of them.
+_GROUPING = (",", "_", "'", "\u00a0", "\u202f")
 _RENDERED = (".docx", ".pptx")
 _TEXT = (".md", ".json")
 _SLICE_NAME = re.compile(r"[^a-z0-9-]+")
@@ -61,6 +64,26 @@ _SLICE_NAME = re.compile(r"[^a-z0-9-]+")
 
 class SliceError(Exception):
     """Raised when a slice cannot be cut (unknown project, existing target)."""
+
+
+def canonical_token(token: str) -> bool:
+    """Whether ``token`` can be a declared value under the gym's discovered-knowledge rule."""
+    return (
+        len(token) >= _MIN_TOKEN
+        and not any(ch.isspace() for ch in token)
+        and not any(sep in token for sep in _GROUPING)
+    )
+
+
+def _occurrences(token: str, texts: dict[str, list[str]]) -> list[dict[str, Any]]:
+    """Every line of the slice documents that holds ``token`` (case folded), as a leak report."""
+    needle = token.casefold()
+    found: list[dict[str, Any]] = []
+    for path in sorted(texts):
+        for number, line in enumerate(texts[path], start=1):
+            if needle in line.casefold():
+                found.append({"path": path, "line": number})
+    return found
 
 
 def _jsonl(path: Path) -> list[dict[str, Any]]:
@@ -180,6 +203,7 @@ def slice_world(
         mapped = materialized_doc_path(str(doc["props"]["path"]))
         if mapped is not None:
             paths[doc["id"]] = mapped
+    texts = {path: _doc_lines(world_dir, doc) for doc in docs if (path := paths.get(doc["id"]))}
     versions: dict[str, list[dict[str, Any]]] = {}
     for node in nodes.values():
         if node["type"] == "FactVersion":
@@ -236,12 +260,13 @@ def slice_world(
                 "valid_from": current["valid_from"],
                 "value_kind": "person" if fact["props"].get("attribute") == "owner" else "token",
                 "stale_values": _stale_values(asserts.get(fact["id"], []), paths, current),
+                "occurrences": _occurrences(token, texts),
             }
         )
         if not sources:
             undiscoverable.append({"fact": fact["id"], "reason": "no slice document states it"})
             continue
-        if len(token) < _MIN_TOKEN or any(ch.isspace() for ch in token):
+        if not canonical_token(token):
             reason = f"value token {token!r} not canonical"
             undiscoverable.append({"fact": fact["id"], "reason": reason})
             continue
@@ -280,6 +305,20 @@ def slice_world(
         "undiscoverable": len(undiscoverable),
         "slices": answers["slices"],
     }
+
+
+def _doc_lines(world_dir: Path, doc: dict[str, Any]) -> list[str]:
+    """A slice document's text as the export renders it, line by line."""
+    from enterprise_sim.exporters.text_export import render_docx, render_pptx
+
+    path = world_dir / str(doc["props"]["path"])
+    if not path.is_file():
+        return []
+    if path.suffix == ".docx":
+        return render_docx(path).splitlines()
+    if path.suffix == ".pptx":
+        return render_pptx(path).splitlines()
+    return path.read_text(encoding="utf-8").splitlines()
 
 
 def _stale_values(

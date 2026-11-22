@@ -10,7 +10,13 @@ from pathlib import Path
 import pytest
 from enterprise_sim.cli import main
 from enterprise_sim.exporters.text_export import export_world
-from enterprise_sim.worlds.slice import MATERIALIZED_DOCS, SliceError, slice_name, slice_world
+from enterprise_sim.worlds.slice import (
+    MATERIALIZED_DOCS,
+    SliceError,
+    canonical_token,
+    slice_name,
+    slice_world,
+)
 
 _PROJECT = "project:build-software-engineering"
 
@@ -77,7 +83,7 @@ def test_knowledge_drafts_point_at_materialized_paths_that_state_the_value(
     for item in knowledge["knowledge"]:
         assert item["owner"] == "environment" and item["derived_from"]
         (value,) = item["values"]
-        assert len(value) >= 3 and not any(ch.isspace() for ch in value)
+        assert canonical_token(value) and "_" not in value and "," not in value
         for source in item["derived_from"]:
             assert source.startswith(f"{MATERIALIZED_DOCS}/")
             exported = export / source.removeprefix(f"{MATERIALIZED_DOCS}/")
@@ -89,6 +95,13 @@ def test_knowledge_drafts_point_at_materialized_paths_that_state_the_value(
         assert fact["current"]["value"] == fact["history"][-1]["value"]
         assert fact["valid_from"] == fact["history"][-1]["valid_from"]
         assert fact["value_kind"] in ("person", "token")
+        # the leak report finds the current value on every line that states it.
+        for occurrence in fact["occurrences"]:
+            text = (export / occurrence["path"].removeprefix(f"{MATERIALIZED_DOCS}/")).read_text(
+                encoding="utf-8"
+            )
+            line = text.splitlines()[occurrence["line"] - 1]
+            assert fact["current"]["token"].casefold() in line.casefold()
         for stale in fact["stale_values"]:
             assert stale["value"] != fact["current"]["value"]
             assert stale["stance"] in ("stale", "conflicting") and stale["documents"]
@@ -165,3 +178,20 @@ def test_a_misleading_value_is_clean_only_if_no_current_reader_meets_it() -> Non
     assert set(found) == {"v1.2", "v3.1", "v4.0"}
     assert found["v1.2"]["clean"] is False
     assert found["v3.1"]["clean"] is True and found["v4.0"]["stance"] == "conflicting"
+
+
+@pytest.mark.parametrize(
+    ("token", "ok"),
+    [
+        ("v2.3", True),
+        ("2026-05-14", True),
+        ("$250k", True),
+        ("v3", False),
+        ("fct_orders", False),
+        ("1,200", False),
+        ("two words", False),
+        ("PostgreSQL", True),
+    ],
+)
+def test_canonical_tokens_follow_ts_discovered(token: str, ok: bool) -> None:
+    assert canonical_token(token) is ok
