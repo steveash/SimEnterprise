@@ -404,3 +404,16 @@ def test_an_owner_who_leaves_hands_the_fact_to_their_manager() -> None:
                     assert people[b.value].id == edge.dst
                     handed += 1
     assert handed > 0
+
+
+def test_entity_ids_name_the_project_in_every_statement() -> None:
+    _, ledger, cfg = _ledger_world(change_rate=0.6)
+    cfg = cfg.model_copy(update={"entity_ids": True})
+    project = sorted(ledger.by_project)[0]
+    out = assign_assertions(ledger, _events(project, 30), cfg, seed=4)
+    assertions = [a for found in out.values() for a in found]
+    assert assertions
+    for a in assertions:  # each names its own fact's project (cited facts name theirs)
+        slug = ledger.facts[a.fact].subject.split(":", 1)[-1]
+        assert f"[{slug}]" in a.statement, a.statement
+    del project

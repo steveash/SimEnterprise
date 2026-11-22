@@ -94,6 +94,13 @@ class FactsConfig(_Frozen):
     cross_team_stale_boost: float = Field(
         default=2.0, ge=1.0, le=10.0, description="Multiplier on stale_rate for cited facts."
     )
+    entity_ids: bool = Field(
+        default=False,
+        description=(
+            "Name the project by its slug id too in every fact statement "
+            "('Checkout [checkout-engineering]'), so each fact line identifies its entity."
+        ),
+    )
 
     @model_validator(mode="after")
     def _check(self) -> FactsConfig:

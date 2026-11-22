@@ -358,6 +358,8 @@ def _assert(
     attr = record.attribute
     true = record.version_at(at)
     subject = record.subject_name
+    if cfg.entity_ids:
+        subject = f"{subject} [{record.subject.split(':', 1)[-1]}]"
     template = rng.choice(attr.current)
 
     def made(stance: str, value: str, statement: str, stated: int | None) -> Assertion:
