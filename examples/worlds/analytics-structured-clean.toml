@@ -1,7 +1,7 @@
 # Benchmark world: a structure-heavy analytics shop, CLEAN data (priority family: data analysis).
 #
 # Analytics leads, with marketing and sales as its customers. All five data
-# scenarios at full scale over a quarter: the documents (analysis requests and
+# scenarios over a quarter (scale 0.1 for the catalog; 10x with --scale 10): the documents (analysis requests and
 # reports, metric definitions, experiment readouts) sit on top of large, clean
 # tables and views. Twin of analytics-structured-messy (same seed and org; only
 # [data.messiness] and [messiness] differ), for controlled clean-vs-messy runs.
@@ -38,5 +38,5 @@ change_rate = 0.3
 
 [data]
 scenarios = ["product_growth", "sales_pipeline", "support_ops", "subscription_finance", "marketing_attribution"]
-scale_factor = 1.0
+scale_factor = 0.1  # catalog size (datasets-cc: wave 2 at 0.1); `world data ... --scale 10` for full scale
 iterations = 3

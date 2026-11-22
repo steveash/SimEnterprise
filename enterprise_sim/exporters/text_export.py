@@ -588,7 +588,7 @@ def export_world(world_dir: Path | str, out_root: Path | str) -> ExportResult:
             {
                 "name": f"trail.{entry['name']}",
                 "path": rel,
-                "kind": "trail",
+                "kind": "table",
                 "columns": [{"name": c, "type": t} for c, t in TRAIL_COLUMNS],
                 "primary_key": [],
                 "foreign_keys": [],
