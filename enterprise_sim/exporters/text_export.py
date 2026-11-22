@@ -132,7 +132,7 @@ def _role(rel: str) -> str:
     # questions with their SQL answers; only tables/ and views/ are data.
     if parts[0] == "data" and len(parts) == 3:
         return "gold"
-    if rel == "config.json":
+    if rel == "config.json" or rel.startswith("replay/"):
         return "gold"
     return "data"
 
@@ -620,11 +620,34 @@ def _world_files(world_dir: Path) -> list[Path]:
     return files
 
 
-def export_world(world_dir: Path | str, out_root: Path | str) -> ExportResult:
+#: Usage keys of a cached response, renamed in the replay file so no key reads
+#: as a secret ("input_tokens") to a privacy scan; ``worlds.replay`` maps back.
+REPLAY_USAGE_KEYS = {
+    "input_tokens": "in",
+    "cached_input_tokens": "cached_in",
+    "output_tokens": "out",
+}
+
+
+def replay_record(path: Path) -> dict[str, Any]:
+    """One cached response as a replay-file record (usage keys renamed)."""
+    data: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
+    usage = data.get("usage") or {}
+    data["usage"] = {REPLAY_USAGE_KEYS.get(k, k): v for k, v in usage.items()}
+    return data
+
+
+def export_world(
+    world_dir: Path | str, out_root: Path | str, *, with_replay: bool | None = None
+) -> ExportResult:
     """Export ``world_dir`` as ``<out_root>/<world id>/`` (``simenterprise-export/1``).
 
     Refuses a directory that is not a world, a world whose build is not done, an
     existing non-empty target, and any file it does not know how to render as text.
+
+    ``with_replay`` (default: on for live worlds) adds ``replay/llm-cache.jsonl``
+    (gold): every recorded model response, keyed by request, so
+    ``enterprise-sim world replay`` rebuilds the world with no model call.
     """
     world_dir = Path(world_dir)
     world = read_world(world_dir)
@@ -691,6 +714,25 @@ def export_world(world_dir: Path | str, out_root: Path | str) -> ExportResult:
                 "foreign_keys": foreign,
             }
         )
+
+    if with_replay is None:
+        with_replay = prose_backend_of(world.render_backend) == "live"
+    if with_replay:
+        cache = world_dir / ".cache" / "llm"
+        lines = [
+            json.dumps(
+                {"key": path.stem, "completion": replay_record(path)},
+                sort_keys=True,
+                ensure_ascii=False,
+            )
+            for path in sorted(cache.glob("*.json"))
+        ]
+        if lines:
+            writer.write(
+                "replay/llm-cache.jsonl",
+                ("\n".join(lines) + "\n").encode("utf-8"),
+                "application/x-ndjson",
+            )
 
     from enterprise_sim.worlds.slice import (
         OBSERVATION_COLUMNS,

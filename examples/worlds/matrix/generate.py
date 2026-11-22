@@ -174,7 +174,9 @@ def _toml_list(items: list[str]) -> str:
     return "[" + ", ".join(json.dumps(i) for i in items) + "]"
 
 
-def _config(name: str, cell: dict[str, str], spec: dict[str, object], used: set[str]) -> str:
+def _config(
+    name: str, cell: dict[str, str], spec: dict[str, object], used: set[str], tier: str = "S"
+) -> str:
     messy = cell["clean"] == "messy"
     high = cell["churn"] == "high"
     large = cell["size"] == "large"
@@ -197,11 +199,16 @@ def _config(name: str, cell: dict[str, str], spec: dict[str, object], used: set[
         f"period_end = {'2026-06-26' if high else '2026-03-27'}",
         "",
         "[model]",
-        'backend = "anthropic_api"',
-        'name = "claude-haiku-4-5"',
+        *(
+            ['backend = "claude_cli"', 'name = "us.anthropic.claude-haiku-5-5"']
+            if tier == "L"
+            else ['backend = "anthropic_api"', 'name = "claude-haiku-4-5"']
+        ),
         'offline_backend = "synth"',
         "",
     ]
+    if tier == "L":
+        lines += ["[scale]", "max_concurrency = 16", ""]
     for dept in departments:  # type: ignore[attr-defined]
         lines += ["[[departments]]", f'archetype = "{dept}"']
     lines += [
@@ -249,9 +256,9 @@ def _config(name: str, cell: dict[str, str], spec: dict[str, object], used: set[
             "",
             "[data]",
             f"scenarios = {_toml_list(scenarios)}",
-            "scale_factor = 0.05",
-            "iterations = 1",
-            "rows_per_partition = 50000",
+            f"scale_factor = {_full_scale(scenarios) if tier == 'L' else 0.05}",
+            f"iterations = {2 if tier == 'L' else 1}",
+            f"rows_per_partition = {2_000_000 if tier == 'L' else 50000}",
         ]
         if messy:
             lines += [
@@ -292,14 +299,34 @@ def cells() -> list[tuple[str, dict[str, str], dict[str, object]]]:
     return out
 
 
+def _full_scale(scenarios: list[str]) -> float:
+    """The L tier's data scale: about half a million rows or more per world."""
+    return 1.2 if len(scenarios) >= 5 else 2.0
+
+
 def main() -> None:
-    manifest = []
-    used: set[str] = set()
-    for name, cell, spec in cells():
-        (HERE / f"{name}.toml").write_text(_config(name, cell, spec, used), encoding="utf-8")
-        manifest.append({"name": name, "config": f"{name}.toml", **cell})
-    (HERE / "manifest.json").write_text(json.dumps(manifest, indent=1) + "\n", encoding="utf-8")
-    print(f"{len(manifest)} configs")
+    """Write the S tier (synth, small data) here and the L tier into ``../matrix-l/``.
+
+    The L tier renders the same companies and seeds with live prose (Haiku 5.5
+    through the claude_cli backend) and full-scale data, so every S world has an
+    L twin; rebuilding an L world from its export's replay file makes no calls.
+    """
+    for tier, out, suffix in (("S", HERE, ""), ("L", HERE.parent / "matrix-l", "-l")):
+        out.mkdir(exist_ok=True)
+        manifest = []
+        used: set[str] = set()
+        for name, cell, spec in cells():
+            text = _config(name, cell, spec, used, tier)
+            if tier == "L":
+                text = text.replace(
+                    f"# Matrix world {name}:", f"# Matrix world {name}{suffix} (L tier):", 1
+                )
+            (out / f"{name}{suffix}.toml").write_text(text, encoding="utf-8")
+            manifest.append(
+                {"name": f"{name}{suffix}", "config": f"{name}{suffix}.toml", "tier": tier, **cell}
+            )
+        (out / "manifest.json").write_text(json.dumps(manifest, indent=1) + "\n", encoding="utf-8")
+        print(f"{tier}: {len(manifest)} configs")
 
 
 if __name__ == "__main__":

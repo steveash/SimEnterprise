@@ -1,0 +1,542 @@
+[
+ {
+  "name": "coding-clean-docs-small-low-l",
+  "config": "coding-clean-docs-small-low-l.toml",
+  "tier": "L",
+  "family": "coding",
+  "clean": "clean",
+  "structure": "docs",
+  "size": "small",
+  "churn": "low"
+ },
+ {
+  "name": "coding-clean-docs-small-high-l",
+  "config": "coding-clean-docs-small-high-l.toml",
+  "tier": "L",
+  "family": "coding",
+  "clean": "clean",
+  "structure": "docs",
+  "size": "small",
+  "churn": "high"
+ },
+ {
+  "name": "coding-clean-docs-large-low-l",
+  "config": "coding-clean-docs-large-low-l.toml",
+  "tier": "L",
+  "family": "coding",
+  "clean": "clean",
+  "structure": "docs",
+  "size": "large",
+  "churn": "low"
+ },
+ {
+  "name": "coding-clean-docs-large-high-l",
+  "config": "coding-clean-docs-large-high-l.toml",
+  "tier": "L",
+  "family": "coding",
+  "clean": "clean",
+  "structure": "docs",
+  "size": "large",
+  "churn": "high"
+ },
+ {
+  "name": "coding-clean-data-small-low-l",
+  "config": "coding-clean-data-small-low-l.toml",
+  "tier": "L",
+  "family": "coding",
+  "clean": "clean",
+  "structure": "data",
+  "size": "small",
+  "churn": "low"
+ },
+ {
+  "name": "coding-clean-data-small-high-l",
+  "config": "coding-clean-data-small-high-l.toml",
+  "tier": "L",
+  "family": "coding",
+  "clean": "clean",
+  "structure": "data",
+  "size": "small",
+  "churn": "high"
+ },
+ {
+  "name": "coding-clean-data-large-low-l",
+  "config": "coding-clean-data-large-low-l.toml",
+  "tier": "L",
+  "family": "coding",
+  "clean": "clean",
+  "structure": "data",
+  "size": "large",
+  "churn": "low"
+ },
+ {
+  "name": "coding-clean-data-large-high-l",
+  "config": "coding-clean-data-large-high-l.toml",
+  "tier": "L",
+  "family": "coding",
+  "clean": "clean",
+  "structure": "data",
+  "size": "large",
+  "churn": "high"
+ },
+ {
+  "name": "coding-messy-docs-small-low-l",
+  "config": "coding-messy-docs-small-low-l.toml",
+  "tier": "L",
+  "family": "coding",
+  "clean": "messy",
+  "structure": "docs",
+  "size": "small",
+  "churn": "low"
+ },
+ {
+  "name": "coding-messy-docs-small-high-l",
+  "config": "coding-messy-docs-small-high-l.toml",
+  "tier": "L",
+  "family": "coding",
+  "clean": "messy",
+  "structure": "docs",
+  "size": "small",
+  "churn": "high"
+ },
+ {
+  "name": "coding-messy-docs-large-low-l",
+  "config": "coding-messy-docs-large-low-l.toml",
+  "tier": "L",
+  "family": "coding",
+  "clean": "messy",
+  "structure": "docs",
+  "size": "large",
+  "churn": "low"
+ },
+ {
+  "name": "coding-messy-docs-large-high-l",
+  "config": "coding-messy-docs-large-high-l.toml",
+  "tier": "L",
+  "family": "coding",
+  "clean": "messy",
+  "structure": "docs",
+  "size": "large",
+  "churn": "high"
+ },
+ {
+  "name": "coding-messy-data-small-low-l",
+  "config": "coding-messy-data-small-low-l.toml",
+  "tier": "L",
+  "family": "coding",
+  "clean": "messy",
+  "structure": "data",
+  "size": "small",
+  "churn": "low"
+ },
+ {
+  "name": "coding-messy-data-small-high-l",
+  "config": "coding-messy-data-small-high-l.toml",
+  "tier": "L",
+  "family": "coding",
+  "clean": "messy",
+  "structure": "data",
+  "size": "small",
+  "churn": "high"
+ },
+ {
+  "name": "coding-messy-data-large-low-l",
+  "config": "coding-messy-data-large-low-l.toml",
+  "tier": "L",
+  "family": "coding",
+  "clean": "messy",
+  "structure": "data",
+  "size": "large",
+  "churn": "low"
+ },
+ {
+  "name": "coding-messy-data-large-high-l",
+  "config": "coding-messy-data-large-high-l.toml",
+  "tier": "L",
+  "family": "coding",
+  "clean": "messy",
+  "structure": "data",
+  "size": "large",
+  "churn": "high"
+ },
+ {
+  "name": "dataeng-clean-docs-small-low-l",
+  "config": "dataeng-clean-docs-small-low-l.toml",
+  "tier": "L",
+  "family": "data_eng",
+  "clean": "clean",
+  "structure": "docs",
+  "size": "small",
+  "churn": "low"
+ },
+ {
+  "name": "dataeng-clean-docs-small-high-l",
+  "config": "dataeng-clean-docs-small-high-l.toml",
+  "tier": "L",
+  "family": "data_eng",
+  "clean": "clean",
+  "structure": "docs",
+  "size": "small",
+  "churn": "high"
+ },
+ {
+  "name": "dataeng-clean-docs-large-low-l",
+  "config": "dataeng-clean-docs-large-low-l.toml",
+  "tier": "L",
+  "family": "data_eng",
+  "clean": "clean",
+  "structure": "docs",
+  "size": "large",
+  "churn": "low"
+ },
+ {
+  "name": "dataeng-clean-docs-large-high-l",
+  "config": "dataeng-clean-docs-large-high-l.toml",
+  "tier": "L",
+  "family": "data_eng",
+  "clean": "clean",
+  "structure": "docs",
+  "size": "large",
+  "churn": "high"
+ },
+ {
+  "name": "dataeng-clean-data-small-low-l",
+  "config": "dataeng-clean-data-small-low-l.toml",
+  "tier": "L",
+  "family": "data_eng",
+  "clean": "clean",
+  "structure": "data",
+  "size": "small",
+  "churn": "low"
+ },
+ {
+  "name": "dataeng-clean-data-small-high-l",
+  "config": "dataeng-clean-data-small-high-l.toml",
+  "tier": "L",
+  "family": "data_eng",
+  "clean": "clean",
+  "structure": "data",
+  "size": "small",
+  "churn": "high"
+ },
+ {
+  "name": "dataeng-clean-data-large-low-l",
+  "config": "dataeng-clean-data-large-low-l.toml",
+  "tier": "L",
+  "family": "data_eng",
+  "clean": "clean",
+  "structure": "data",
+  "size": "large",
+  "churn": "low"
+ },
+ {
+  "name": "dataeng-clean-data-large-high-l",
+  "config": "dataeng-clean-data-large-high-l.toml",
+  "tier": "L",
+  "family": "data_eng",
+  "clean": "clean",
+  "structure": "data",
+  "size": "large",
+  "churn": "high"
+ },
+ {
+  "name": "dataeng-messy-docs-small-low-l",
+  "config": "dataeng-messy-docs-small-low-l.toml",
+  "tier": "L",
+  "family": "data_eng",
+  "clean": "messy",
+  "structure": "docs",
+  "size": "small",
+  "churn": "low"
+ },
+ {
+  "name": "dataeng-messy-docs-small-high-l",
+  "config": "dataeng-messy-docs-small-high-l.toml",
+  "tier": "L",
+  "family": "data_eng",
+  "clean": "messy",
+  "structure": "docs",
+  "size": "small",
+  "churn": "high"
+ },
+ {
+  "name": "dataeng-messy-docs-large-low-l",
+  "config": "dataeng-messy-docs-large-low-l.toml",
+  "tier": "L",
+  "family": "data_eng",
+  "clean": "messy",
+  "structure": "docs",
+  "size": "large",
+  "churn": "low"
+ },
+ {
+  "name": "dataeng-messy-docs-large-high-l",
+  "config": "dataeng-messy-docs-large-high-l.toml",
+  "tier": "L",
+  "family": "data_eng",
+  "clean": "messy",
+  "structure": "docs",
+  "size": "large",
+  "churn": "high"
+ },
+ {
+  "name": "dataeng-messy-data-small-low-l",
+  "config": "dataeng-messy-data-small-low-l.toml",
+  "tier": "L",
+  "family": "data_eng",
+  "clean": "messy",
+  "structure": "data",
+  "size": "small",
+  "churn": "low"
+ },
+ {
+  "name": "dataeng-messy-data-small-high-l",
+  "config": "dataeng-messy-data-small-high-l.toml",
+  "tier": "L",
+  "family": "data_eng",
+  "clean": "messy",
+  "structure": "data",
+  "size": "small",
+  "churn": "high"
+ },
+ {
+  "name": "dataeng-messy-data-large-low-l",
+  "config": "dataeng-messy-data-large-low-l.toml",
+  "tier": "L",
+  "family": "data_eng",
+  "clean": "messy",
+  "structure": "data",
+  "size": "large",
+  "churn": "low"
+ },
+ {
+  "name": "dataeng-messy-data-large-high-l",
+  "config": "dataeng-messy-data-large-high-l.toml",
+  "tier": "L",
+  "family": "data_eng",
+  "clean": "messy",
+  "structure": "data",
+  "size": "large",
+  "churn": "high"
+ },
+ {
+  "name": "analysis-clean-docs-small-low-l",
+  "config": "analysis-clean-docs-small-low-l.toml",
+  "tier": "L",
+  "family": "analysis",
+  "clean": "clean",
+  "structure": "docs",
+  "size": "small",
+  "churn": "low"
+ },
+ {
+  "name": "analysis-clean-docs-small-high-l",
+  "config": "analysis-clean-docs-small-high-l.toml",
+  "tier": "L",
+  "family": "analysis",
+  "clean": "clean",
+  "structure": "docs",
+  "size": "small",
+  "churn": "high"
+ },
+ {
+  "name": "analysis-clean-docs-large-low-l",
+  "config": "analysis-clean-docs-large-low-l.toml",
+  "tier": "L",
+  "family": "analysis",
+  "clean": "clean",
+  "structure": "docs",
+  "size": "large",
+  "churn": "low"
+ },
+ {
+  "name": "analysis-clean-docs-large-high-l",
+  "config": "analysis-clean-docs-large-high-l.toml",
+  "tier": "L",
+  "family": "analysis",
+  "clean": "clean",
+  "structure": "docs",
+  "size": "large",
+  "churn": "high"
+ },
+ {
+  "name": "analysis-clean-data-small-low-l",
+  "config": "analysis-clean-data-small-low-l.toml",
+  "tier": "L",
+  "family": "analysis",
+  "clean": "clean",
+  "structure": "data",
+  "size": "small",
+  "churn": "low"
+ },
+ {
+  "name": "analysis-clean-data-small-high-l",
+  "config": "analysis-clean-data-small-high-l.toml",
+  "tier": "L",
+  "family": "analysis",
+  "clean": "clean",
+  "structure": "data",
+  "size": "small",
+  "churn": "high"
+ },
+ {
+  "name": "analysis-clean-data-large-low-l",
+  "config": "analysis-clean-data-large-low-l.toml",
+  "tier": "L",
+  "family": "analysis",
+  "clean": "clean",
+  "structure": "data",
+  "size": "large",
+  "churn": "low"
+ },
+ {
+  "name": "analysis-clean-data-large-high-l",
+  "config": "analysis-clean-data-large-high-l.toml",
+  "tier": "L",
+  "family": "analysis",
+  "clean": "clean",
+  "structure": "data",
+  "size": "large",
+  "churn": "high"
+ },
+ {
+  "name": "analysis-messy-docs-small-low-l",
+  "config": "analysis-messy-docs-small-low-l.toml",
+  "tier": "L",
+  "family": "analysis",
+  "clean": "messy",
+  "structure": "docs",
+  "size": "small",
+  "churn": "low"
+ },
+ {
+  "name": "analysis-messy-docs-small-high-l",
+  "config": "analysis-messy-docs-small-high-l.toml",
+  "tier": "L",
+  "family": "analysis",
+  "clean": "messy",
+  "structure": "docs",
+  "size": "small",
+  "churn": "high"
+ },
+ {
+  "name": "analysis-messy-docs-large-low-l",
+  "config": "analysis-messy-docs-large-low-l.toml",
+  "tier": "L",
+  "family": "analysis",
+  "clean": "messy",
+  "structure": "docs",
+  "size": "large",
+  "churn": "low"
+ },
+ {
+  "name": "analysis-messy-docs-large-high-l",
+  "config": "analysis-messy-docs-large-high-l.toml",
+  "tier": "L",
+  "family": "analysis",
+  "clean": "messy",
+  "structure": "docs",
+  "size": "large",
+  "churn": "high"
+ },
+ {
+  "name": "analysis-messy-data-small-low-l",
+  "config": "analysis-messy-data-small-low-l.toml",
+  "tier": "L",
+  "family": "analysis",
+  "clean": "messy",
+  "structure": "data",
+  "size": "small",
+  "churn": "low"
+ },
+ {
+  "name": "analysis-messy-data-small-high-l",
+  "config": "analysis-messy-data-small-high-l.toml",
+  "tier": "L",
+  "family": "analysis",
+  "clean": "messy",
+  "structure": "data",
+  "size": "small",
+  "churn": "high"
+ },
+ {
+  "name": "analysis-messy-data-large-low-l",
+  "config": "analysis-messy-data-large-low-l.toml",
+  "tier": "L",
+  "family": "analysis",
+  "clean": "messy",
+  "structure": "data",
+  "size": "large",
+  "churn": "low"
+ },
+ {
+  "name": "analysis-messy-data-large-high-l",
+  "config": "analysis-messy-data-large-high-l.toml",
+  "tier": "L",
+  "family": "analysis",
+  "clean": "messy",
+  "structure": "data",
+  "size": "large",
+  "churn": "high"
+ },
+ {
+  "name": "special-professional-services-l",
+  "config": "special-professional-services-l.toml",
+  "tier": "L",
+  "family": "special",
+  "clean": "messy",
+  "structure": "docs",
+  "size": "large",
+  "churn": "high"
+ },
+ {
+  "name": "special-retail-chain-l",
+  "config": "special-retail-chain-l.toml",
+  "tier": "L",
+  "family": "special",
+  "clean": "messy",
+  "structure": "data",
+  "size": "large",
+  "churn": "high"
+ },
+ {
+  "name": "special-security-led-l",
+  "config": "special-security-led-l.toml",
+  "tier": "L",
+  "family": "special",
+  "clean": "messy",
+  "structure": "docs",
+  "size": "large",
+  "churn": "high"
+ },
+ {
+  "name": "special-sales-led-l",
+  "config": "special-sales-led-l.toml",
+  "tier": "L",
+  "family": "special",
+  "clean": "messy",
+  "structure": "data",
+  "size": "large",
+  "churn": "high"
+ },
+ {
+  "name": "special-support-led-l",
+  "config": "special-support-led-l.toml",
+  "tier": "L",
+  "family": "special",
+  "clean": "messy",
+  "structure": "data",
+  "size": "large",
+  "churn": "high"
+ },
+ {
+  "name": "special-all-departments-l",
+  "config": "special-all-departments-l.toml",
+  "tier": "L",
+  "family": "special",
+  "clean": "messy",
+  "structure": "data",
+  "size": "large",
+  "churn": "high"
+ }
+]
