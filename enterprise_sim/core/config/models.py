@@ -30,6 +30,7 @@ from enterprise_sim.core.config.diversity import (
     OrgConfig,
     PrivacyConfig,
 )
+from enterprise_sim.core.config.isolation import IsolationConfig
 
 
 class _Frozen(BaseModel):
@@ -287,6 +288,10 @@ class WorldConfig(_Frozen):
     privacy: PrivacyConfig = Field(
         default_factory=PrivacyConfig,
         description="Labelled sensitive-category sentences about people (no PII shapes).",
+    )
+    isolation: IsolationConfig = Field(
+        default_factory=IsolationConfig,
+        description="Walled projects whose knowledge must not cross (decision record 0036).",
     )
     code: CodeConfig = Field(
         default_factory=CodeConfig,

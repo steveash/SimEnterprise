@@ -275,6 +275,7 @@ class Resolver:
             A :class:`Resolution` with the picks and any written edge ids.
         """
         candidates = [n for n in self._candidates(selector, anchor) if _employed(n, at)]
+        candidates = self._within_walls(candidates, selector, anchor, at)
         ranked = self._rank(candidates, selector, anchor)
         selected = self._draw(ranked, selector, rng)
 
@@ -296,6 +297,30 @@ class Resolver:
         )
 
     # -- candidate query + exclude -----------------------------------------
+
+    def _within_walls(
+        self, candidates: list[Node], selector: Selector, anchor: str | None, at: datetime
+    ) -> list[Node]:
+        """A walled project's binds draw only from its staff (decision record 0036).
+
+        Candidates outside the staff are dropped. When the selector's filters match
+        none of the staff (the lead role is held by the department head, who staffs
+        no walled project), the whole employed staff of the selector's type is the
+        pool, so every walled document is still written by its own project's people.
+        """
+        from enterprise_sim.world_builders.walls import staff_of
+
+        staff = staff_of(self._world, anchor)
+        if staff is None:
+            return candidates
+        inside = [n for n in candidates if n.id in staff]
+        if inside:
+            return inside
+        return [
+            n
+            for n in self._world.nodes_by_type(selector.type)
+            if n.id in staff and n.id not in selector.exclude and _employed(n, at)
+        ]
 
     def _candidates(self, selector: Selector, anchor: str | None) -> list[Node]:
         """Query by type, apply ``where`` filters, then drop excluded/over-cap."""

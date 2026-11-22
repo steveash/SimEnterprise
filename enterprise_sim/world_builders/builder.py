@@ -560,6 +560,10 @@ class _WorldBuilder:
             self._add_edge(E_ADVANCES_GOAL, program_id, goal_id)
 
         roster = [pid for members in people_by_team.values() for pid in members]
+        if self._walls_here(spec):
+            self._build_walled_projects(spec, program_id, dept_head, roster, goal_ids)
+            self._build_config_projects(spec, program_id, dept_head, roster)
+            return
         for playbook in spec.playbooks:
             scenario_id = f"initiative:{spec.name}-{slugify(playbook)}"
             title = f"{playbook.replace('_', ' ').title()} ({display})"
@@ -629,6 +633,80 @@ class _WorldBuilder:
             self._add_member(pid, project_id, "reviewer")
 
         self._seed_project_affinities(project_id, [lead_id, *others])
+
+    def _walls_here(self, spec: DepartmentArchetypeSpec) -> bool:
+        isolation = self._config.isolation
+        if not isolation.enabled:
+            return False
+        return spec.name == (isolation.department or self._primary_department)
+
+    def _build_walled_projects(
+        self,
+        spec: DepartmentArchetypeSpec,
+        program_id: str,
+        dept_head: str,
+        roster: list[str],
+        goal_ids: list[str],
+    ) -> None:
+        """The department's walled projects (decision record 0036), via :func:`assign_walls`.
+
+        One playbook and one topic stem for all of them; each has its own scenario,
+        lead and staff; the department head owns the initiatives but is on no staff.
+        """
+        from enterprise_sim.world_builders.walls import E_WALLED_FROM, assign_walls
+
+        isolation = self._config.isolation
+        playbook = spec.playbooks[0] if spec.playbooks else "build_software"
+        bank = _PROJECT_NAMES.get(spec.name) or (f"{spec.name.replace('_', ' ').title()} Program",)
+        rng = self._ctx.rng("walls", spec.name)
+        topic = rng.choice(bank)
+        count = isolation.walled_projects
+        plan = assign_walls(
+            count,
+            [isolation.side_of(n) for n in range(1, count + 1)],
+            [pid for pid in roster if pid != dept_head],
+            topic,
+            rng,
+        )
+        ids: list[tuple[str, int]] = []
+        for project in plan:
+            slug = project.slug
+            scenario_id = f"initiative:walled-{slug}"
+            self._add_node(
+                scenario_id,
+                N_INITIATIVE,
+                props={
+                    "type": "scenario",
+                    "name": project.name,
+                    "playbook": playbook,
+                    "department": spec.name,
+                },
+                aliases=[project.name],
+            )
+            self._add_edge(E_SUBINITIATIVE_OF, scenario_id, program_id)
+            self._add_edge(E_OWNS_INITIATIVE, dept_head, scenario_id)
+            for goal_id in goal_ids:
+                self._add_edge(E_ADVANCES_GOAL, scenario_id, goal_id)
+            project_id = f"project:{slug}"
+            self._build_project(
+                spec,
+                scenario_id,
+                playbook,
+                project.lead,
+                list(project.staff),
+                project_id=project_id,
+                name=project.name,
+                description=f"Client engagement: {project.name}.",
+            )
+            node = self._world.get_node(project_id)
+            assert node is not None
+            node.props["walled"] = True
+            node.props["wall_side"] = project.side
+            ids.append((project_id, project.side))
+        for i, (a, side_a) in enumerate(ids):
+            for b, side_b in ids[i + 1 :]:
+                if side_a != side_b:
+                    self._add_edge(E_WALLED_FROM, a, b)
 
     def _project_name(self, spec: DepartmentArchetypeSpec, playbook: str) -> str:
         """A default project's display name.

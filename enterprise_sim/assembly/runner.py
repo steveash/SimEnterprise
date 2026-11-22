@@ -245,8 +245,10 @@ def _drop_default_sections(payload: dict[str, object]) -> None:
         OrgConfig,
         PrivacyConfig,
     )
+    from enterprise_sim.core.config.isolation import IsolationConfig
 
     defaults = {
+        "isolation": IsolationConfig().model_dump(mode="json"),
         "privacy": PrivacyConfig().model_dump(mode="json"),
         "formats": FormatsConfig().model_dump(mode="json"),
         "chat": ChatConfig().model_dump(mode="json"),

@@ -41,6 +41,7 @@ from enterprise_sim.core.config.seed import SeedContext
 from enterprise_sim.core.events import Event
 from enterprise_sim.core.world import Edge, Node, World
 from enterprise_sim.facts.catalog import Attribute, Context, attributes_for, value_token
+from enterprise_sim.world_builders.walls import across_wall, staff_of, walled_pairs, walled_projects
 
 __all__ = [
     "Assertion",
@@ -95,6 +96,10 @@ class FactRecord:
     #: a "conflicting" value is one outside this set, so extending the window
     #: never turns a past wrong statement into a merely early one.
     horizon_values: set[str] = field(default_factory=set)
+    #: values a walled project's documents must never state (decision record 0036): the
+    #: same attribute's values and the staff names of every project across a wall.
+    #: Empty for an unwalled project.
+    cross_wall_values: set[str] = field(default_factory=set)
 
     def version_at(self, at: datetime) -> Version:
         """The version believed at ``at`` (a retracted one only until its retraction)."""
@@ -166,6 +171,29 @@ def _slug(text: str) -> str:
     return "".join(ch if ch.isalnum() else "-" for ch in text.lower()).strip("-")
 
 
+def _staff_names(world: World, staff: frozenset[str]) -> tuple[str, ...]:
+    """A walled project's founding staff by name: its owners never cross a wall."""
+    names = []
+    for person_id in staff:
+        node = world.get_node(person_id)
+        if node is not None and node.props.get("name") and "joined_at" not in node.props:
+            names.append(str(node.props["name"]))
+    return tuple(sorted(names))
+
+
+def _avoid(rng: random.Random, attr: Attribute, ctx: Context, value: str, others: set[str]) -> str:
+    """Redraw ``value`` (up to 24 times) so a walled project's value is its own.
+
+    A bank too small to avoid every other side keeps the shared value; the export
+    then declares as decisive only values held by one walled project (record 0036).
+    """
+    for _ in range(24):
+        candidate = attr.draw(rng, ctx)
+        if candidate not in others:
+            return candidate
+    return value
+
+
 def _people_of(world: World, department: str) -> tuple[str, ...]:
     """The department's founding staff (successors excluded).
 
@@ -214,6 +242,14 @@ def build_ledger(world: World, cfg: FactsConfig, *, seed: int, start: date, end:
     t0 = datetime.combine(start, time(9, 0))
     t1 = datetime.combine(end, time(17, 0))
     projects = sorted(world.nodes_by_type("Project"), key=lambda n: n.id)
+    sides = walled_projects(world)
+    # Walled projects draw last, so each can avoid every value another project holds;
+    # without walls the order (and every draw) is unchanged.
+    projects.sort(key=lambda n: n.id in sides)
+    held: dict[str, set[str]] = {}  # attribute -> every value an unwalled project holds
+    # attribute -> every value a walled project drawn so far holds (any side: a value
+    # identifies its project only when no other project holds it, record 0036)
+    taken: dict[str, set[str]] = {}
     for project in projects:
         department = str(project.props.get("department", ""))
         name = str(project.props.get("name", project.id))
@@ -221,7 +257,13 @@ def build_ledger(world: World, cfg: FactsConfig, *, seed: int, start: date, end:
         pool = list(attributes_for(department))
         picked = set(rng.sample(range(len(pool)), k=min(cfg.per_project, len(pool))))
         chosen = [attr for i, attr in enumerate(pool) if i in picked]
-        ctx = Context(start=start, end=end, people=_people_of(world, department))
+        side = sides.get(project.id)
+        people = (
+            _people_of(world, department)
+            if side is None
+            else _staff_names(world, staff_of(world, project.id) or frozenset())
+        )
+        ctx = Context(start=start, end=end, people=people)
         ids: list[str] = []
         for attr in chosen:
             fact_id = f"fact:{_slug(project.id.split(':', 1)[-1])}:{attr.name}"
@@ -229,9 +271,16 @@ def build_ledger(world: World, cfg: FactsConfig, *, seed: int, start: date, end:
             value = attr.draw(rng, ctx)
             moments = _change_moments(rng, cfg, attr, t0)
             froms = [t0, *moments]
+            elsewhere = (
+                set() if side is None else held.get(attr.name, set()) | taken.get(attr.name, set())
+            )
             for i, valid_from in enumerate(froms):
                 if i > 0:
                     value = attr.mutate(rng, value, ctx)
+                if elsewhere and value in elsewhere:
+                    # never a value of another side, nor one of this fact's own earlier ones
+                    avoid = elsewhere | record.horizon_values
+                    value = _avoid(ctx_seed.rng("facts-wall", fact_id, i), attr, ctx, value, avoid)
                 record.horizon_values.add(value)
                 if valid_from > t1:
                     continue  # a later version: drawn (stable), not yet in the window
@@ -239,10 +288,16 @@ def build_ledger(world: World, cfg: FactsConfig, *, seed: int, start: date, end:
                 valid_to = following if following is not None and following <= t1 else None
                 record.versions.append(Version(i + 1, value, valid_from, valid_to))
             if attr.name == "owner":
-                _follow_departures(world, record, t1)
+                _follow_departures(
+                    world, record, t1, own_staff=people if side is not None else None
+                )
             _maybe_retract(ctx_seed.rng("retract", fact_id), cfg, record, t1)
             ledger.facts[fact_id] = record
             ids.append(fact_id)
+            if side is None:
+                held.setdefault(attr.name, set()).update(record.horizon_values)
+            else:
+                taken.setdefault(attr.name, set()).update(record.horizon_values)
         ledger.by_project[project.id] = ids
     by_dept: dict[str, list[str]] = {}
     for project in projects:
@@ -250,9 +305,16 @@ def build_ledger(world: World, cfg: FactsConfig, *, seed: int, start: date, end:
     for project in projects:
         rng = ctx_seed.rng("facts-deps", project.id)
         dept = str(project.props.get("department", ""))
-        others = sorted(p for d, ps in by_dept.items() if d != dept for p in ps)
+        others = sorted(
+            p
+            for d, ps in by_dept.items()
+            if d != dept
+            for p in ps
+            if not across_wall(world, project.id, p)
+        )
         if others and rng.random() < cfg.cross_team:
             ledger.depends_on[project.id] = [rng.choice(others)]
+    _mark_cross_wall_values(world, ledger)
     return ledger
 
 
@@ -277,7 +339,9 @@ def _maybe_retract(rng: random.Random, cfg: FactsConfig, record: FactRecord, t1:
     )
 
 
-def _follow_departures(world: World, record: FactRecord, t1: datetime) -> None:
+def _follow_departures(
+    world: World, record: FactRecord, t1: datetime, *, own_staff: tuple[str, ...] | None = None
+) -> None:
     """Hand an owner fact to the leaver's manager on the day the owner leaves.
 
     ``[org] turnover_rate`` makes people leave mid-window; an owner who leaves
@@ -301,12 +365,59 @@ def _follow_departures(world: World, record: FactRecord, t1: datetime) -> None:
             continue
         managers = world.out_edges(person.id, "reports_to")
         manager = world.get_node(managers[0].dst) if managers else None
+        if own_staff is not None and (
+            manager is None or manager.props.get("name") not in own_staff
+        ):
+            # a walled project's fact passes to its own staff, never across a wall
+            manager = _staff_successor(world, own_staff, exclude=version.value, at=end)
         if manager is None or not manager.props.get("name"):
             continue
         out[-1] = Version(version.number, version.value, version.valid_from, left_at)
         out.append(Version(0, str(manager.props["name"]), left_at, version.valid_to))
     record.versions = [Version(i + 1, v.value, v.valid_from, v.valid_to) for i, v in enumerate(out)]
     record.horizon_values.update(v.value for v in record.versions)
+
+
+def _staff_successor(
+    world: World, staff: tuple[str, ...], *, exclude: str, at: datetime
+) -> Node | None:
+    """The first of a walled project's staff (by name) still employed at ``at``."""
+    by_name = {str(n.props.get("name")): n for n in world.nodes_by_type("Person")}
+    for name in sorted(staff):
+        node = by_name.get(name)
+        left = node.props.get("left_at") if node is not None else None
+        if (
+            node is not None
+            and name != exclude
+            and (left is None or datetime.fromisoformat(str(left)) > at)
+        ):
+            return node
+    return None
+
+
+def _mark_cross_wall_values(world: World, ledger: Ledger) -> None:
+    """Fill each walled fact's ``cross_wall_values`` from the projects across its walls."""
+    pairs = walled_pairs(world)
+    if not pairs:
+        return
+    names: dict[str, set[str]] = {}
+    for pair in pairs:
+        for project in pair:
+            names[project] = {
+                str(n.props["name"])
+                for pid in staff_of(world, project) or frozenset()
+                if (n := world.get_node(pid)) is not None and n.props.get("name")
+            }
+    for record in ledger.facts.values():
+        for pair in pairs:
+            if record.subject not in pair:
+                continue
+            (other,) = pair - {record.subject}
+            record.cross_wall_values |= names.get(other, set())
+            for fact_id in ledger.by_project.get(other, []):
+                twin = ledger.facts[fact_id]
+                if twin.attribute.name == record.attribute.name:
+                    record.cross_wall_values |= twin.horizon_values
 
 
 # -- assigning ---------------------------------------------------------------- #
@@ -433,7 +544,11 @@ def _assert(
     roll = rng.random()
     if roll < cfg.conflict_rate:
         wrong = _distractor(rng, record, ctx, true)
-        if wrong not in record.horizon_values and all(wrong != v.value for v in record.versions):
+        if (
+            wrong not in record.horizon_values
+            and wrong not in record.cross_wall_values
+            and all(wrong != v.value for v in record.versions)
+        ):
             return made(
                 "conflicting", wrong, attr.state(template, subject=subject, value=wrong), None
             )

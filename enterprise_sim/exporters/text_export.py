@@ -962,6 +962,30 @@ def export_world(
         if missing:
             raise ExportError(f"slice {entry['name']}: files not in the export: {missing[:3]}")
 
+    from enterprise_sim.exporters.isolation import declare_shared, isolation_check, isolation_map
+
+    isolation = isolation_map(world_dir)
+    if isolation is not None:
+        crossings = isolation_check(
+            isolation,
+            {entry["name"]: entry["files"] for entry in slices},
+            lambda rel: (target / rel).read_text(encoding="utf-8"),
+        )
+        if crossings:
+            raise ExportError(
+                f"{len(crossings)} crossing(s) of a declared wall, e.g. {crossings[:3]}"
+            )
+        declare_shared(
+            isolation,
+            [
+                f["path"]
+                for f in writer.files
+                if f["role"] == "data" and not f["path"].startswith(("data/",))
+            ],
+            {entry["name"]: entry["files"] for entry in slices},
+            [t["name"] for t in writer.tables],
+        )
+
     commit, dirty = _git_commit(Path(__file__).resolve().parents[2])
     manifest = {
         "format": EXPORT_FORMAT,
@@ -988,6 +1012,8 @@ def export_world(
         "tables": sorted(writer.tables, key=lambda t: t["name"]),
         "slices": slices,
     }
+    if isolation is not None:
+        manifest["isolation"] = isolation
     body = json.dumps(manifest, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     (target / "export.json").write_bytes(body.encode("utf-8"))
     return ExportResult(target, _sha256(body.encode("utf-8")), len(writer.files))

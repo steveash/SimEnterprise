@@ -74,6 +74,7 @@ from enterprise_sim.producers.outlook import InviteProducer, OutlookProducer
 from enterprise_sim.producers.pptx import PptxProducer
 from enterprise_sim.producers.sensitive import SensitivePlanter
 from enterprise_sim.producers.word import WordProducer
+from enterprise_sim.world_builders.walls import walled_view
 
 
 @runtime_checkable
@@ -624,7 +625,7 @@ def _render_scenario(
             continue
         if control is not None and control.should_pause():
             raise RunPaused()
-        view = world.projection(at=event.timestamp)
+        view = walled_view(world, event.timestamp, event.project)
         producers = _producers_for(event.deliverable.kind, ctx.formats)
         produced = [producer.produce(event, view, client, ctx) for producer in producers]
         if ctx.wants_chat(event.id):
