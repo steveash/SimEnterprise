@@ -35,9 +35,6 @@ E_REPORTS_TO = "reports_to"
 E_LEADS = "leads"
 E_REPLACES = "replaces"
 
-#: Turnover dates are drawn over this many days from the window start.
-_HORIZON_DAYS = 182
-
 
 def _day(start: datetime, rng_offset: int) -> datetime:
     return datetime.combine((start + timedelta(days=rng_offset)).date(), time(9, 0))
@@ -56,7 +53,7 @@ def apply_turnover(
         return
     # Dates are drawn over a fixed horizon, not the window, so extending a
     # world's window never moves a past departure; later ones are skipped.
-    horizon = _HORIZON_DAYS
+    horizon = org.horizon_days
     leads = {e.src for e in world.edges_by_type(E_LEADS)}
     people = [p for p in world.nodes_by_type("Person") if p.id not in leads]
     teams_by_dept: dict[str, list[str]] = {}

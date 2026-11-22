@@ -448,3 +448,30 @@ def test_retraction_off_changes_nothing() -> None:
     assert [[(v.value, v.valid_from) for v in r.versions] for r in off.facts.values()] == [
         [(v.value, v.valid_from) for v in r.versions] for r in zero.facts.values()
     ]
+
+
+def test_a_longer_horizon_spreads_changes_over_a_multi_year_window() -> None:
+    def last_change(horizon: int) -> datetime:
+        config = WorldConfig.model_validate(
+            {
+                **_BASE,
+                "simulation": {"period_start": "2025-01-06", "period_end": "2026-12-25"},
+                "facts": {
+                    "per_project": 12,
+                    "change_rate": 1.0,
+                    "max_versions": 6,
+                    "horizon_days": horizon,
+                },
+            }
+        )
+        ledger = build_ledger(
+            build_world(config),
+            config.facts,
+            seed=4,
+            start=config.simulation.period_start,
+            end=config.simulation.period_end,
+        )
+        return max(v.valid_from for r in ledger.facts.values() for v in r.versions)
+
+    assert last_change(182) < datetime(2025, 8, 1)
+    assert last_change(700) > datetime(2026, 1, 1)

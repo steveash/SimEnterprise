@@ -94,6 +94,15 @@ class FactsConfig(_Frozen):
     cross_team_stale_boost: float = Field(
         default=2.0, ge=1.0, le=10.0, description="Multiplier on stale_rate for cited facts."
     )
+    horizon_days: int = Field(
+        default=182,
+        ge=14,
+        le=3650,
+        description=(
+            "Days over which fact changes are drawn from the window start (fixed, not the "
+            "window, so extending a world never rewrites the past). Raise for multi-year worlds."
+        ),
+    )
     retraction_rate: float = Field(
         default=0.0,
         ge=0.0,
@@ -177,6 +186,12 @@ class OrgConfig(_Frozen):
         ge=0.0,
         le=0.8,
         description="Share of non-lead people who leave during the window (a successor joins).",
+    )
+    horizon_days: int = Field(
+        default=182,
+        ge=14,
+        le=3650,
+        description="Days over which departures and transfers are drawn (raise for multi-year).",
     )
     project_names: bool = Field(
         default=False,

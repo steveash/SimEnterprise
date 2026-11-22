@@ -223,8 +223,8 @@ def compute_config_digest(config: WorldConfig, *, backend: str | None = None) ->
 #: must be listed here, or adding it changes the id of every world that uses the
 #: section (tests/test_world_ids.py pins example world ids).
 _LATE_FIELDS: dict[str, tuple[str, ...]] = {
-    "facts": ("entity_ids", "retraction_rate"),
-    "org": ("project_names",),
+    "facts": ("entity_ids", "retraction_rate", "horizon_days"),
+    "org": ("project_names", "horizon_days"),
 }
 
 

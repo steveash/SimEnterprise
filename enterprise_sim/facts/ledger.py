@@ -182,10 +182,10 @@ def _people_of(world: World, department: str) -> tuple[str, ...]:
     return tuple(sorted(names))
 
 
-#: Change moments are drawn over this horizon from the ledger start, not up to
+#: Change moments are drawn over ``[facts] horizon_days`` (default 182) from the
+#: ledger start, not up to
 #: the window end, so a fact's history is the same whatever the window: extending
 #: a world reveals later versions and never rewrites earlier ones.
-_HORIZON = timedelta(days=182)
 _GAP = timedelta(days=5)
 
 
@@ -194,7 +194,7 @@ def _change_moments(
 ) -> list[datetime]:
     moments: list[datetime] = []
     floor = start + _GAP
-    per_draw = _HORIZON / max(1, cfg.max_versions - 1)
+    per_draw = timedelta(days=cfg.horizon_days) / max(1, cfg.max_versions - 1)
     for _ in range(cfg.max_versions - 1):
         changes = rng.random() < min(1.0, cfg.change_rate * attr.volatile)
         offset = rng.randint(0, int(per_draw.total_seconds() // 3600))
