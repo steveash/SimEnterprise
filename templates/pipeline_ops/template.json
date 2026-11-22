@@ -1,0 +1,21 @@
+{
+  "created_at": "2026-11-22T00:00:00+00:00",
+  "description": "Pipeline ops telemetry: runs, failures, rows, durations, freshness and failed-run reasons.",
+  "kind": "data_scenario",
+  "name": "Pipeline Operations Telemetry",
+  "provides": {
+    "archetypes": [],
+    "data_scenarios": [
+      "pipeline_ops"
+    ],
+    "playbooks": [],
+    "processes": []
+  },
+  "slug": "pipeline_ops",
+  "updated_at": "2026-11-22T00:00:00+00:00",
+  "validation": {
+    "checked_at": "2026-11-22T00:00:00+00:00",
+    "status": "unvalidated",
+    "summary": "not validated yet"
+  }
+}
