@@ -203,10 +203,81 @@ def build_heldout(
     return summary
 
 
+def build_heldout_from_export(
+    base_export: Path, family: str, seed_file: Path, out: Path, *, live: bool = False
+) -> dict[str, Any]:
+    """One fork of a released world, from its export's own ``config.json``.
+
+    The fork's config is the base's ``config.json`` with ``seed`` and ``company.name``
+    replaced, recorded verbatim (``build_world_file(stored_config=...)``), so its
+    exported ``config.json`` differs from the base's in exactly those two fields,
+    whatever SimEnterprise version built the base. ``base_config_digest`` is the
+    base's ``export.json`` ``config_digest``.
+    """
+    import copy
+
+    from enterprise_sim.assembly import build_world_file, compute_config_digest, compute_world_id
+    from enterprise_sim.assembly.runner import render_backend_for
+    from enterprise_sim.jobs.progress import JsonlSink
+    from enterprise_sim.jobs.worker import run_job
+    from enterprise_sim.worlds.file import progress_log_path, read_world, write_world
+
+    secret = read_secret(seed_file)
+    root = outside_worktrees(out, role="output directory")
+    try:
+        base = json.loads((base_export / "config.json").read_text(encoding="utf-8"))
+        manifest = json.loads((base_export / "export.json").read_text(encoding="utf-8"))
+        base_digest = str(manifest["config_digest"])
+    except (OSError, ValueError, KeyError) as exc:
+        raise HeldoutError(f"{base_export} is not a SimEnterprise export: {exc}") from exc
+    try:
+        parent = WorldConfig.model_validate(base)
+    except ValueError as exc:
+        raise HeldoutError(f"{base_export}: its config does not load today: {exc}") from exc
+    derived = heldout_config(parent, secret, family, root)
+    stored = copy.deepcopy(base)
+    stored["seed"] = derived.seed
+    stored["company"] = {**stored["company"], "name": derived.company.name}
+    config = WorldConfig.model_validate({**stored, "worlds_root": str(root)})
+    backend = render_backend_for(config, live=live)
+    digest = compute_config_digest(config, backend=backend)
+    world_id = compute_world_id(config, digest=digest)
+    world_dir = outside_worktrees(root / world_id, role="world directory")
+    root.mkdir(parents=True, exist_ok=True)
+    if read_world(world_dir) is None:
+        world_dir.mkdir(parents=True, exist_ok=True)
+        write_world(
+            world_dir,
+            build_world_file(config, backend=backend, live=live, stored_config=stored),
+        )
+    marker = {"family": family, "base_config_digest": base_digest}
+    (world_dir / HELDOUT_MARKER).write_text(json.dumps(marker, sort_keys=True) + "\n", "utf-8")
+    sink = JsonlSink(None, also_to=progress_log_path(world_dir))
+    try:
+        state = run_job(world_dir, progress=sink)
+    finally:
+        sink.close()
+    return {
+        "family": family,
+        "world_id": world_id,
+        "world_dir": str(world_dir),
+        "status": state.status,
+    }
+
+
 def _cmd_world_heldout(args: argparse.Namespace) -> int:
     configs = [Path(c) for c in args.configs] or default_families()
     try:
-        summary = build_heldout(configs, args.seed_file, args.out, live=args.live)
+        if args.base_export is not None:
+            if args.configs or not args.family:
+                raise HeldoutError("--base-export takes --family and no CONFIG")
+            summary = [
+                build_heldout_from_export(
+                    args.base_export, args.family, args.seed_file, args.out, live=args.live
+                )
+            ]
+        else:
+            summary = build_heldout(configs, args.seed_file, args.out, live=args.live)
     except HeldoutError as exc:
         print(f"enterprise-sim world heldout: {exc}", file=sys.stderr)
         return 2
@@ -230,5 +301,11 @@ def add_heldout_parser(world_subparsers: Any) -> None:
     parser.add_argument(
         "--out", required=True, type=Path, help="held-out store, outside every worktree"
     )
+    parser.add_argument(
+        "--base-export",
+        type=Path,
+        help="fork a released world from its export's config.json (needs --family)",
+    )
+    parser.add_argument("--family", help="the family name of --base-export (its config stem)")
     parser.add_argument("--live", action="store_true", help="render prose with the real provider")
     parser.set_defaults(func=_cmd_world_heldout)

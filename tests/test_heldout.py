@@ -218,3 +218,69 @@ def test_a_fork_export_states_its_family_and_base_digest(tmp_path: Path) -> None
     company = public["company"]
     assert isinstance(company, dict)
     assert {k for k in fork["company"] if fork["company"][k] != company.get(k)} == {"name"}
+
+
+def _old_style_export(tmp_path: Path) -> Path:
+    """A base export whose config.json predates fields added since (simulated)."""
+    from enterprise_sim.exporters.text_export import export_world
+
+    root = tmp_path / "base"
+    root.mkdir()
+    cfg = root / "cfg.toml"
+    cfg.write_text(
+        (_EXAMPLES / "coding-team-clean.toml")
+        .read_text(encoding="utf-8")
+        .replace('worlds_root = "worlds"', ""),
+        encoding="utf-8",
+    )
+    from enterprise_sim.cli import main as cli
+
+    assert cli(["world", "create", str(cfg), "--worlds-root", str(root / "w")]) == 0
+    (world_dir,) = list((root / "w").iterdir())
+    export = export_world(world_dir, root / "exports").directory
+    config = json.loads((export / "config.json").read_text(encoding="utf-8"))
+    for section, field in (("facts", "horizon_days"), ("org", "horizon_days")):
+        config[section].pop(field, None)  # as an older SimEnterprise wrote it
+    config.pop("isolation", None)
+    (export / "config.json").write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
+    return export
+
+
+def test_a_fork_of_an_export_keeps_its_config_but_seed_and_name(tmp_path: Path) -> None:
+    from enterprise_sim.exporters.text_export import export_world
+    from enterprise_sim.worlds.heldout import build_heldout_from_export
+
+    base = _old_style_export(tmp_path)
+    seed = _secret(tmp_path, "fork", "fork")
+    fork = build_heldout_from_export(base, "coding-team-clean", seed, tmp_path / "store")
+    assert fork["status"] == "done"
+    out = export_world(Path(fork["world_dir"]), tmp_path / "forks").directory
+    mine = json.loads((out / "config.json").read_text(encoding="utf-8"))
+    theirs = json.loads((base / "config.json").read_text(encoding="utf-8"))
+    assert {k for k in set(mine) | set(theirs) if mine.get(k) != theirs.get(k)} == {
+        "seed",
+        "company",
+    }
+    assert {k for k in mine["company"] if mine["company"][k] != theirs["company"][k]} == {"name"}
+    manifest = json.loads((out / "export.json").read_text(encoding="utf-8"))
+    base_manifest = json.loads((base / "export.json").read_text(encoding="utf-8"))
+    assert manifest["heldout"] == {
+        "family": "coding-team-clean",
+        "base_config_digest": base_manifest["config_digest"],
+    }
+
+
+def test_a_stored_config_must_describe_the_config_built() -> None:
+    from enterprise_sim.assembly import canonical_config
+    from enterprise_sim.assembly.runner import build_world_file, same_config
+    from enterprise_sim.core.config import load_config
+
+    config = load_config(_FAMILY)
+    older: dict[str, Any] = dict(canonical_config(config))
+    older["facts"] = {k: v for k, v in dict(older["facts"]).items() if k != "horizon_days"}
+    assert same_config(older, config)  # a field added since, at its default
+    assert build_world_file(config, stored_config=older).config == older
+    other = {**older, "seed": int(older["seed"]) + 1}
+    assert not same_config(other, config)
+    with pytest.raises(ValueError, match="does not describe"):
+        build_world_file(config, stored_config=other)

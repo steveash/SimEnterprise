@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, time
 from pathlib import Path
@@ -291,6 +291,20 @@ def compute_world_id(
     return f"{slugify(config.company.name)}-{digest[:12]}"
 
 
+def same_config(stored: Mapping[str, object], config: WorldConfig) -> bool:
+    """Whether ``stored`` (a ``.world``/``config.json`` serialization) describes ``config``.
+
+    True when it validates to a config with the same canonical form: a serialization
+    written by an older SimEnterprise, which lacks fields added since at their
+    defaults, still describes the same world, so it is kept as it was written.
+    """
+    try:
+        loaded = WorldConfig.model_validate({**stored, "worlds_root": str(config.worlds_root)})
+    except ValueError:
+        return False
+    return canonical_config(loaded) == canonical_config(config)
+
+
 def build_world_file(
     config: WorldConfig,
     *,
@@ -299,8 +313,14 @@ def build_world_file(
     generated_at: str | None = None,
     backend: str = _DEFAULT_BACKEND,
     live: bool = False,
+    stored_config: Mapping[str, object] | None = None,
 ) -> WorldFile:
     """Build the :class:`WorldFile` for a fresh build of ``config`` (no filesystem side effects).
+
+    ``stored_config`` is the serialization to record instead of today's canonical
+    form, for a world whose config comes from an older export (a held-out fork of a
+    release keeps its base's ``config.json`` byte for byte but for ``seed`` and
+    ``company.name``). It must describe exactly ``config`` (:func:`same_config`).
 
     ``counts`` records the size of the built knowledge graph (nodes/edges/events).
     It defaults to zeros so the file can be built before a world exists;
@@ -309,6 +329,8 @@ def build_world_file(
     tally); it defaults to an empty/clean summary.
     """
     digest = compute_config_digest(config, backend=backend)
+    if stored_config is not None and not same_config(stored_config, config):
+        raise ValueError("stored_config does not describe the config being built")
     world = WorldFile.new(
         world_id=compute_world_id(config, digest=digest),
         company={
@@ -317,7 +339,7 @@ def build_world_file(
             "size": config.company.size.value,
             "description": config.company.description,
         },
-        config=canonical_config(config),
+        config=dict(stored_config) if stored_config is not None else canonical_config(config),
         config_digest=digest,
         seed=config.seed,
         window={
@@ -454,7 +476,8 @@ def execute_run(
                 },
                 at=stamp,
             )
-        w.config = config_json
+        if not same_config(w.config, config):
+            w.config = config_json  # an equivalent older serialization is kept verbatim
         w.render_backend = backend
         w.live = live if client.config.backend != _DEFAULT_BACKEND else False
         w.tool_version = __version__
