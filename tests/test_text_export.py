@@ -354,3 +354,25 @@ def test_secret_like_names_are_found(text: str, media: str, found: list[str]) ->
     from enterprise_sim.exporters.text_export import secret_names
 
     assert secret_names(text, media) == found
+
+
+@pytest.mark.parametrize(
+    ("model", "accepts"),
+    [
+        ("claude-haiku-4-5", True),
+        ("us.anthropic.claude-haiku-5-5", False),
+        ("claude-opus-5-5", False),
+        ("claude-opus-4-8", False),
+        ("claude-sonnet-4-6", True),
+    ],
+)
+def test_current_models_get_no_temperature(model: str, accepts: bool) -> None:
+    from enterprise_sim.core.llm.backends import accepts_temperature
+
+    assert accepts_temperature(model) is accepts
+
+
+def test_bedrock_ids_are_priced_as_their_model() -> None:
+    from enterprise_sim.core.llm.pricing import PRICING, pricing_for
+
+    assert pricing_for("us.anthropic.claude-haiku-5-5") == PRICING["claude-haiku-5-5"]

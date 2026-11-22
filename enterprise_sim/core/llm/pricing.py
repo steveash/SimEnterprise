@@ -47,6 +47,8 @@ PRICING: dict[str, ModelPricing] = {
     "claude-opus-4-8": ModelPricing(5.0, 0.50, 25.0),
     "claude-sonnet-4-6": ModelPricing(3.0, 0.3, 15.0),
     "claude-haiku-4-5": ModelPricing(1.0, 0.10, 5.0),
+    "claude-haiku-5-5": ModelPricing(0.10, 0.01, 0.50),
+    "claude-sonnet-5-5": ModelPricing(2.0, 0.10, 10.0),
 }
 
 # Used for any model not in :data:`PRICING` so accounting never silently zeroes.
@@ -54,8 +56,16 @@ FALLBACK_PRICING = ModelPricing(3.0, 0.3, 15.0)
 
 
 def pricing_for(model: str, *, table: dict[str, ModelPricing] | None = None) -> ModelPricing:
-    """Return the :class:`ModelPricing` for ``model``, falling back if unknown."""
-    return (table or PRICING).get(model, FALLBACK_PRICING)
+    """Return the :class:`ModelPricing` for ``model``, falling back if unknown.
+
+    A Bedrock id (``us.anthropic.claude-haiku-5-5``) is priced as its model
+    (first-party list price; a partner's price can differ).
+    """
+    prices = table or PRICING
+    if model in prices:
+        return prices[model]
+    bare = model.rsplit("anthropic.", 1)[-1]
+    return prices.get(bare, FALLBACK_PRICING)
 
 
 def cost_of(

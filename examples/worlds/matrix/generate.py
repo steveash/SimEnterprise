@@ -200,7 +200,7 @@ def _config(
         "",
         "[model]",
         *(
-            ['backend = "claude_cli"', 'name = "us.anthropic.claude-haiku-5-5"']
+            ['backend = "bedrock"', 'name = "us.anthropic.claude-haiku-5-5"']
             if tier == "L"
             else ['backend = "anthropic_api"', 'name = "claude-haiku-4-5"']
         ),
@@ -208,7 +208,7 @@ def _config(
         "",
     ]
     if tier == "L":
-        lines += ["[scale]", "max_concurrency = 16", ""]
+        lines += ["[scale]", "max_concurrency = 16", "cost_ceiling_usd = 15.0", ""]
     for dept in departments:  # type: ignore[attr-defined]
         lines += ["[[departments]]", f'archetype = "{dept}"']
     lines += [
@@ -308,8 +308,9 @@ def main() -> None:
     """Write the S tier (synth, small data) here and the L tier into ``../matrix-l/``.
 
     The L tier renders the same companies and seeds with live prose (Haiku 5.5
-    through the claude_cli backend) and full-scale data, so every S world has an
-    L twin; rebuilding an L world from its export's replay file makes no calls.
+    through the Bedrock SDK backend, a 15 USD ceiling per world) and full-scale
+    data, so every S world has an L twin; rebuilding an L world from its
+    export's replay file makes no calls.
     """
     for tier, out, suffix in (("S", HERE, ""), ("L", HERE.parent / "matrix-l", "-l")):
         out.mkdir(exist_ok=True)

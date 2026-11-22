@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import subprocess
 import tempfile
 from collections.abc import Mapping, Sequence
@@ -202,6 +203,14 @@ def _usage_from_sdk(raw_usage: Any) -> TokenUsage:
     )
 
 
+_NO_SAMPLING = re.compile(r"claude-(?:opus|sonnet|haiku)-5|fable|mythos|opus-4-[78]")
+
+
+def accepts_temperature(model: str) -> bool:
+    """Whether ``model`` takes a ``temperature``: the current models refuse it (400)."""
+    return _NO_SAMPLING.search(model) is None
+
+
 class _AnthropicSDKBackend:
     """Shared implementation for the two official-SDK backends (§7).
 
@@ -249,10 +258,11 @@ class _AnthropicSDKBackend:
     ) -> tuple[dict[str, Any], TokenUsage]:  # pragma: no cover - requires the SDK
         client = self._client_or_create()
         try:
+            sampling = {"temperature": temperature} if accepts_temperature(model) else {}
             response = client.messages.create(
                 model=model,
                 max_tokens=self._max_tokens,
-                temperature=temperature,
+                **sampling,
                 system=self._system_blocks(prompt),
                 tools=[
                     {
@@ -338,8 +348,16 @@ class BedrockBackend(_AnthropicSDKBackend):
 
     def _make_client(self) -> Any:  # pragma: no cover - requires the SDK
         import importlib
+        import os
 
         anthropic = importlib.import_module("anthropic")
+        if os.environ.get("ANTHROPIC_BEDROCK_BASE_URL"):
+            # A signing proxy (the SDK reads its URL from this variable) signs the
+            # request itself; the SDK still signs locally first, so it needs some
+            # key material, and placeholders are enough: no credential is used.
+            return anthropic.AnthropicBedrock(
+                aws_access_key="signed-by-proxy", aws_secret_key="signed-by-proxy"
+            )
         return anthropic.AnthropicBedrock()
 
 

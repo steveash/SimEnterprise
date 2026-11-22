@@ -14,12 +14,13 @@ period_start = 2026-01-05
 period_end = 2026-03-27
 
 [model]
-backend = "claude_cli"
+backend = "bedrock"
 name = "us.anthropic.claude-haiku-5-5"
 offline_backend = "synth"
 
 [scale]
 max_concurrency = 16
+cost_ceiling_usd = 15.0
 
 [[departments]]
 archetype = "data_analytics"

@@ -29,7 +29,7 @@ bench = [
     "kuzu>=0.11",
     "pyoxigraph>=0.5",
     "claude-agent-sdk>=0.1",
-    "anthropic>=0.40",
+    "anthropic[bedrock]>=0.40",
 ]
 # The structured-data-products subsystem (data_products/): vectorized causal
 # sampling (numpy), parquet output (pyarrow), and SQL views + question
