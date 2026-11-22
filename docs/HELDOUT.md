@@ -5,13 +5,21 @@ variant of each world family (default: every `examples/worlds/*.toml`) into `DIR
 coordinator runs it into the held-out store; neither the seed file nor the worlds enter a
 repository.
 
-**Invariant.** Neither the seed file nor any output lives inside a git worktree. One check,
+**Invariant.** Neither the seed file nor any output lives inside a git repository. One check,
 `enterprise_sim.worlds.heldout.outside_worktrees`, guards every path argument (the seed file,
 the output directory, each world directory). It refuses a path when it or any ancestor holds
-`.git`, whether that is a checkout directory or a linked-worktree file. The refusal happens before
-anything is read or written. `tests/test_heldout.py` holds the table over every entry point.
+`.git`, whether that is a checkout directory or a linked-worktree file. It also refuses a path
+inside a bare or common git directory (`HEAD`, `objects/`, `refs/`). The refusal happens before
+anything is read or written. `tests/test_heldout.py` holds the table: 3 path arguments x 3
+repository kinds.
 
-**Derivation.** The secret is the seed file's bytes, at least 16. For family `F` (the config's
+**Seed file.** The seed file is the held-out secret of decision record 0015: exactly one line,
+`spindle-heldout-seed/1 <64 lowercase hex digits>`, with at least eight distinct digits. It is
+written from the OS random source by `new-heldout-seed`. One seed file serves both the dataset
+builder and this generator, and labels separate the two derivations. Any other content is refused,
+and the error never quotes it.
+
+**Derivation.** The secret is the seed file's 64 hex digits. For family `F` (the config's
 file stem), the world seed is `HMAC-SHA256(secret, "seed" || F)` mod 2^31. The company name is a
 word pair picked by `HMAC-SHA256(secret, "name" || F)`, so a held-out world cannot be matched to
 its public twin by name. Nothing derived is printed. The derived seed is stored in each world's

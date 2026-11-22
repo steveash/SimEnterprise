@@ -27,10 +27,17 @@ _FAMILY = _EXAMPLES / "coding-team-clean.toml"
 _COMPARED = ("artifacts", "kg", "evals", "organization", "data")
 
 
-def _secret(tmp_path: Path, name: str, text: str) -> Path:
+def _seed_line(fill: str) -> str:
+    """A record-0015 seed line; ``fill`` picks the 64 hex digits (tests only)."""
+    import hashlib
+
+    return f"spindle-heldout-seed/1 {hashlib.sha256(fill.encode()).hexdigest()}\n"
+
+
+def _secret(tmp_path: Path, name: str, fill: str) -> Path:
     path = tmp_path / "secrets" / name
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text, encoding="utf-8")
+    path.write_text(_seed_line(fill), encoding="ascii")
     return path
 
 
@@ -55,7 +62,7 @@ def _facts(world_dir: Path) -> dict[str, str]:
 
 
 def test_the_same_seed_file_renders_byte_identical_worlds(tmp_path: Path) -> None:
-    seed = _secret(tmp_path, "a", "first secret value, long enough\n")
+    seed = _secret(tmp_path, "a", "first")
     (one,) = build_heldout([_FAMILY], seed, tmp_path / "store-1")
     (two,) = build_heldout([_FAMILY], seed, tmp_path / "store-2")
     assert one["status"] == two["status"] == "done"
@@ -65,8 +72,8 @@ def test_the_same_seed_file_renders_byte_identical_worlds(tmp_path: Path) -> Non
 
 
 def test_a_different_seed_file_changes_the_seed_the_name_and_the_facts(tmp_path: Path) -> None:
-    a = _secret(tmp_path, "a", "first secret value, long enough\n")
-    b = _secret(tmp_path, "b", "second secret value, also long\n")
+    a = _secret(tmp_path, "a", "first")
+    b = _secret(tmp_path, "b", "second")
     (one,) = build_heldout([_FAMILY], a, tmp_path / "store-a")
     (two,) = build_heldout([_FAMILY], b, tmp_path / "store-b")
     assert one["world_id"] != two["world_id"]
@@ -84,7 +91,7 @@ def test_derivation_differs_per_family_and_never_keeps_the_public_name() -> None
     from enterprise_sim.core.config import load_config
 
     config = load_config(_FAMILY)
-    secret = b"a secret of more than sixteen bytes"
+    secret = b"0123456789abcdef" * 4
     one = heldout_config(config, secret, "coding-team-clean", Path("/store"))
     two = heldout_config(config, secret, "coding-team-messy", Path("/store"))
     assert one.seed != two.seed and one.seed != config.seed
@@ -98,19 +105,23 @@ def _worktree(tmp_path: Path, kind: str) -> Path:
     repo.mkdir(parents=True)
     if kind == "checkout":
         (repo / ".git").mkdir()
-    else:  # a linked worktree has a .git file
+    elif kind == "linked":  # a linked worktree has a .git file
         (repo / ".git").write_text("gitdir: /elsewhere\n", encoding="utf-8")
+    else:  # a bare or common git directory
+        (repo / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
+        (repo / "objects").mkdir()
+        (repo / "refs").mkdir()
     return repo
 
 
-@pytest.mark.parametrize("kind", ["checkout", "linked"])
+@pytest.mark.parametrize("kind", ["checkout", "linked", "bare"])
 @pytest.mark.parametrize("entry", ["seed file", "output directory", "output subdirectory"])
 def test_every_path_inside_a_worktree_is_refused(tmp_path: Path, kind: str, entry: str) -> None:
     repo = _worktree(tmp_path, kind)
-    seed = _secret(tmp_path, "ok", "a secret of more than sixteen bytes\n")
+    seed = _secret(tmp_path, "ok", "inside")
     out = tmp_path / "store"
     if entry == "seed file":
-        seed = _secret(repo, "seed", "a secret of more than sixteen bytes\n")
+        seed = _secret(repo, "seed", "inside")
     elif entry == "output directory":
         out = repo
     else:
@@ -125,16 +136,37 @@ def test_the_choke_point_accepts_a_plain_directory(tmp_path: Path) -> None:
     assert outside_worktrees(tmp_path / "x" / "y", role="out") == (tmp_path / "x" / "y").resolve()
 
 
-def test_a_short_seed_file_is_refused(tmp_path: Path) -> None:
-    with pytest.raises(HeldoutError, match="under 16 bytes"):
-        read_secret(_secret(tmp_path, "short", "tiny\n"))
+@pytest.mark.parametrize(
+    "text",
+    [
+        "a hand-typed phrase that is long enough\n",
+        "spindle-heldout-seed/1 " + "0" * 64 + "\n",
+        "spindle-heldout-seed/1 " + "01" * 32 + "\n",
+        "spindle-heldout-seed/1 " + "ABCDEF0123456789" * 4 + "\n",
+        "spindle-heldout-seed/1 " + "0123456789abcdef" * 4 + "\nsecond line\n",
+        "spindle-heldout-seed/2 " + "0123456789abcdef" * 4 + "\n",
+    ],
+)
+def test_a_seed_file_not_in_the_0015_format_is_refused(tmp_path: Path, text: str) -> None:
+    path = tmp_path / "secrets" / "bad"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="ascii")
+    with pytest.raises(HeldoutError, match="not one line") as raised:
+        read_secret(path)
+    secretish = [t for t in text.split() if len(t) >= 16 and t != "spindle-heldout-seed/1"]
+    quoted = [t for t in secretish if t in str(raised.value)]
+    assert quoted == []  # never quotes the content
+
+
+def test_a_0015_seed_file_is_accepted(tmp_path: Path) -> None:
+    assert len(read_secret(_secret(tmp_path, "ok", "x"))) == 64
 
 
 def test_the_cli_prints_no_secret_and_no_derived_seed(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    text = "the cli secret, long enough to use"
-    seed = _secret(tmp_path, "cli", text + "\n")
+    seed = _secret(tmp_path, "cli", "cli")
+    text = seed.read_text(encoding="ascii").split()[1]  # the 64 secret hex digits
     out = tmp_path / "store"
     code = main(["world", "heldout", str(_FAMILY), "--seed-file", str(seed), "--out", str(out)])
     printed = capsys.readouterr()

@@ -5,12 +5,21 @@ held-out variant of each world family (by default every ``examples/worlds/*.toml
 into ``DIR``, for the coordinator's held-out store.
 
 Invariant: neither the seed file nor any output of this command lives inside a git
-worktree. :func:`outside_worktrees` is the one check every path argument goes through
-(the seed file, the output directory, and each world directory written); a path whose
-directory or any ancestor holds ``.git`` is refused before anything is read or written.
+repository. :func:`outside_worktrees` is the one check every path argument goes through
+(the seed file, the output directory, and each world directory written). It refuses a
+path when the path or any ancestor directory holds ``.git`` (a checkout's directory or
+a linked worktree's file), or is itself a git directory (a bare or common git
+directory: ``HEAD``, ``objects/`` and ``refs/``). The check runs before anything is read
+or written.
 
-Derivation: the secret is the seed file's bytes. For family ``F`` (the config's file
-stem) the world seed and the company name come from HMAC-SHA256(secret, label + F), so
+The seed file is the held-out secret of decision record 0015 (datasets-cc): exactly one
+line ``spindle-heldout-seed/1 <64 lowercase hex digits>`` with at least eight distinct
+digits, written from the OS random source by ``new-heldout-seed``. One seed file thus
+serves both the dataset builder and this generator; the derivations are separated by
+their labels.
+
+Derivation: for family ``F`` (the config's file stem) the world seed and the company
+name come from HMAC-SHA256(secret, label + F), so
 
 * the same seed file renders byte-identical worlds (a world is a pure function of
   config, seed and code);
@@ -30,6 +39,7 @@ import argparse
 import hashlib
 import hmac
 import json
+import re
 import sys
 from collections.abc import Sequence
 from pathlib import Path
@@ -46,7 +56,8 @@ __all__ = [
     "read_secret",
 ]
 
-_MIN_SECRET_BYTES = 16
+_SEED_TAG = "spindle-heldout-seed/1"
+_SEED_LINE = re.compile(rf"{re.escape(_SEED_TAG)} ([0-9a-f]{{64}})")
 _EXAMPLES = Path(__file__).resolve().parents[2] / "examples" / "worlds"
 
 # Company names for held-out variants: a word pair per family, drawn by the HMAC.
@@ -75,7 +86,7 @@ def outside_worktrees(path: Path, *, role: str) -> Path:
     """
     resolved = path.expanduser().resolve()
     for directory in (resolved, *resolved.parents):
-        if (directory / ".git").exists():
+        if (directory / ".git").exists() or _is_git_dir(directory):
             raise HeldoutError(
                 f"{role} {resolved} is inside a git worktree ({directory}); "
                 "held-out seeds and worlds must live outside every repository"
@@ -83,16 +94,36 @@ def outside_worktrees(path: Path, *, role: str) -> Path:
     return resolved
 
 
+def _is_git_dir(directory: Path) -> bool:
+    """A bare or common git directory: ``HEAD`` beside ``objects/`` and ``refs/``."""
+    return (
+        (directory / "HEAD").is_file()
+        and (directory / "objects").is_dir()
+        and (directory / "refs").is_dir()
+    )
+
+
 def read_secret(seed_file: Path) -> bytes:
-    """The secret bytes of ``seed_file`` (outside every worktree, at least 16 bytes)."""
+    """The secret of ``seed_file``: its 64 hex digits (record 0015's seed-file format).
+
+    The file lives outside every repository and holds exactly one line
+    ``spindle-heldout-seed/1 <64 lowercase hex digits>`` with at least eight distinct
+    digits, so a hand-typed phrase, a date or a repeated pattern is refused. The
+    error never quotes the file's content.
+    """
     path = outside_worktrees(seed_file, role="seed file")
     try:
-        secret = path.read_bytes().strip()
-    except OSError as exc:
-        raise HeldoutError(f"cannot read seed file {path}: {exc}") from exc
-    if len(secret) < _MIN_SECRET_BYTES:
-        raise HeldoutError(f"seed file {path} holds under {_MIN_SECRET_BYTES} bytes")
-    return secret
+        text = path.read_text(encoding="ascii")
+    except (OSError, UnicodeDecodeError) as exc:
+        raise HeldoutError(f"cannot read seed file {path}: {type(exc).__name__}") from exc
+    lines = text.splitlines()
+    match = _SEED_LINE.fullmatch(lines[0]) if len(lines) == 1 else None
+    if match is None or len(set(match.group(1))) < 8:
+        raise HeldoutError(
+            f"seed file {path} is not one line '{_SEED_TAG} <64 lowercase hex digits>' "
+            "with at least eight distinct digits (write one with new-heldout-seed)"
+        )
+    return match.group(1).encode("ascii")
 
 
 def _draw(secret: bytes, label: str, family: str) -> int:
