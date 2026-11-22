@@ -41,6 +41,7 @@ from pptx.presentation import Presentation as PresentationObj
 
 from enterprise_sim.core.events import Event
 from enterprise_sim.core.llm import LLMClient, Prompt, assemble_prompt
+from enterprise_sim.core.llm.brief import facts_block_for
 from enterprise_sim.core.registry import PRODUCERS
 from enterprise_sim.core.world import Edge, Node, WorldView
 from enterprise_sim.producers.artifact import (
@@ -50,6 +51,7 @@ from enterprise_sim.producers.artifact import (
 )
 from enterprise_sim.producers.grounding import (
     Roster,
+    author_roles,
     detect_unresolved_names,
     tag_mentions,
 )
@@ -125,7 +127,7 @@ class PptxProducer:
         artifact_id = _artifact_id_for(event)
         path = f"{ctx.artifacts_dir}/{_slug(artifact_id)}.pptx"
 
-        authors = _resolve_people(event, view, _AUTHOR_ROLES)
+        authors = _resolve_people(event, view, author_roles(event, _AUTHOR_ROLES))
         reviewers = _resolve_people(event, view, _REVIEWER_ROLES)
         candidates = _candidate_references(view, exclude=artifact_id)
         others = _other_people(view, exclude={n.id for n in authors + reviewers})
@@ -143,6 +145,7 @@ class PptxProducer:
             ctx=ctx,
             path=path,
         )
+        overview = ctx.messy(overview, key=artifact_id, roster=roster)
 
         slides = _build_slides(
             title=title,
@@ -488,6 +491,10 @@ def _task_brief(
         lines.append(f"Prepared by: {_names(authors)}.")
     if reviewers:
         lines.append(f"Reviewed by: {_names(reviewers)}.")
+    facts = facts_block_for(event.payload)
+    if facts:
+        lines.append("")
+        lines.append(facts)
     lines.append("")
     lines.append(roster.roster_block())
     if candidates:

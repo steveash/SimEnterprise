@@ -78,6 +78,8 @@ class ProducerContext:
     artifacts_dir: str = "artifacts"
     #: ``[messiness]`` for this scenario's prose (``None``: clean).
     noise: ProseNoise | None = None
+    #: ``[formats]`` overrides: deliverable kind -> producer name.
+    formats: tuple[tuple[str, str], ...] = ()
 
     def messy(self, text: str, *, key: str, roster: Roster) -> str:
         """``text`` with this scenario's messiness applied (quirks logged under ``key``).

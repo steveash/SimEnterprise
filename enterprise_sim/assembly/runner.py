@@ -226,9 +226,15 @@ def _drop_default_sections(payload: dict[str, object]) -> None:
     so they contribute nothing and every existing id stays byte-stable. The
     effective offline backend reaches the digest as ``render_backend``.
     """
-    from enterprise_sim.core.config.diversity import FactsConfig, MessinessConfig, OrgConfig
+    from enterprise_sim.core.config.diversity import (
+        FactsConfig,
+        FormatsConfig,
+        MessinessConfig,
+        OrgConfig,
+    )
 
     defaults = {
+        "formats": FormatsConfig().model_dump(mode="json"),
         "facts": FactsConfig().model_dump(mode="json"),
         "messiness": MessinessConfig().model_dump(mode="json"),
         "org": OrgConfig().model_dump(mode="json"),

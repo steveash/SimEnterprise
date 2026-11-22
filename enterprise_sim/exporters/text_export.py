@@ -213,7 +213,71 @@ def render_pptx(path: Path) -> str:
     return "\n".join(lines).rstrip("\n") + "\n"
 
 
-_RENDERERS = {".docx": render_docx, ".pptx": render_pptx}
+_ADDRESS = re.compile(r"\s*<[^>]*@[^>]*>|\b[\w.+-]+@[\w.-]+\b")
+
+
+def _names_only(value: str) -> str:
+    """A header value with every mailbox address removed (display names kept)."""
+    return " ".join(_ADDRESS.sub("", value).split()).strip(" ,") or "(unnamed)"
+
+
+def render_eml(path: Path) -> str:
+    """A Markdown rendering of an ``.eml`` thread: each message's names, date, subject, body.
+
+    Addresses are dropped (a catalog refuses e-mail-shaped values); display names
+    stay, which is what a reader of the thread needs.
+    """
+    from email import policy
+    from email.parser import BytesParser
+
+    raw = path.read_bytes()
+    # A thread file holds several RFC 5322 messages, separated by mbox "From " lines.
+    chunks = [c for c in re.split(rb"(?m)^From .*\n", raw) if c.strip()] or [raw]
+    lines: list[str] = []
+    for number, chunk in enumerate(chunks, start=1):
+        message = BytesParser(policy=policy.default).parsebytes(chunk)
+        subject = str(message.get("Subject", "")).strip()
+        if number == 1:
+            lines += [f"# {subject or path.stem}", ""]
+        lines += [f"## Message {number}", ""]
+        for header in ("From", "To", "Cc", "Date"):
+            value = message.get(header)
+            if value:
+                lines.append(f"**{header}:** {_names_only(str(value))}")
+        body = message.get_body(preferencelist=("plain",))
+        text = body.get_content() if body is not None else ""
+        lines += ["", _ADDRESS.sub("", str(text)).strip(), ""]
+    return "\n".join(lines).rstrip("\n") + "\n"
+
+
+def render_ics(path: Path) -> str:
+    """A Markdown rendering of an ``.ics`` invite: summary, time, organizer, attendees, agenda."""
+    text = path.read_text(encoding="utf-8").replace("\r\n", "\n")
+    text = re.sub(r"\n[ \t]", "", text)  # RFC 5545 line unfolding
+    fields: dict[str, list[str]] = {}
+    for line in text.splitlines():
+        name, _, value = line.partition(":")
+        key = name.split(";", 1)[0]
+        cn = re.search(r"CN=([^;:]+)", name)
+        fields.setdefault(key, []).append(cn.group(1).strip('"') if cn else value)
+
+    def one(key: str) -> str:
+        return fields.get(key, [""])[0]
+
+    agenda = one("DESCRIPTION").replace("\\n", "\n").replace("\\,", ",").replace("\\;", ";")
+    lines = [
+        f"# {one('SUMMARY') or path.stem}",
+        "",
+        f"**When:** {one('DTSTART')} to {one('DTEND')}",
+        f"**Organizer:** {_names_only(one('ORGANIZER'))}",
+        f"**Attendees:** {', '.join(_names_only(a) for a in fields.get('ATTENDEE', []))}",
+        "",
+        _ADDRESS.sub("", agenda).strip(),
+    ]
+    return "\n".join(lines).rstrip("\n") + "\n"
+
+
+_RENDERERS = {".docx": render_docx, ".pptx": render_pptx, ".eml": render_eml, ".ics": render_ics}
 
 
 # -- tables -------------------------------------------------------------------- #
@@ -568,7 +632,7 @@ def export_world(world_dir: Path | str, out_root: Path | str) -> ExportResult:
         if suffix in _TEXT_MEDIA:
             writer.write(rel, _lf(path.read_bytes()), _TEXT_MEDIA[suffix])
         elif suffix in _RENDERERS:
-            text = _RENDERERS[suffix](path)
+            text = _RENDERERS[suffix](path).replace("\r\n", "\n").replace("\r", "\n")
             writer.write(
                 f"{rel}.md",
                 text.encode("utf-8"),

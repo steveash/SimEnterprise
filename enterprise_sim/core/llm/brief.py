@@ -33,10 +33,14 @@ __all__ = [
 FACTS_HEADER = "FACTS — state each of these in the text, in your own words but keeping every value:"
 
 _LINE = re.compile(
-    r"^(Task|Title|Summary|Date|Raised|Topic|Tone|Authored by|Reviewed by|Reported by): (.*?)\.?$"
+    r"^(Task|Title|Summary|Subject|Date|Raised|Topic|Tone|Authored by|Reviewed by|Reported by"
+    r"|Prepared by|Sent by|Organized by): (.*?)\.?$"
 )
 _COMMENT = re.compile(r"^Write (.+?)'s (?:review )?comment on the (.+?) titled (['\"])(.*)\3\.$")
-_TASK_KIND = re.compile(r"write the (?:prose body|description) of an? (.+?)(?: \(|$)")
+_TASK_KIND = re.compile(
+    r"write the (?:prose body|description|overview narrative|body|agenda body) "
+    r"(?:of|for) an? (.+?)(?: \(|\.?$)"
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -110,10 +114,17 @@ def parse_brief(text: str) -> ParsedBrief:
         kind = task_kind.group(1)
     return ParsedBrief(
         kind=kind,
-        title=values.get("Title", title),
+        title=values.get("Title") or values.get("Summary") or values.get("Subject") or title,
         date=values.get("Date", ""),
         topic=values.get("Topic", ""),
-        authors=_names(values.get("Authored by", values.get("Reported by", ""))),
+        authors=_names(
+            values.get("Authored by")
+            or values.get("Reported by")
+            or values.get("Prepared by")
+            or values.get("Sent by")
+            or values.get("Organized by")
+            or ""
+        ),
         reviewers=_names(values.get("Reviewed by", "")),
         commenter=commenter,
         replying=replying,

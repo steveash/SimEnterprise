@@ -63,7 +63,7 @@ _TRUE_STANCES = ("current", "update", "hedged")
 _MIN_TOKEN = 3
 #: TS-DISCOVERED's grouping separators: a declared value may hold none of them.
 _GROUPING = (",", "_", "'", "\u00a0", "\u202f")
-_RENDERED = (".docx", ".pptx")
+_RENDERED = (".docx", ".pptx", ".eml", ".ics")
 _TEXT = (".md", ".json")
 _SLICE_NAME = re.compile(r"[^a-z0-9-]+")
 
@@ -437,6 +437,10 @@ def _doc_lines(world_dir: Path, doc: dict[str, Any]) -> list[str]:
         return render_docx(path).splitlines()
     if path.suffix == ".pptx":
         return render_pptx(path).splitlines()
+    if path.suffix in (".eml", ".ics"):
+        from enterprise_sim.exporters.text_export import render_eml, render_ics
+
+        return (render_eml(path) if path.suffix == ".eml" else render_ics(path)).splitlines()
     return path.read_text(encoding="utf-8").splitlines()
 
 

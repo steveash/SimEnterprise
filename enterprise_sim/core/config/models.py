@@ -22,6 +22,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from enterprise_sim.core.config.diversity import (
     DataMessinessConfig,
     FactsConfig,
+    FormatsConfig,
     MessinessConfig,
     OfflineBackend,
     OrgConfig,
@@ -279,6 +280,10 @@ class WorldConfig(_Frozen):
     messiness: MessinessConfig = Field(
         default_factory=MessinessConfig,
         description="Surface noise injected into rendered documents, labelled in the gold KG.",
+    )
+    formats: FormatsConfig = Field(
+        default_factory=FormatsConfig,
+        description="Bind kit document kinds to the pptx / e-mail / invite producers.",
     )
     org: OrgConfig = Field(
         default_factory=OrgConfig,

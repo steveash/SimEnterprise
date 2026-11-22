@@ -30,6 +30,7 @@ from datetime import datetime, timedelta
 
 from enterprise_sim.core.events import Event
 from enterprise_sim.core.llm import LLMClient, Prompt, assemble_prompt
+from enterprise_sim.core.llm.brief import facts_block_for
 from enterprise_sim.core.world import Edge, Node, WorldView
 from enterprise_sim.producers.artifact import Mention, ProducedArtifact, ValidationIssue
 from enterprise_sim.producers.calendar_ics import Attendee, Calendar, Meeting, render_calendar
@@ -39,7 +40,12 @@ from enterprise_sim.producers.email_eml import (
     Participant,
     render_thread,
 )
-from enterprise_sim.producers.grounding import Roster, detect_unresolved_names, tag_mentions
+from enterprise_sim.producers.grounding import (
+    Roster,
+    author_roles,
+    detect_unresolved_names,
+    tag_mentions,
+)
 from enterprise_sim.producers.markdown import ProducerContext
 
 __all__ = ["OutlookProducer"]
@@ -65,6 +71,11 @@ _PARTICIPANT_ROLES = (
     "participants",
     "to",
     "cc",
+    # playbook role names: a kit's lead and member, a squad, a sales team.
+    "lead",
+    "member",
+    "engineers",
+    "sales_team",
 )
 
 # Abstract deliverable kinds (and media) routed to each rendering mode.
@@ -98,6 +109,8 @@ class OutlookProducer:
 
     name = "outlook"
     formats: Sequence[str] = ("eml", "ics")
+    #: render every bound kind as a meeting invite (the ``invite`` binding).
+    force_calendar: bool = False
     handles: Sequence[str] = (
         "email_thread",
         "email",
@@ -125,14 +138,16 @@ class OutlookProducer:
 
         kind = event.deliverable.kind if event.deliverable else "email_thread"
         medium = event.deliverable.medium if event.deliverable else "email"
-        as_calendar = _is_calendar(kind, medium)
+        as_calendar = self.force_calendar or _is_calendar(kind, medium)
         title = _title_for(event, kind)
         artifact_id = _artifact_id_for(event)
         fmt = "ics" if as_calendar else "eml"
         path = f"{ctx.artifacts_dir}/{_slug(artifact_id)}.{fmt}"
 
-        sender = _resolve_mailboxes(event, view, _SENDER_ROLES, domain)
+        sender = _resolve_mailboxes(event, view, author_roles(event, _SENDER_ROLES), domain)
         participants = _resolve_mailboxes(event, view, _PARTICIPANT_ROLES, domain)
+        senders = {m.node.id for m in sender}
+        participants = [m for m in participants if m.node.id not in senders]
         # Fall back so a one-sided actor map still yields a believable exchange.
         if not sender and participants:
             sender, participants = participants[:1], participants[1:]
@@ -151,6 +166,7 @@ class OutlookProducer:
             path=path,
             as_calendar=as_calendar,
         )
+        prose = ctx.messy(prose, key=artifact_id, roster=roster)
 
         if as_calendar:
             body = _render_invite(
@@ -339,6 +355,10 @@ def _task_brief(
     if participants:
         label = "Attendees" if as_calendar else "Recipients"
         lines.append(f"{label}: {_mb_names(participants)}.")
+    facts = facts_block_for(event.payload)
+    if facts:
+        lines.append("")
+        lines.append(facts)
     lines.append("")
     lines.append(roster.roster_block())
     if candidates:
@@ -670,3 +690,10 @@ def _artifact_id_for(event: Event) -> str:
 def _slug(value: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
     return slug or "artifact"
+
+
+class InviteProducer(OutlookProducer):
+    """The Outlook producer, always rendering a meeting invite (``.ics``)."""
+
+    name = "invite"
+    force_calendar = True

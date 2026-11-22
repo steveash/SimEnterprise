@@ -206,8 +206,24 @@ class DataMessinessConfig(_Frozen):
         return not any(self.model_dump().values())
 
 
+class FormatsConfig(_Frozen):
+    """Which kit document kinds render in the other native formats (all off = md/docx/Jira).
+
+    The pptx and Outlook producers exist and are tested; these switches bind kit
+    kinds to them: ``decks`` (business reviews, board packs, launch plans → .pptx),
+    ``email`` (escalations, incident notices, offer approvals, pricing exceptions,
+    purchase requests → .eml threads), ``invites`` (forecast calls, CSAT reviews,
+    access reviews → .ics meeting invites with an agenda).
+    """
+
+    decks: bool = False
+    email: bool = False
+    invites: bool = False
+
+
 __all__ = [
     "DataMessinessConfig",
+    "FormatsConfig",
     "FactsConfig",
     "MessinessConfig",
     "OfflineBackend",

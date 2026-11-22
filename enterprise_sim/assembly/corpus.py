@@ -68,6 +68,8 @@ from enterprise_sim.producers.artifact import ProducedArtifact, apply_to_world
 from enterprise_sim.producers.jira import JiraProducer
 from enterprise_sim.producers.markdown import MarkdownProducer, ProducerContext
 from enterprise_sim.producers.noise import ProseNoise, is_clean
+from enterprise_sim.producers.outlook import InviteProducer, OutlookProducer
+from enterprise_sim.producers.pptx import PptxProducer
 from enterprise_sim.producers.word import WordProducer
 
 
@@ -258,6 +260,7 @@ def build_corpus(
                     noise=None
                     if is_clean(config.messiness)
                     else ProseNoise(config.messiness, seed=config.seed),
+                    formats=format_overrides(config),
                 ),
             )
         )
@@ -280,14 +283,17 @@ def build_corpus(
         )
         attach(journal.ordered(), assertions)
 
-    num_artifacts = sum(_deliverable_count(plan.journal) for plan in plans)
+    num_artifacts = sum(_deliverable_count(plan.journal, plan.ctx.formats) for plan in plans)
     progress.emit(
         ProgressEvent.now(
             "scheduled",
             events=len(journal),
             artifacts_total=num_artifacts,
             scenarios=[
-                {"id": plan.initiative_id, "artifacts": _deliverable_count(plan.journal)}
+                {
+                    "id": plan.initiative_id,
+                    "artifacts": _deliverable_count(plan.journal, plan.ctx.formats),
+                }
                 for plan in plans
             ],
         )
@@ -355,7 +361,7 @@ def _people_by_department(world: World) -> dict[str, tuple[str, ...]]:
     return {dept: tuple(sorted(names)) for dept, names in out.items()}
 
 
-def _deliverable_count(journal: EventJournal) -> int:
+def _deliverable_count(journal: EventJournal, overrides: tuple[tuple[str, str], ...] = ()) -> int:
     """Number of *render tasks* in ``journal`` — one per (deliverable × bound producer).
 
     A one-to-many fan-out (``backlog`` → ``markdown`` + ``jira``, D6) renders a
@@ -364,7 +370,7 @@ def _deliverable_count(journal: EventJournal) -> int:
     estimate equal to the artifact count the run actually produces.
     """
     return sum(
-        len(_producers_for(event.deliverable.kind))
+        len(_producers_for(event.deliverable.kind, overrides))
         for event in journal.ordered()
         if event.deliverable is not None
     )
@@ -495,12 +501,42 @@ def _project_for(initiative: Node, world: World) -> str | None:
 # ``markdown`` *and* ``jira`` — the multi-modal fan-out (D6): one event renders both
 # a narrative markdown twin and a Jira issue. Producer instances are stateless and
 # reused across the run.
-_Producer = MarkdownProducer | WordProducer | JiraProducer
+_Producer = MarkdownProducer | WordProducer | JiraProducer | PptxProducer | OutlookProducer
 _PRODUCERS: dict[str, _Producer] = {
     MarkdownProducer.name: MarkdownProducer(),
     WordProducer.name: WordProducer(),
     JiraProducer.name: JiraProducer(),
+    PptxProducer.name: PptxProducer(),
+    OutlookProducer.name: OutlookProducer(),
+    InviteProducer.name: InviteProducer(),
 }
+
+#: ``[formats]`` switch -> (kit kinds it rebinds, producer name).
+_FORMAT_SWITCHES: dict[str, tuple[tuple[str, ...], str]] = {
+    "decks": (("business_review", "board_pack", "launch_plan"), PptxProducer.name),
+    "email": (
+        (
+            "escalation_note",
+            "incident_comms",
+            "offer_approval",
+            "pricing_exception",
+            "purchase_request",
+        ),
+        OutlookProducer.name,
+    ),
+    "invites": (("forecast_call", "csat_review", "access_review"), InviteProducer.name),
+}
+
+
+def format_overrides(config: WorldConfig) -> tuple[tuple[str, str], ...]:
+    """The ``[formats]`` rebindings of ``config``, as ``(kind, producer)`` pairs."""
+    pairs: list[tuple[str, str]] = []
+    for switch, (kinds, producer) in _FORMAT_SWITCHES.items():
+        if getattr(config.formats, switch):
+            pairs.extend((kind, producer) for kind in kinds)
+    return tuple(sorted(pairs))
+
+
 _BINDING = BindingMap(default=MarkdownProducer.name)
 for _kind in WordProducer.handles:
     _BINDING.bind(_kind, WordProducer.name)
@@ -513,12 +549,16 @@ def _producer_for(kind: str) -> _Producer:
     return _PRODUCERS[_BINDING.producer_names(kind)[0]]
 
 
-def _producers_for(kind: str) -> list[_Producer]:
+def _producers_for(kind: str, overrides: tuple[tuple[str, str], ...] = ()) -> list[_Producer]:
     """Resolve a deliverable kind to *every* producer bound to it (fan-out, D6).
 
     A one-to-many binding (``backlog`` → ``markdown`` + ``jira``) renders one event
     through each bound producer in declared order, so the fan-out is deterministic.
+    A ``[formats]`` override replaces the binding of its kind with one producer.
     """
+    for bound_kind, producer in overrides:
+        if bound_kind == kind:
+            return [_PRODUCERS[producer]]
     return [_PRODUCERS[name] for name in _BINDING.producer_names(kind)]
 
 
@@ -561,7 +601,7 @@ def _render_scenario(
         if control is not None and control.should_pause():
             raise RunPaused()
         view = world.projection(at=event.timestamp)
-        producers = _producers_for(event.deliverable.kind)
+        producers = _producers_for(event.deliverable.kind, ctx.formats)
         produced = [producer.produce(event, view, client, ctx) for producer in producers]
         if ctx.noise is not None:
             produced += apply_document_messiness(produced, ctx.noise)
