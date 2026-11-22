@@ -1,0 +1,488 @@
+[
+ {
+  "name": "coding-clean-docs-small-low",
+  "config": "coding-clean-docs-small-low.toml",
+  "family": "coding",
+  "clean": "clean",
+  "structure": "docs",
+  "size": "small",
+  "churn": "low"
+ },
+ {
+  "name": "coding-clean-docs-small-high",
+  "config": "coding-clean-docs-small-high.toml",
+  "family": "coding",
+  "clean": "clean",
+  "structure": "docs",
+  "size": "small",
+  "churn": "high"
+ },
+ {
+  "name": "coding-clean-docs-large-low",
+  "config": "coding-clean-docs-large-low.toml",
+  "family": "coding",
+  "clean": "clean",
+  "structure": "docs",
+  "size": "large",
+  "churn": "low"
+ },
+ {
+  "name": "coding-clean-docs-large-high",
+  "config": "coding-clean-docs-large-high.toml",
+  "family": "coding",
+  "clean": "clean",
+  "structure": "docs",
+  "size": "large",
+  "churn": "high"
+ },
+ {
+  "name": "coding-clean-data-small-low",
+  "config": "coding-clean-data-small-low.toml",
+  "family": "coding",
+  "clean": "clean",
+  "structure": "data",
+  "size": "small",
+  "churn": "low"
+ },
+ {
+  "name": "coding-clean-data-small-high",
+  "config": "coding-clean-data-small-high.toml",
+  "family": "coding",
+  "clean": "clean",
+  "structure": "data",
+  "size": "small",
+  "churn": "high"
+ },
+ {
+  "name": "coding-clean-data-large-low",
+  "config": "coding-clean-data-large-low.toml",
+  "family": "coding",
+  "clean": "clean",
+  "structure": "data",
+  "size": "large",
+  "churn": "low"
+ },
+ {
+  "name": "coding-clean-data-large-high",
+  "config": "coding-clean-data-large-high.toml",
+  "family": "coding",
+  "clean": "clean",
+  "structure": "data",
+  "size": "large",
+  "churn": "high"
+ },
+ {
+  "name": "coding-messy-docs-small-low",
+  "config": "coding-messy-docs-small-low.toml",
+  "family": "coding",
+  "clean": "messy",
+  "structure": "docs",
+  "size": "small",
+  "churn": "low"
+ },
+ {
+  "name": "coding-messy-docs-small-high",
+  "config": "coding-messy-docs-small-high.toml",
+  "family": "coding",
+  "clean": "messy",
+  "structure": "docs",
+  "size": "small",
+  "churn": "high"
+ },
+ {
+  "name": "coding-messy-docs-large-low",
+  "config": "coding-messy-docs-large-low.toml",
+  "family": "coding",
+  "clean": "messy",
+  "structure": "docs",
+  "size": "large",
+  "churn": "low"
+ },
+ {
+  "name": "coding-messy-docs-large-high",
+  "config": "coding-messy-docs-large-high.toml",
+  "family": "coding",
+  "clean": "messy",
+  "structure": "docs",
+  "size": "large",
+  "churn": "high"
+ },
+ {
+  "name": "coding-messy-data-small-low",
+  "config": "coding-messy-data-small-low.toml",
+  "family": "coding",
+  "clean": "messy",
+  "structure": "data",
+  "size": "small",
+  "churn": "low"
+ },
+ {
+  "name": "coding-messy-data-small-high",
+  "config": "coding-messy-data-small-high.toml",
+  "family": "coding",
+  "clean": "messy",
+  "structure": "data",
+  "size": "small",
+  "churn": "high"
+ },
+ {
+  "name": "coding-messy-data-large-low",
+  "config": "coding-messy-data-large-low.toml",
+  "family": "coding",
+  "clean": "messy",
+  "structure": "data",
+  "size": "large",
+  "churn": "low"
+ },
+ {
+  "name": "coding-messy-data-large-high",
+  "config": "coding-messy-data-large-high.toml",
+  "family": "coding",
+  "clean": "messy",
+  "structure": "data",
+  "size": "large",
+  "churn": "high"
+ },
+ {
+  "name": "dataeng-clean-docs-small-low",
+  "config": "dataeng-clean-docs-small-low.toml",
+  "family": "data_eng",
+  "clean": "clean",
+  "structure": "docs",
+  "size": "small",
+  "churn": "low"
+ },
+ {
+  "name": "dataeng-clean-docs-small-high",
+  "config": "dataeng-clean-docs-small-high.toml",
+  "family": "data_eng",
+  "clean": "clean",
+  "structure": "docs",
+  "size": "small",
+  "churn": "high"
+ },
+ {
+  "name": "dataeng-clean-docs-large-low",
+  "config": "dataeng-clean-docs-large-low.toml",
+  "family": "data_eng",
+  "clean": "clean",
+  "structure": "docs",
+  "size": "large",
+  "churn": "low"
+ },
+ {
+  "name": "dataeng-clean-docs-large-high",
+  "config": "dataeng-clean-docs-large-high.toml",
+  "family": "data_eng",
+  "clean": "clean",
+  "structure": "docs",
+  "size": "large",
+  "churn": "high"
+ },
+ {
+  "name": "dataeng-clean-data-small-low",
+  "config": "dataeng-clean-data-small-low.toml",
+  "family": "data_eng",
+  "clean": "clean",
+  "structure": "data",
+  "size": "small",
+  "churn": "low"
+ },
+ {
+  "name": "dataeng-clean-data-small-high",
+  "config": "dataeng-clean-data-small-high.toml",
+  "family": "data_eng",
+  "clean": "clean",
+  "structure": "data",
+  "size": "small",
+  "churn": "high"
+ },
+ {
+  "name": "dataeng-clean-data-large-low",
+  "config": "dataeng-clean-data-large-low.toml",
+  "family": "data_eng",
+  "clean": "clean",
+  "structure": "data",
+  "size": "large",
+  "churn": "low"
+ },
+ {
+  "name": "dataeng-clean-data-large-high",
+  "config": "dataeng-clean-data-large-high.toml",
+  "family": "data_eng",
+  "clean": "clean",
+  "structure": "data",
+  "size": "large",
+  "churn": "high"
+ },
+ {
+  "name": "dataeng-messy-docs-small-low",
+  "config": "dataeng-messy-docs-small-low.toml",
+  "family": "data_eng",
+  "clean": "messy",
+  "structure": "docs",
+  "size": "small",
+  "churn": "low"
+ },
+ {
+  "name": "dataeng-messy-docs-small-high",
+  "config": "dataeng-messy-docs-small-high.toml",
+  "family": "data_eng",
+  "clean": "messy",
+  "structure": "docs",
+  "size": "small",
+  "churn": "high"
+ },
+ {
+  "name": "dataeng-messy-docs-large-low",
+  "config": "dataeng-messy-docs-large-low.toml",
+  "family": "data_eng",
+  "clean": "messy",
+  "structure": "docs",
+  "size": "large",
+  "churn": "low"
+ },
+ {
+  "name": "dataeng-messy-docs-large-high",
+  "config": "dataeng-messy-docs-large-high.toml",
+  "family": "data_eng",
+  "clean": "messy",
+  "structure": "docs",
+  "size": "large",
+  "churn": "high"
+ },
+ {
+  "name": "dataeng-messy-data-small-low",
+  "config": "dataeng-messy-data-small-low.toml",
+  "family": "data_eng",
+  "clean": "messy",
+  "structure": "data",
+  "size": "small",
+  "churn": "low"
+ },
+ {
+  "name": "dataeng-messy-data-small-high",
+  "config": "dataeng-messy-data-small-high.toml",
+  "family": "data_eng",
+  "clean": "messy",
+  "structure": "data",
+  "size": "small",
+  "churn": "high"
+ },
+ {
+  "name": "dataeng-messy-data-large-low",
+  "config": "dataeng-messy-data-large-low.toml",
+  "family": "data_eng",
+  "clean": "messy",
+  "structure": "data",
+  "size": "large",
+  "churn": "low"
+ },
+ {
+  "name": "dataeng-messy-data-large-high",
+  "config": "dataeng-messy-data-large-high.toml",
+  "family": "data_eng",
+  "clean": "messy",
+  "structure": "data",
+  "size": "large",
+  "churn": "high"
+ },
+ {
+  "name": "analysis-clean-docs-small-low",
+  "config": "analysis-clean-docs-small-low.toml",
+  "family": "analysis",
+  "clean": "clean",
+  "structure": "docs",
+  "size": "small",
+  "churn": "low"
+ },
+ {
+  "name": "analysis-clean-docs-small-high",
+  "config": "analysis-clean-docs-small-high.toml",
+  "family": "analysis",
+  "clean": "clean",
+  "structure": "docs",
+  "size": "small",
+  "churn": "high"
+ },
+ {
+  "name": "analysis-clean-docs-large-low",
+  "config": "analysis-clean-docs-large-low.toml",
+  "family": "analysis",
+  "clean": "clean",
+  "structure": "docs",
+  "size": "large",
+  "churn": "low"
+ },
+ {
+  "name": "analysis-clean-docs-large-high",
+  "config": "analysis-clean-docs-large-high.toml",
+  "family": "analysis",
+  "clean": "clean",
+  "structure": "docs",
+  "size": "large",
+  "churn": "high"
+ },
+ {
+  "name": "analysis-clean-data-small-low",
+  "config": "analysis-clean-data-small-low.toml",
+  "family": "analysis",
+  "clean": "clean",
+  "structure": "data",
+  "size": "small",
+  "churn": "low"
+ },
+ {
+  "name": "analysis-clean-data-small-high",
+  "config": "analysis-clean-data-small-high.toml",
+  "family": "analysis",
+  "clean": "clean",
+  "structure": "data",
+  "size": "small",
+  "churn": "high"
+ },
+ {
+  "name": "analysis-clean-data-large-low",
+  "config": "analysis-clean-data-large-low.toml",
+  "family": "analysis",
+  "clean": "clean",
+  "structure": "data",
+  "size": "large",
+  "churn": "low"
+ },
+ {
+  "name": "analysis-clean-data-large-high",
+  "config": "analysis-clean-data-large-high.toml",
+  "family": "analysis",
+  "clean": "clean",
+  "structure": "data",
+  "size": "large",
+  "churn": "high"
+ },
+ {
+  "name": "analysis-messy-docs-small-low",
+  "config": "analysis-messy-docs-small-low.toml",
+  "family": "analysis",
+  "clean": "messy",
+  "structure": "docs",
+  "size": "small",
+  "churn": "low"
+ },
+ {
+  "name": "analysis-messy-docs-small-high",
+  "config": "analysis-messy-docs-small-high.toml",
+  "family": "analysis",
+  "clean": "messy",
+  "structure": "docs",
+  "size": "small",
+  "churn": "high"
+ },
+ {
+  "name": "analysis-messy-docs-large-low",
+  "config": "analysis-messy-docs-large-low.toml",
+  "family": "analysis",
+  "clean": "messy",
+  "structure": "docs",
+  "size": "large",
+  "churn": "low"
+ },
+ {
+  "name": "analysis-messy-docs-large-high",
+  "config": "analysis-messy-docs-large-high.toml",
+  "family": "analysis",
+  "clean": "messy",
+  "structure": "docs",
+  "size": "large",
+  "churn": "high"
+ },
+ {
+  "name": "analysis-messy-data-small-low",
+  "config": "analysis-messy-data-small-low.toml",
+  "family": "analysis",
+  "clean": "messy",
+  "structure": "data",
+  "size": "small",
+  "churn": "low"
+ },
+ {
+  "name": "analysis-messy-data-small-high",
+  "config": "analysis-messy-data-small-high.toml",
+  "family": "analysis",
+  "clean": "messy",
+  "structure": "data",
+  "size": "small",
+  "churn": "high"
+ },
+ {
+  "name": "analysis-messy-data-large-low",
+  "config": "analysis-messy-data-large-low.toml",
+  "family": "analysis",
+  "clean": "messy",
+  "structure": "data",
+  "size": "large",
+  "churn": "low"
+ },
+ {
+  "name": "analysis-messy-data-large-high",
+  "config": "analysis-messy-data-large-high.toml",
+  "family": "analysis",
+  "clean": "messy",
+  "structure": "data",
+  "size": "large",
+  "churn": "high"
+ },
+ {
+  "name": "special-professional-services",
+  "config": "special-professional-services.toml",
+  "family": "special",
+  "clean": "messy",
+  "structure": "docs",
+  "size": "large",
+  "churn": "high"
+ },
+ {
+  "name": "special-retail-chain",
+  "config": "special-retail-chain.toml",
+  "family": "special",
+  "clean": "messy",
+  "structure": "data",
+  "size": "large",
+  "churn": "high"
+ },
+ {
+  "name": "special-security-led",
+  "config": "special-security-led.toml",
+  "family": "special",
+  "clean": "messy",
+  "structure": "docs",
+  "size": "large",
+  "churn": "high"
+ },
+ {
+  "name": "special-sales-led",
+  "config": "special-sales-led.toml",
+  "family": "special",
+  "clean": "messy",
+  "structure": "data",
+  "size": "large",
+  "churn": "high"
+ },
+ {
+  "name": "special-support-led",
+  "config": "special-support-led.toml",
+  "family": "special",
+  "clean": "messy",
+  "structure": "data",
+  "size": "large",
+  "churn": "high"
+ },
+ {
+  "name": "special-all-departments",
+  "config": "special-all-departments.toml",
+  "family": "special",
+  "clean": "messy",
+  "structure": "data",
+  "size": "large",
+  "churn": "high"
+ }
+]
