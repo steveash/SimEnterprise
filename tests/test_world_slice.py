@@ -306,6 +306,8 @@ def test_answers_flag_shared_values_and_kinds(world_dir: Path, tmp_path: Path) -
     for fact in answers["facts"]:
         shared = tokens.count(fact["current"]["canonical"].casefold()) > 1
         assert bool(fact["shared_with"]) is shared
+        if shared:
+            assert fact["relabel_safe"] is False
         assert all(
             o["kind"] in ("document", "chat", "code", "registry", "trail")
             for o in fact["occurrences"]

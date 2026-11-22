@@ -244,6 +244,21 @@ def _documents_by_version(
     return sorted(rows, key=lambda r: (r["date"], r["path"]))
 
 
+def _flag_relabel_safety(facts: list[dict[str, Any]], project: str) -> None:
+    """Mark facts whose value can move without touching another value or the entity id.
+
+    ``relabel_safe`` is false when the canonical value occurs inside another
+    fact's value or inside the project's slug (or the other way round), so an
+    instance generator that rewrites one token per value would move two.
+    """
+    slug = project.split(":", 1)[-1].casefold()
+    values = [str(f["current"]["canonical"]).casefold() for f in facts]
+    for index, (fact, mine) in enumerate(zip(facts, values, strict=True)):
+        others = [v for j, v in enumerate(values) if j != index and v != mine]
+        clash = any(mine in v or v in mine for v in others) or mine in slug or slug in mine
+        fact["relabel_safe"] = not clash and not fact.get("shared_with")
+
+
 def _flag_shared_values(facts: list[dict[str, Any]]) -> None:
     """Mark facts of one slice whose current canonical values coincide (one value, two roles)."""
     by_token: dict[str, list[str]] = {}
@@ -567,6 +582,7 @@ def slice_world(
             "",
         ]
     _flag_shared_values(answers["facts"])
+    _flag_relabel_safety(answers["facts"], project)
     observed = project_observations(world_dir, project)
     for fact in answers["facts"]:
         graded = observation_answers(observed, fact)
