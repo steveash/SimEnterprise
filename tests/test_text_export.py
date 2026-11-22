@@ -378,17 +378,30 @@ def test_bedrock_ids_are_priced_as_their_model() -> None:
     assert pricing_for("us.anthropic.claude-haiku-5-5") == PRICING["claude-haiku-5-5"]
 
 
-def test_name_guard_breaks_unknown_given_name_pairs_only() -> None:
+def test_name_guard_breaks_person_shaped_pairs_outside_the_roster() -> None:
     from enterprise_sim.exporters.text_export import NameGuard
 
     guard = NameGuard(
-        ["Elena Cho"], ["Acme"], {"Revenue Dashboard", "Elena Cho"}, {"Elena", "Dario"}
+        ["Elena Cho"],
+        ["Acme"],
+        {"Revenue Dashboard", "Elena Cho", "Brooke Lane Team"},
+        {"elena", "may", "brooke"},
+        {"price", "cho", "lane", "topic"},
     )
-    text = "Elena Cho met Dario. Elena Topic was set. The Revenue Dashboard grew."
+    text = "Elena Cho met us. Elena Topic was set. Costs may price in. Brooke Lane Team wins."
     out = guard.apply(text, "artifacts/a.md")
-    assert out == "Elena Cho met Dario. Elena, Topic was set. The Revenue Dashboard grew."
-    assert guard.report() == [{"path": "artifacts/a.md", "pair": "Elena Topic", "count": 1}]
+    assert (
+        out == "Elena Cho met us. Elena  Topic was set. Costs may  price in. Brooke Lane Team wins."
+    )
+    assert {r["pair"] for r in guard.report()} == {"Elena Topic", "may price"}
     assert guard.roster() == {"people": ["Elena Cho"], "organizations": ["Acme"]}
+
+
+def test_census_lists_load() -> None:
+    from enterprise_sim.exporters.text_export import _census
+
+    given, surnames = _census()
+    assert "mary" in given and "james" in given and len(surnames) == 20000 and "smith" in surnames
 
 
 def test_exports_carry_a_roster(world_dir: Path, tmp_path: Path) -> None:
@@ -397,3 +410,16 @@ def test_exports_carry_a_roster(world_dir: Path, tmp_path: Path) -> None:
     assert manifest["roster"]["people"] and "Acme" in manifest["roster"]["organizations"]
     assert manifest["prose_model"] is None  # not a live world
     assert manifest["name_guard"] == []
+
+
+def test_export_refuses_a_file_over_one_gib(tmp_path: Path) -> None:
+    from enterprise_sim.exporters import text_export
+
+    writer = text_export._Writer(tmp_path)
+    old = text_export._MAX_FILE_BYTES
+    text_export._MAX_FILE_BYTES = 10
+    try:
+        with pytest.raises(ExportError, match="1 GiB"):
+            writer.write("artifacts/big.md", b"x" * 11, "text/markdown")
+    finally:
+        text_export._MAX_FILE_BYTES = old

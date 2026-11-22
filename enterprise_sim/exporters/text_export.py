@@ -576,6 +576,8 @@ class _Writer:
     def write(self, rel: str, data: bytes, media: str, **extra: Any) -> str:
         if b"\r" in data:
             raise ExportError(f"{rel}: carriage return in exported text")
+        if len(data) > _MAX_FILE_BYTES:
+            raise ExportError(f"{rel}: {len(data)} bytes, over the 1 GiB per-file limit")
         try:
             data.decode("utf-8")
         except UnicodeDecodeError as exc:
@@ -649,30 +651,57 @@ def replay_record(path: Path) -> dict[str, Any]:
     return data
 
 
-class NameGuard:
-    """Keeps exported prose free of person-like name pairs that are not the world's people.
+_CENSUS_FILE = Path(__file__).with_name("census_names.txt")
+#: The catalog takes no single file over 1 GiB.
+_MAX_FILE_BYTES = 1 << 30
 
-    A dataset catalog refuses any capitalised ``<given name> <Name>`` pair that
-    is not in the export's roster (a live model can glue a name to a heading
-    word: "Elena Topic"). For every such pair whose first word is a given name of
-    the simulator's name bank, and which is neither a roster person nor any other
-    surface of the world's KG, the export writes ``<given name>, <Name>`` and
-    records the change (``export.json`` ``name_guard``). Deterministic, so a
-    replayed world exports identically; the world's own files are untouched.
+
+def _census() -> tuple[frozenset[str], frozenset[str]]:
+    given: set[str] = set()
+    surnames: set[str] = set()
+    for line in _CENSUS_FILE.read_text(encoding="utf-8").splitlines():
+        if line.startswith("g "):
+            given.add(line[2:])
+        elif line.startswith("s "):
+            surnames.add(line[2:])
+    return frozenset(given), frozenset(surnames)
+
+
+class NameGuard:
+    """Keeps exported prose free of person-shaped name pairs that are not the world's own.
+
+    The dataset catalog reads a person as a given name followed by a surname,
+    both from the US Census 1990 lists (``census_names.txt``: every given name,
+    the top 20,000 surnames), case-insensitive, one space apart on one line, and
+    refuses any such pair that does not lie inside a roster name (the KG's
+    Person, Company, Department, Team, Project and Initiative names and aliases).
+    Live prose meets the rule by accident ("Elena Topic", "may price", "will
+    long"), so for every such pair the export writes the two words two spaces
+    apart (which reads the same) and records the change in ``export.json``
+    ``name_guard``. The simulator's own name bank counts as given names too.
+    Deterministic, so a replayed world exports identically; the world's files
+    are untouched.
     """
 
-    _PAIR = re.compile(r"\b([A-Z][a-z]+) ([A-Z][a-z]+)\b")
+    _PAIRS = re.compile(r"(?<![A-Za-z])(?=([A-Za-z]+) ([A-Za-z]+)(?![A-Za-z]))")
 
-    def __init__(self, people: list[str], orgs: list[str], surfaces: set[str], given: set[str]):
+    def __init__(
+        self,
+        people: list[str],
+        orgs: list[str],
+        surfaces: set[str],
+        given: set[str],
+        surnames: set[str] | None = None,
+    ):
         self._people = people
         self._orgs = orgs
-        # every adjacent word pair inside a KG surface ("Revenue Dashboard Team")
-        self._surface_pairs = {
-            f"{a} {b}"
-            for surface in surfaces
-            for a, b in zip(surface.split(), surface.split()[1:], strict=False)
-        }
-        self._given = given
+        self._given = {g.casefold() for g in given}
+        self._surnames = {s.casefold() for s in (surnames or set())}
+        # every adjacent word pair inside a roster surface, case-folded
+        self._inside: set[tuple[str, str]] = set()
+        for surface in surfaces:
+            words = re.findall(r"[A-Za-z]+", surface.casefold())
+            self._inside.update(zip(words, words[1:], strict=False))
         self._changes: dict[tuple[str, str], int] = {}
 
     @classmethod
@@ -684,24 +713,22 @@ class NameGuard:
         surfaces: set[str] = set()
         nodes_path = world_dir / "kg" / "nodes.jsonl"
         lines = nodes_path.read_text(encoding="utf-8").splitlines() if nodes_path.is_file() else []
+        roster_types = ("Person", "Company", "Department", "Team", "Project", "Initiative")
         for line in lines:
             if not line:
                 continue
             node = json.loads(line)
+            if node["type"] not in roster_types:
+                continue
             name = node.get("props", {}).get("name")
             if isinstance(name, str):
-                if node["type"] == "Person":
-                    people.add(name)
-                elif node["type"] in ("Company", "Department", "Team", "Project", "Initiative"):
-                    orgs.add(name)
-            for alias in node.get("aliases", []):
-                surfaces.add(str(alias))
-            for key in ("name", "title"):
-                value = node.get("props", {}).get(key)
-                if isinstance(value, str):
-                    surfaces.add(value)
-        given = set(FIRST_NAMES) | {p.split()[0] for p in people if p.split()}
-        return cls(sorted(people), sorted(orgs), surfaces, given)
+                (people if node["type"] == "Person" else orgs).add(name)
+                surfaces.add(name)
+            surfaces.update(str(a) for a in node.get("aliases", []))
+        census_given, census_surnames = _census()
+        given = set(census_given) | set(FIRST_NAMES)
+        surnames = set(census_surnames)
+        return cls(sorted(people), sorted(orgs), surfaces, given, surnames)
 
     def roster(self) -> dict[str, list[str]]:
         return {"people": self._people, "organizations": self._orgs}
@@ -712,18 +739,31 @@ class NameGuard:
             for (path, pair), count in sorted(self._changes.items())
         ]
 
-    def apply(self, text: str, rel: str) -> str:
-        def fix(match: re.Match[str]) -> str:
-            pair = match.group(0)
-            if match.group(1) not in self._given or pair in self._people:
-                return pair
-            if pair in self._surface_pairs:
-                return pair
-            key = (rel, pair)
-            self._changes[key] = self._changes.get(key, 0) + 1
-            return f"{match.group(1)}, {match.group(2)}"
+    def _person_shaped(self, first: str, second: str) -> bool:
+        a, b = first.casefold(), second.casefold()
+        if a not in self._given or (a, b) in self._inside:
+            return False
+        # a census surname, or (the simulator's own bank) any capitalised word
+        return b in self._surnames or (first[:1].isupper() and second[:1].isupper())
 
-        return self._PAIR.sub(fix, text)
+    def apply(self, text: str, rel: str) -> str:
+        spaces: list[int] = []
+        for match in self._PAIRS.finditer(text):
+            first, second = match.group(1), match.group(2)
+            if self._person_shaped(first, second):
+                spaces.append(match.start() + len(first))
+                key = (rel, f"{first} {second}")
+                self._changes[key] = self._changes.get(key, 0) + 1
+        if not spaces:
+            return text
+        out: list[str] = []
+        last = 0
+        for index in spaces:
+            out.append(text[last:index])
+            out.append("  ")
+            last = index + 1
+        out.append(text[last:])
+        return "".join(out)
 
 
 def export_world(
