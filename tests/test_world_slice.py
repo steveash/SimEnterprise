@@ -269,3 +269,79 @@ def test_core_slices_are_casebook_size(world_dir: Path, tmp_path: Path) -> None:
         for paths in fact["documents"].values():
             for path in paths:
                 assert path.removeprefix(f"{MATERIALIZED_DOCS}/") in core["files"]
+
+
+@pytest.mark.parametrize(
+    ("value", "typed"),
+    [
+        ("2026-05-14", {"type": "date", "value": "2026-05-14"}),
+        ("$1.2M", {"type": "usd", "value": 1_200_000}),
+        ("$250k", {"type": "usd", "value": 250_000}),
+        ("daily at 06:00 UTC", {"type": "time_utc", "value": "0600"}),
+        ("400 ms", {"type": "count", "value": 400, "unit": "ms"}),
+        ("38%", {"type": "percent", "value": 38}),
+        ("every two weeks", {"type": "cadence", "value": "biweekly"}),
+        ("v2.3", {"type": "version", "value": "v2.3"}),
+    ],
+)
+def test_typed_values(value: str, typed: dict) -> None:  # type: ignore[type-arg]
+    from enterprise_sim.worlds.slice import typed_value
+
+    assert typed_value(value) == typed
+
+
+@pytest.mark.parametrize(
+    ("token", "ok"), [("weekly", False), ("track", False), ("v3.2", True), ("CockroachDB", True)]
+)
+def test_distinctive_tokens(token: str, ok: bool) -> None:
+    from enterprise_sim.worlds.slice import distinctive_token
+
+    assert distinctive_token(token) is ok
+
+
+def test_answers_flag_shared_values_and_kinds(world_dir: Path, tmp_path: Path) -> None:
+    slice_world(world_dir, _PROJECT, tmp_path / "f")
+    answers = json.loads((tmp_path / "f" / "answers.json").read_text(encoding="utf-8"))
+    tokens = [f["current"]["canonical"].casefold() for f in answers["facts"]]
+    for fact in answers["facts"]:
+        shared = tokens.count(fact["current"]["canonical"].casefold()) > 1
+        assert bool(fact["shared_with"]) is shared
+        assert all(
+            o["kind"] in ("document", "chat", "code", "registry", "trail")
+            for o in fact["occurrences"]
+        )
+        dates = [d["date"] for d in fact["documents_by_version"]]
+        assert dates == sorted(dates)
+    knowledge = tomllib.loads((tmp_path / "f" / "knowledge.draft.toml").read_text(encoding="utf-8"))
+    from enterprise_sim.worlds.slice import distinctive_token
+
+    assert all(distinctive_token(k["values"][0]) for k in knowledge.get("knowledge", []))
+
+
+def test_observations_grade_differently_under_stale_and_current_targets(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    cfg = tmp_path / "cfg.toml"
+    cfg.write_text(
+        "seed = 6\n"
+        '[company]\nname = "Obs Co"\nvertical = "software"\nsize = "small"\n'
+        "[simulation]\nperiod_start = 2026-01-05\nperiod_end = 2026-05-29\n"
+        '[model]\noffline_backend = "synth"\n'
+        "[facts]\nper_project = 11\nchange_rate = 1.0\nmax_versions = 3\n",
+        encoding="utf-8",
+    )
+    root = tmp_path / "w"
+    assert main(["world", "create", str(cfg), "--worlds-root", str(root)]) == 0
+    capsys.readouterr()
+    (world_dir,) = list(root.iterdir())
+    export = export_world(world_dir, tmp_path / "out").directory
+    manifest = json.loads((export / "export.json").read_text(encoding="utf-8"))
+    tables = [t for t in manifest["tables"] if t["path"].startswith("observations/")]
+    assert tables and all(t["primary_key"] == ["date", "attribute"] for t in tables)
+    slice_world(world_dir, _PROJECT, tmp_path / "s")
+    answers = json.loads((tmp_path / "s" / "answers.json").read_text(encoding="utf-8"))
+    graded = [f for f in answers["facts"] if "observations" in f]
+    assert graded
+    for fact in graded:
+        counts = list(fact["observations"]["days_over"].values())
+        assert len(counts) >= 2 and len(set(counts)) >= 2  # versions grade differently

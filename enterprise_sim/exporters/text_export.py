@@ -687,9 +687,11 @@ def export_world(world_dir: Path | str, out_root: Path | str) -> ExportResult:
         )
 
     from enterprise_sim.worlds.slice import (
+        OBSERVATION_COLUMNS,
         REGISTRY_COLUMNS,
         TRAIL_COLUMNS,
         core_slice_name,
+        project_observations,
         project_registry,
         project_slices,
         project_trail,
@@ -751,6 +753,28 @@ def export_world(world_dir: Path | str, out_root: Path | str) -> ExportResult:
         core = by_name.get(core_slice_name(project))
         if core is not None:
             core["files"] = sorted([*core["files"], rel])
+        observations = project_observations(world_dir, project)
+        if observations:
+            names = [c for c, _ in OBSERVATION_COLUMNS]
+            body = "\n".join(
+                [_csv_line(names), *(_csv_line([r[c] for c in names]) for r in observations)]
+            )
+            obs_rel = writer.write(
+                f"observations/{entry['name']}.csv", (body + "\n").encode("utf-8"), "text/csv"
+            )
+            writer.tables.append(
+                {
+                    "name": f"observations.{entry['name'].replace('-', '_')}",
+                    "path": obs_rel,
+                    "kind": "table",
+                    "columns": [{"name": c, "type": t} for c, t in OBSERVATION_COLUMNS],
+                    "primary_key": ["date", "attribute"],
+                    "foreign_keys": [],
+                }
+            )
+            for holder in (entry, core):
+                if holder is not None:
+                    holder["files"] = sorted([*holder["files"], obs_rel])
     for entry in slices:
         missing = [f for f in entry["files"] if f not in writer.paths]
         if missing:

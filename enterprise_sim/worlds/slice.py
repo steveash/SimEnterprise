@@ -40,14 +40,19 @@ from enterprise_sim.exporters.text_export import export_path
 __all__ = [
     "MATERIALIZED_DOCS",
     "canonical_token",
+    "distinctive_token",
+    "source_kind",
+    "typed_value",
     "core_documents",
     "core_slice_name",
     "REGISTRY_COLUMNS",
     "TOOL_VOCABULARY",
+    "OBSERVATION_COLUMNS",
     "TRAIL_COLUMNS",
     "SliceError",
     "materialized_doc_path",
     "project_slices",
+    "project_observations",
     "project_registry",
     "project_trail",
     "slice_documents",
@@ -88,8 +93,130 @@ def _occurrences(token: str, texts: dict[str, list[str]]) -> list[dict[str, Any]
     for path in sorted(texts):
         for number, line in enumerate(texts[path], start=1):
             if needle in line.casefold():
-                found.append({"path": path, "line": number})
+                found.append({"path": path, "line": number, "kind": source_kind(path)})
     return found
+
+
+#: Common words and short tokens a prompt could hold by chance: a value equal
+#: to one is a substring hazard under the gym's leak rule (sets-cc).
+_COMMON_TOKENS = frozenset(
+    {
+        "weekly",
+        "daily",
+        "monthly",
+        "hourly",
+        "annually",
+        "quarterly",
+        "track",
+        "risk",
+        "blocked",
+        "schedule",
+        "behind",
+        "once",
+        "sprint",
+        "week",
+        "twice",
+        "days",
+        "every",
+        "online",
+        "metro",
+        "region",
+        "northern",
+        "coastal",
+    }
+)
+
+
+def distinctive_token(token: str) -> bool:
+    """Whether ``token`` is unlikely to occur by chance in a prompt (digit, dot, capital)."""
+    if token.casefold() in _COMMON_TOKENS:
+        return False
+    return any(ch.isdigit() for ch in token) or "." in token or any(ch.isupper() for ch in token)
+
+
+def typed_value(value: str) -> dict[str, Any]:
+    """A machine-readable form of a fact value (for graders that compute, not match)."""
+    text = value.strip()
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", text):
+        return {"type": "date", "value": text}
+    money = re.fullmatch(r"\$(\d+(?:\.\d+)?)([kM])", text)
+    if money:
+        scale = 1_000 if money.group(2) == "k" else 1_000_000
+        return {"type": "usd", "value": round(float(money.group(1)) * scale)}
+    time_of_day = re.search(r"(\d{2}):(\d{2}) UTC", text)
+    if time_of_day:
+        return {"type": "time_utc", "value": f"{time_of_day.group(1)}{time_of_day.group(2)}"}
+    number = re.fullmatch(r"([\d,]+)\s*(ms|units|open roles|weekly active accounts)?", text)
+    if number:
+        return {
+            "type": "count",
+            "value": int(number.group(1).replace(",", "")),
+            "unit": number.group(2) or "",
+        }
+    percent = re.fullmatch(r"(\d+)%", text)
+    if percent:
+        return {"type": "percent", "value": int(percent.group(1))}
+    version = re.fullmatch(r"v(\d+)\.(\d+)", text)
+    if version:
+        return {"type": "version", "value": text}
+    cadence = {
+        "hourly": "hourly",
+        "daily": "daily",
+        "weekly": "weekly",
+        "every two weeks": "biweekly",
+        "monthly": "monthly",
+        "quarterly": "quarterly",
+        "annually": "annually",
+        "twice a week": "twice_weekly",
+        "once per sprint": "per_sprint",
+        "twice daily": "twice_daily",
+        "every 15 minutes": "every_15_minutes",
+    }
+    if text in cadence:
+        return {"type": "cadence", "value": cadence[text]}
+    return {"type": "text", "value": text}
+
+
+def source_kind(path: str) -> str:
+    """The kind of source a materialized path is: document, chat, code, registry or trail."""
+    if "/registry/" in path or path.startswith("registry/"):
+        return "registry"
+    if "/trails/" in path or path.startswith("trails/"):
+        return "trail"
+    if path.endswith(".chat.jsonl"):
+        return "chat"
+    if "/repo/" in path:
+        return "code"
+    return "document"
+
+
+def _documents_by_version(
+    edges: list[dict[str, Any]], paths: dict[str, str], docs: dict[str, dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Each document stating the fact: its date, the version it states, and its stance."""
+    rows = [
+        {
+            "path": paths[e["src"]],
+            "date": str(docs.get(e["src"], {}).get("props", {}).get("date", "")),
+            "stated_version": e["props"].get("stated_version"),
+            "stance": e["props"]["stance"],
+            "kind": source_kind(paths[e["src"]]),
+        }
+        for e in edges
+    ]
+    return sorted(rows, key=lambda r: (r["date"], r["path"]))
+
+
+def _flag_shared_values(facts: list[dict[str, Any]]) -> None:
+    """Mark facts of one slice whose current canonical values coincide (one value, two roles)."""
+    by_token: dict[str, list[str]] = {}
+    for fact in facts:
+        by_token.setdefault(str(fact["current"]["canonical"]).casefold(), []).append(fact["fact"])
+    for fact in facts:
+        others = [
+            f for f in by_token[str(fact["current"]["canonical"]).casefold()] if f != fact["fact"]
+        ]
+        fact["shared_with"] = others
 
 
 def _jsonl(path: Path) -> list[dict[str, Any]]:
@@ -307,6 +434,7 @@ def slice_world(
         if mapped is not None:
             paths[doc["id"]] = mapped
     texts = {path: _doc_lines(world_dir, doc) for doc in docs if (path := paths.get(doc["id"]))}
+    docs_by_id = {doc["id"]: doc for doc in docs}
     versions: dict[str, list[dict[str, Any]]] = {}
     for node in nodes.values():
         if node["type"] == "FactVersion":
@@ -372,6 +500,11 @@ def slice_world(
                 else "canonical",
                 "stale_values": _stale_values(asserts.get(fact["id"], []), paths, current),
                 "occurrences": _occurrences(token, texts),
+                "distinctive": distinctive_token(token),
+                "typed": typed_value(str(current["value"])),
+                "documents_by_version": _documents_by_version(
+                    asserts.get(fact["id"], []), paths, docs_by_id
+                ),
             }
         )
         if not sources:
@@ -379,6 +512,10 @@ def slice_world(
             continue
         if not canonical_token(token):
             reason = f"value token {token!r} not canonical"
+            undiscoverable.append({"fact": fact["id"], "reason": reason})
+            continue
+        if not distinctive_token(token):
+            reason = f"value token {token!r} is a common word (leak hazard)"
             undiscoverable.append({"fact": fact["id"], "reason": reason})
             continue
         item_text = f"As of {cut[:10]}, the {label} of {subject} is {current['value']}."
@@ -392,6 +529,12 @@ def slice_world(
             'channels = ["note", "board"]',
             "",
         ]
+    _flag_shared_values(answers["facts"])
+    observed = project_observations(world_dir, project)
+    for fact in answers["facts"]:
+        graded = observation_answers(observed, fact)
+        if graded is not None:
+            fact["observations"] = graded
     answers["undiscoverable"] = undiscoverable
     scope_names = [str(nodes[p]["props"].get("name", p)) for p in scope]
     scope_names += [
@@ -622,3 +765,84 @@ def vocabulary_conflicts(names: list[str]) -> list[dict[str, str]]:
         if hits:
             found.append({"name": name, "words": ", ".join(hits)})
     return found
+
+
+#: Columns of a project's observations table (``observations/<slice>.csv``).
+OBSERVATION_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("date", "date"),
+    ("attribute", "text"),
+    ("observed", "decimal"),
+)
+#: Threshold-like facts and how an observation is compared to the value in force.
+_OBSERVED = ("latency_target", "reorder_point", "margin_target", "budget", "open_roles")
+
+
+def _numeric(value: str) -> float | None:
+    typed = typed_value(value)
+    if typed["type"] in ("count", "usd", "percent"):
+        return float(typed["value"])
+    return None
+
+
+def project_observations(world_dir: Path | str, project: str) -> list[dict[str, str]]:
+    """Daily measurements graded against a threshold fact (p99 latency, stock, margin, spend).
+
+    One row per weekday of the window per threshold fact of the project that
+    changed: an observed value drawn (seeded by fact and day) across the span of
+    the fact's values, so "days over the target" depends on which version of the
+    target one applies: a stale target gives a different count, not only a
+    different token (sets2-cc).
+    """
+    from datetime import date as _date
+    from datetime import timedelta
+
+    world_dir = Path(world_dir)
+    nodes = {n["id"]: n for n in _jsonl(world_dir / "kg" / "nodes.jsonl")}
+    world = json.loads((world_dir / ".world").read_text(encoding="utf-8"))
+    start = _date.fromisoformat(str(world["window"]["start"]))
+    end = _date.fromisoformat(str(world["window"]["end"]))
+    versions: dict[str, list[dict[str, Any]]] = {}
+    for node in nodes.values():
+        if node["type"] == "FactVersion":
+            versions.setdefault(str(node["props"]["fact"]), []).append(node["props"])
+    rows: list[dict[str, str]] = []
+    for fact in sorted(
+        (n for n in nodes.values() if n["type"] == "Fact" and n["props"].get("subject") == project),
+        key=lambda n: n["id"],
+    ):
+        attribute = str(fact["props"]["attribute"])
+        values = [_numeric(str(v["value"])) for v in versions.get(fact["id"], [])]
+        numbers = [v for v in values if v is not None]
+        if attribute not in _OBSERVED or len(numbers) < 2:
+            continue
+        low, high = min(numbers), max(numbers)
+        span = high - low
+        day = start
+        while day <= end:
+            if day.weekday() < 5:
+                digest = hashlib.sha256(f"obs\x00{fact['id']}\x00{day}".encode()).hexdigest()
+                u = int(digest[:8], 16) / 0xFFFFFFFF
+                observed = low - 0.2 * span + u * 1.4 * span
+                rows.append(
+                    {
+                        "date": day.isoformat(),
+                        "attribute": attribute,
+                        "observed": f"{observed:.2f}".rstrip("0").rstrip("."),
+                    }
+                )
+            day += timedelta(days=1)
+    return rows
+
+
+def observation_answers(rows: list[dict[str, str]], fact: dict[str, Any]) -> dict[str, Any] | None:
+    """Days over each version's value for one fact's observations (the gold for graders)."""
+    attribute = str(fact["fact"]).rsplit(":", 1)[-1]
+    mine = [float(r["observed"]) for r in rows if r["attribute"] == attribute]
+    if not mine:
+        return None
+    out: dict[str, int] = {}
+    for version in fact["history"]:
+        threshold = _numeric(str(version["value"]))
+        if threshold is not None:
+            out[str(version["value"])] = sum(1 for o in mine if o > threshold)
+    return {"rows": len(mine), "days_over": out}
