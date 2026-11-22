@@ -94,6 +94,15 @@ class FactsConfig(_Frozen):
     cross_team_stale_boost: float = Field(
         default=2.0, ge=1.0, le=10.0, description="Multiplier on stale_rate for cited facts."
     )
+    retraction_rate: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Probability a changed fact has one version later found to be an error: "
+            "stated as current until a correction, never valid (recorded vs valid time)."
+        ),
+    )
     entity_ids: bool = Field(
         default=False,
         description=(

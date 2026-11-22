@@ -417,3 +417,34 @@ def test_entity_ids_name_the_project_in_every_statement() -> None:
         slug = ledger.facts[a.fact].subject.split(":", 1)[-1]
         assert f"[{slug}]" in a.statement, a.statement
     del project
+
+
+def test_retracted_versions_are_believed_until_corrected_then_announced() -> None:
+    _, ledger, cfg = _ledger_world(change_rate=0.9, max_versions=4, retraction_rate=1.0)
+    retracted = [
+        (r, v) for r in ledger.facts.values() for v in r.versions if v.retracted_at is not None
+    ]
+    assert retracted
+    for record, version in retracted:
+        assert version.retracted_at is not None
+        assert version.number > 1 and version.valid_from < version.retracted_at
+        assert record.version_at(version.valid_from).number == version.number
+        believed = record.version_at(version.retracted_at)
+        assert believed.number != version.number
+    project = next(
+        p for p, ids in ledger.by_project.items() if any(r.id in ids for r, _ in retracted)
+    )
+    events = sorted(_events(project, 60), key=lambda e: (e.timestamp, e.id))
+    out = assign_assertions(ledger, events, cfg, seed=4)
+    corrections = [a for found in out.values() for a in found if a.stance == "retraction"]
+    assert corrections
+    for a in corrections:
+        assert a.statement.startswith("Correction:") and a.value in a.statement
+
+
+def test_retraction_off_changes_nothing() -> None:
+    _, off, _ = _ledger_world(change_rate=0.9, max_versions=4)
+    _, zero, _ = _ledger_world(change_rate=0.9, max_versions=4, retraction_rate=0.0)
+    assert [[(v.value, v.valid_from) for v in r.versions] for r in off.facts.values()] == [
+        [(v.value, v.valid_from) for v in r.versions] for r in zero.facts.values()
+    ]

@@ -1,0 +1,36 @@
+"""Example world ids are pinned: a new config field at its default must not move them.
+
+The ids below are the ones datasets-cc's catalog pins (and the golden world's).
+If a change moves one, either it changes the world (bump the example on purpose
+and tell the catalog) or a new field is missing from runner._LATE_FIELDS.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+from enterprise_sim.assembly import compute_world_id
+from enterprise_sim.core.config import load_config
+
+_ROOT = Path(__file__).resolve().parents[1] / "examples"
+
+PINNED = {
+    "golden.toml": "golden-slice-co-5b1e84522235",
+    "worlds/coding-team-clean.toml": "larkspur-labs-be9528a22f71",
+    "worlds/coding-team-messy.toml": "quillfeather-software-37ace7b3d492",
+    "worlds/data-eng-platform.toml": "brightwater-data-4ce82a188ccf",
+    "worlds/analytics-structured-clean.toml": "corvid-analytics-876dab12c875",
+    "worlds/analytics-structured-messy.toml": "corvid-analytics-251be658ee48",
+    "worlds/docs-only-professional.toml": "harrow-vale-advisory-cba54c864d9b",
+    "worlds/retail-chain-ops.toml": "tallow-street-goods-7220fc0e985a",
+    "worlds/enterprise-sprawl.toml": "meridian-holdings-8ea3a90f92f0",
+    "worlds/startup-long-horizon.toml": "fennel-robotics-506abcb1dc54",
+}
+
+
+@pytest.mark.parametrize(("config", "world_id"), sorted(PINNED.items()))
+def test_example_world_ids_are_stable(config: str, world_id: str) -> None:
+    cfg = load_config(_ROOT / config)
+    backend = cfg.model.offline_backend.value
+    assert compute_world_id(cfg, backend=backend) == world_id

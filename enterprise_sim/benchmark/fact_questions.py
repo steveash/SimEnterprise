@@ -92,7 +92,19 @@ def fact_drafts(world: World) -> Iterator[_Draft]:
         by_stance: dict[str, set[str]] = {}
         for stance, artifact in asserts.get(fact.id, []):
             by_stance.setdefault(stance, set()).add(artifact)
+        for _, vid, value, _ in rows:
+            version_node = world.get_node(vid)
+            if version_node is not None and version_node.props.get("retracted_at"):
+                yield _Draft(
+                    reasoning_type="temporal",
+                    qtype="retracted",
+                    question=f"Which reported {label} of {subject} was later found to be wrong?",
+                    expected_ids=(vid,),
+                    expected_label=value,
+                    difficulty="hard",
+                )
         for stance, text in (
+            ("retraction", f"Which documents corrected an earlier {label} of {subject}?"),
             ("stale", f"Which documents state an outdated {label} for {subject}?"),
             ("conflicting", f"Which documents state a {label} for {subject} that was never true?"),
             ("update", f"Which documents announced a change to the {label} of {subject}?"),

@@ -63,7 +63,7 @@ __all__ = [
 
 #: Where ``spindle-datasets materialize`` puts a slice's documents in a test set.
 MATERIALIZED_DOCS = "environment/docs/simx"
-_TRUE_STANCES = ("current", "update", "hedged")
+_TRUE_STANCES = ("current", "update", "hedged", "retraction")
 #: The gym's discovered-knowledge rule: a value is at least 3 characters, no whitespace.
 _MIN_TOKEN = 3
 #: TS-DISCOVERED's grouping separators: a declared value may hold none of them.

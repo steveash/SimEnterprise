@@ -218,6 +218,16 @@ def compute_config_digest(config: WorldConfig, *, backend: str | None = None) ->
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
+#: Fields added to a diversity section after the section first shipped. Every
+#: new field of [facts], [messiness], [org], [data.messiness] or a later section
+#: must be listed here, or adding it changes the id of every world that uses the
+#: section (tests/test_world_ids.py pins example world ids).
+_LATE_FIELDS: dict[str, tuple[str, ...]] = {
+    "facts": ("entity_ids", "retraction_rate"),
+    "org": ("project_names",),
+}
+
+
 def _drop_default_sections(payload: dict[str, object]) -> None:
     """Remove the diversity knobs left at their defaults from a digest payload.
 
@@ -244,8 +254,16 @@ def _drop_default_sections(payload: dict[str, object]) -> None:
         "org": OrgConfig().model_dump(mode="json"),
     }
     for key, default in defaults.items():
-        if payload.get(key) == default:
-            payload.pop(key, None)
+        section = payload.get(key)
+        if isinstance(section, dict):
+            # A field added to a section after its first release adds nothing
+            # at its default, so worlds pinned before it keep their ids.
+            for name in _LATE_FIELDS.get(key, ()):
+                if name in section and section[name] == default.get(name):
+                    section.pop(name)
+            original = {k: v for k, v in default.items() if k not in _LATE_FIELDS.get(key, ())}
+            if section == original:
+                payload.pop(key, None)
     model = payload.get("model")
     if isinstance(model, dict):
         model.pop("offline_backend", None)

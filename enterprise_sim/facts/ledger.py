@@ -62,7 +62,7 @@ E_SUPERSEDES = "supersedes"  # fact version -> the version it replaced
 E_DEPENDS_ON = "depends_on"  # project -> project of another department
 E_ASSERTS = "asserts"  # artifact -> fact (props: stance, value, versions)
 
-STANCES: tuple[str, ...] = ("current", "update", "hedged", "stale", "conflicting")
+STANCES: tuple[str, ...] = ("current", "update", "hedged", "stale", "conflicting", "retraction")
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,6 +73,10 @@ class Version:
     value: str
     valid_from: datetime
     valid_to: datetime | None  # exclusive; None = still true at the window end
+    #: set when the version is later found to have been an error: it was
+    #: recorded (and stated) from ``valid_from`` but never held in valid time;
+    #: from ``retracted_at`` on, the previous version is believed again.
+    retracted_at: datetime | None = None
 
 
 @dataclass(slots=True)
@@ -86,17 +90,32 @@ class FactRecord:
     attribute: Attribute
     versions: list[Version] = field(default_factory=list)
     announced: set[int] = field(default_factory=set)
+    corrected: set[int] = field(default_factory=set)
     #: every value the fact takes over the whole horizon, beyond the window too:
     #: a "conflicting" value is one outside this set, so extending the window
     #: never turns a past wrong statement into a merely early one.
     horizon_values: set[str] = field(default_factory=set)
 
     def version_at(self, at: datetime) -> Version:
+        """The version believed at ``at`` (a retracted one only until its retraction)."""
         current = self.versions[0]
         for version in self.versions:
-            if version.valid_from <= at:
+            if version.valid_from <= at and not (
+                version.retracted_at is not None and version.retracted_at <= at
+            ):
                 current = version
         return current
+
+    def unannounced_retraction(self, at: datetime) -> Version | None:
+        """A version retracted by ``at`` whose correction no document has stated yet."""
+        for version in self.versions:
+            if (
+                version.retracted_at is not None
+                and version.retracted_at <= at
+                and version.number not in self.corrected
+            ):
+                return version
+        return None
 
     def version_id(self, number: int) -> str:
         return f"{self.id}@v{number}"
@@ -221,6 +240,7 @@ def build_ledger(world: World, cfg: FactsConfig, *, seed: int, start: date, end:
                 record.versions.append(Version(i + 1, value, valid_from, valid_to))
             if attr.name == "owner":
                 _follow_departures(world, record, t1)
+            _maybe_retract(ctx_seed.rng("retract", fact_id), cfg, record, t1)
             ledger.facts[fact_id] = record
             ids.append(fact_id)
         ledger.by_project[project.id] = ids
@@ -234,6 +254,27 @@ def build_ledger(world: World, cfg: FactsConfig, *, seed: int, start: date, end:
         if others and rng.random() < cfg.cross_team:
             ledger.depends_on[project.id] = [rng.choice(others)]
     return ledger
+
+
+def _maybe_retract(rng: random.Random, cfg: FactsConfig, record: FactRecord, t1: datetime) -> None:
+    """With ``retraction_rate``, mark one later version as an error found days after it.
+
+    The draw is consumed for every fact, retracted or not, so turning the knob
+    changes nothing else; a retraction after the window end is not recorded.
+    """
+    roll = rng.random()
+    pick = rng.random()
+    delay = timedelta(days=rng.randint(3, 20))
+    if cfg.retraction_rate <= 0 or roll >= cfg.retraction_rate or len(record.versions) < 2:
+        return
+    index = 1 + int(pick * (len(record.versions) - 1))
+    version = record.versions[index]
+    at = datetime.combine((version.valid_from + delay).date(), time(9, 0))
+    if at > t1 or (version.valid_to is not None and at >= version.valid_to):
+        return
+    record.versions[index] = Version(
+        version.number, version.value, version.valid_from, version.valid_to, at
+    )
 
 
 def _follow_departures(world: World, record: FactRecord, t1: datetime) -> None:
@@ -325,8 +366,13 @@ def assign_assertions(
             (f, c)
             for f, c in pool
             if not c
-            and (v := ledger.facts[f].version_at(at)).number > 1
-            and v.number not in ledger.facts[f].announced
+            and (
+                (
+                    (v := ledger.facts[f].version_at(at)).number > 1
+                    and v.number not in ledger.facts[f].announced
+                )
+                or ledger.facts[f].unannounced_retraction(at) is not None
+            )
         ]
         count = min(len(pool), rng.randint(lo, hi))
         chosen: list[tuple[str, bool]] = pending[:count]
@@ -365,6 +411,14 @@ def _assert(
     def made(stance: str, value: str, statement: str, stated: int | None) -> Assertion:
         return Assertion(record.id, stance, value, statement, true.number, stated, cited)
 
+    retracted = record.unannounced_retraction(at) if not cited else None
+    if retracted is not None:
+        record.corrected.add(retracted.number)
+        text = (
+            f"Correction: the {attr.label} of {subject} was never {retracted.value}; "
+            f"it is {true.value}."
+        )
+        return made("retraction", true.value, text, true.number)
     if not cited and true.number > 1 and true.number not in record.announced:
         record.announced.add(true.number)
         old = record.versions[true.number - 2].value
@@ -446,6 +500,9 @@ def ledger_graph(world: World, ledger: Ledger) -> None:
                         "canonical": value_token(version.value),
                         "valid_from": version.valid_from.isoformat(),
                         "valid_to": version.valid_to.isoformat() if version.valid_to else None,
+                        "retracted_at": version.retracted_at.isoformat()
+                        if version.retracted_at
+                        else None,
                     },
                     aliases=[],
                 )
