@@ -238,7 +238,10 @@ def _realize_variable(
 ) -> FloatArray | _CatColumn:
     """Sample one variable's values for ``n`` rows given its parents in ``env``."""
     if var.distribution is not None:
-        return _sample_distribution(var.distribution, n=n, gen=gen)
+        sampled = _sample_distribution(var.distribution, n=n, gen=gen)
+        if var.decimals is not None and not isinstance(sampled, _CatColumn):
+            return _round_showing(sampled, var.decimals)
+        return sampled
 
     if var.categorical_equation is not None:
         levels = tuple(var.categorical_equation.utilities)
@@ -270,7 +273,17 @@ def _realize_variable(
     elif var.kind is VariableKind.BINARY:
         probs = np.clip(values, 0.0, 1.0)
         values = (gen.random(n) < probs).astype(np.float64)
+    elif var.decimals is not None:
+        values = _round_showing(values, var.decimals)
     return values
+
+
+def _round_showing(values: FloatArray, decimals: int) -> FloatArray:
+    """Round to ``decimals``; a last decimal of 0 moves up one step (cents always show)."""
+    scale = 10.0**decimals
+    steps = np.round(values * scale)
+    steps = np.where(steps % 10 == 0, steps + 1, steps)
+    return np.asarray(steps / scale, dtype=np.float64)
 
 
 # -- factors ---------------------------------------------------------------- #
@@ -338,6 +351,7 @@ def _sample_entities(
 ) -> _Entities:
     kg_ids: tuple[str, ...] | None = None
     kg_names: tuple[str, ...] | None = None
+    identity_props: tuple[tuple[str, tuple[str, ...]], ...] = ()
     if pop.kg_identity is not None:
         if world is None:
             raise linking.LinkageError(
@@ -346,6 +360,7 @@ def _sample_entities(
         identity = linking.bind_identity(pop.kg_identity, world)
         size = identity.size
         kg_ids, kg_names = identity.kg_ids, identity.kg_names
+        identity_props = identity.props
     else:
         size = _scaled_size(pop, scale)
 
@@ -356,6 +371,12 @@ def _sample_entities(
 
     env: _Env = {}
     dimension_lineage: dict[str, dict[str, str]] = {}
+    for prop, values in identity_props:
+        prop_levels = tuple(sorted(set(values)))
+        position = {level: index for index, level in enumerate(prop_levels)}
+        env[prop] = _CatColumn(
+            codes=np.asarray([position[v] for v in values], dtype=np.int64), levels=prop_levels
+        )
     for dim in pop.kg_dimensions:
         if world is None:
             raise linking.LinkageError(

@@ -86,7 +86,7 @@ def _parents_of(var: Variable) -> set[tuple[str, bool]]:
 
 
 def _is_categorical(name: str, pop: PopulationSpec, panel_vars: Mapping[str, Variable]) -> bool:
-    if name in {dim.attribute for dim in pop.kg_dimensions}:
+    if name in pop.kg_attributes:
         return True
     for var in (*pop.attributes, *pop.panel):
         if var.name == name:
@@ -260,7 +260,7 @@ def _lint_variable_kind(var: Variable, *, scope: str, issues: list[LintIssue]) -
 
 def _lint_population(pop: PopulationSpec, spec: ScenarioSpec, issues: list[LintIssue]) -> None:
     scope = f"population {pop.name!r}"
-    kg_dim_names = [dim.attribute for dim in pop.kg_dimensions]
+    kg_dim_names = list(pop.kg_attributes)
     attr_names = [var.name for var in pop.attributes]
     panel_names = [var.name for var in pop.panel]
     factor_names = [factor.name for factor in spec.factors]
@@ -372,9 +372,7 @@ def _lint_tables(spec: ScenarioSpec, issues: list[LintIssue]) -> None:
             )
             continue
         pop = spec.population(tbl.population)
-        attr_like = {var.name for var in pop.attributes} | {
-            dim.attribute for dim in pop.kg_dimensions
-        }
+        attr_like = {var.name for var in pop.attributes} | set(pop.kg_attributes)
         panel_names = {var.name for var in pop.panel}
         for col in tbl.columns:
             where = f"{scope}: column {col.name!r}"

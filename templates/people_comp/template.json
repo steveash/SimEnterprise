@@ -1,0 +1,21 @@
+{
+  "created_at": "2026-11-22T00:00:00+00:00",
+  "description": "People compensation: per-person Q4 bonuses with department and cost centre, a retention payment, department totals and gross pools.",
+  "kind": "data_scenario",
+  "name": "People Compensation: Q4 Bonuses",
+  "provides": {
+    "archetypes": [],
+    "data_scenarios": [
+      "people_comp"
+    ],
+    "playbooks": [],
+    "processes": []
+  },
+  "slug": "people_comp",
+  "updated_at": "2026-11-22T00:00:00+00:00",
+  "validation": {
+    "checked_at": "2026-11-22T00:00:00+00:00",
+    "status": "unvalidated",
+    "summary": "not validated yet"
+  }
+}

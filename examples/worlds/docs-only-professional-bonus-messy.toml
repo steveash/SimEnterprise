@@ -1,0 +1,56 @@
+# Benchmark world: Harrow & Vale Advisory with a people-ops compensation table, messy
+# (P571023243, for sets2-cc fg1-09 fin-bonus-pool-private).
+#
+# Same seed, org and documents as docs-only-professional (the [data] plan is not part of a world id, so this is
+# a data-only variant of simx/harrow-vale-advisory). people_comp adds a Q4 bonus per real person (department,
+# cost centre = team, two decimals with non-zero cents), one retention payment due 31 January, department totals
+# and gross pools by cost centre. Tables: re-sent rows, drifted department labels and x10/x100/x1000 unit slips on the amounts (recipe varied, stated in quirks.json), no nulls.
+#
+#   enterprise-sim world create examples/worlds/docs-only-professional-bonus-messy.toml
+seed = 105
+worlds_root = "worlds"
+
+[company]
+name = "Harrow & Vale Advisory"
+vertical = "professional services"
+size = "medium"
+description = "A mid-sized advisory firm serving regulated clients."
+
+[simulation]
+period_start = 2026-01-05
+period_end = 2026-06-26
+
+[model]
+backend = "anthropic_api"
+name = "claude-haiku-4-5"
+offline_backend = "synth"
+
+[[departments]]
+archetype = "legal"
+[[departments]]
+archetype = "finance"
+[[departments]]
+archetype = "people_ops"
+
+[facts]
+per_project = 7
+change_rate = 0.35
+stale_rate = 0.15
+
+[messiness]
+alias_rate = 0.2
+date_format_mix = 0.3
+
+[org]
+turnover_rate = 0.25
+
+[data]
+scenarios = ["people_comp"]
+scale_factor = 1.0
+iterations = 1
+
+[data.messiness]
+duplicate_rate = 0.05
+label_drift_rate = 0.2
+outlier_rate = 0.03
+recipe = "varied"

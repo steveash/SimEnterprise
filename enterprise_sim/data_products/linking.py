@@ -107,6 +107,7 @@ class IdentityBinding:
 
     kg_ids: tuple[str, ...]
     kg_names: tuple[str, ...]
+    props: tuple[tuple[str, tuple[str, ...]], ...] = ()  # (prop, per-row values)
 
     @property
     def size(self) -> int:
@@ -123,6 +124,10 @@ def bind_identity(identity: KgIdentity, world: World) -> IdentityBinding:
     return IdentityBinding(
         kg_ids=tuple(node.id for node in nodes),
         kg_names=tuple(_unique_names(nodes)),
+        props=tuple(
+            (prop, tuple(str(node.props.get(prop, "")) for node in nodes))
+            for prop in identity.props or ()
+        ),
     )
 
 

@@ -248,6 +248,16 @@ class Variable(_FrozenSpec):
     distribution: Distribution | None = None
     equation: NumericEquation | None = None
     categorical_equation: CategoricalEquation | None = None
+    decimals: int | None = Field(
+        default=None,
+        ge=0,
+        le=6,
+        description=(
+            "Round a numeric variable to this many decimals; a value whose last decimal "
+            "would be 0 moves up one step, so every value shows exactly this many digits "
+            "(money with non-zero cents)."
+        ),
+    )
     lag_init: float = Field(
         default=0.0,
         description="Day-0 value seen by lagged reads of this panel variable "
@@ -340,6 +350,13 @@ class KgIdentity(_FrozenSpec):
     where: dict[str, str] = Field(
         default_factory=dict, description="Exact-match filters on node props."
     )
+    props: tuple[str, ...] | None = Field(
+        default=None,
+        description=(
+            "Node props exposed as categorical attributes of the population (a person's "
+            "real department, team, seniority), usable in equations and tables."
+        ),
+    )
 
 
 class KgDimension(_FrozenSpec):
@@ -368,6 +385,12 @@ class PopulationSpec(_FrozenSpec):
     kg_dimensions: tuple[KgDimension, ...] = ()
     attributes: tuple[Variable, ...] = ()
     panel: tuple[Variable, ...] = ()
+
+    @property
+    def kg_attributes(self) -> tuple[str, ...]:
+        """Categorical attributes that come from the KG: dimensions and identity props."""
+        props = self.kg_identity.props if self.kg_identity is not None else None
+        return (*(dim.attribute for dim in self.kg_dimensions), *(props or ()))
 
 
 # -- physical tables & views ------------------------------------------------ #
