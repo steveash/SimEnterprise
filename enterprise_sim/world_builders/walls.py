@@ -3,8 +3,8 @@
 :func:`assign_walls` partitions a department's roster among the walled projects and
 names them; the builder writes the plan into the Layer-A graph (project props
 ``walled``/``wall_side`` and one ``walled_from`` edge per walled pair). Every later
-stage (actor resolution, the fact ledger, cross-team citing, turnover, chat, the
-sensitive-sentence producer, the export check) reads the walls only through the
+stage (actor resolution, the document view in ``assembly.views``, the fact ledger,
+cross-team citing, turnover, the export check) reads the walls only through the
 readers below, never from the config.
 """
 
@@ -13,9 +13,8 @@ from __future__ import annotations
 import random
 from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import datetime
 
-from enterprise_sim.core.world import World, WorldView
+from enterprise_sim.core.world import World
 
 __all__ = [
     "E_WALLED_FROM",
@@ -24,7 +23,6 @@ __all__ = [
     "assign_walls",
     "hidden_from",
     "unique_staff_names",
-    "walled_view",
     "staff_of",
     "walled_pairs",
     "walled_projects",
@@ -144,21 +142,6 @@ def hidden_from(world: World, project_id: str | None) -> set[str]:
         )
     own = staff_of(world, project_id) or frozenset()
     return hidden - own - {project_id}
-
-
-def walled_view(world: World, at: datetime, project_id: str | None) -> WorldView:
-    """The as-of view a document of ``project_id`` is rendered against.
-
-    The one place a producer's view is cut at the walls (decision record 0036): it is
-    ``world.projection(at)`` minus :func:`hidden_from`, so neither the roster the
-    prose may name, nor the earlier artifacts it may cite, nor the people a
-    sensitive sentence or an alias is about can come from across a wall.
-    """
-    hidden = hidden_from(world, project_id)
-    if not hidden:
-        return world.projection(at=at)
-    keep = [n.id for n in world.nodes() if n.id not in hidden]
-    return world.projection(at=at, focus=keep)
 
 
 def unique_staff_names(world: World, rng: random.Random) -> None:

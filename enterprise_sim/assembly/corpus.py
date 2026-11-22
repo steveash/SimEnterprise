@@ -42,6 +42,7 @@ from typing import Protocol, runtime_checkable
 from enterprise_sim.assembly.agent_sessions import build_sessions
 from enterprise_sim.assembly.code_repo import build_repositories
 from enterprise_sim.assembly.messy_docs import apply_document_messiness
+from enterprise_sim.assembly.views import document_view
 from enterprise_sim.authoring.lowering import lower_playbook
 from enterprise_sim.authoring.sdk import Playbook as SdkPlaybook
 from enterprise_sim.core.config import WorldConfig
@@ -75,7 +76,6 @@ from enterprise_sim.producers.outlook import InviteProducer, OutlookProducer
 from enterprise_sim.producers.pptx import PptxProducer
 from enterprise_sim.producers.sensitive import SensitivePlanter
 from enterprise_sim.producers.word import WordProducer
-from enterprise_sim.world_builders.walls import walled_view
 
 
 @runtime_checkable
@@ -632,7 +632,7 @@ def _render_scenario(
             continue
         if control is not None and control.should_pause():
             raise RunPaused()
-        view = walled_view(world, event.timestamp, event.project)
+        view = document_view(world, event)
         producers = _producers_for(event.deliverable.kind, ctx.formats)
         produced = [producer.produce(event, view, client, ctx) for producer in producers]
         if ctx.wants_chat(event.id):

@@ -258,6 +258,10 @@ class _WorldBuilder:
             from enterprise_sim.world_builders.walls import unique_staff_names
 
             unique_staff_names(self._world, self._ctx.rng("walls", "names"))
+        if self._config.org.homonyms:
+            from enterprise_sim.world_builders.homonyms import plant_homonyms
+
+            plant_homonyms(self._world, self._config.org.homonyms, self._ctx.rng("homonyms"))
         apply_turnover(self._world, self._config, self._ctx, self._slugs)
         return self._world
 

@@ -203,6 +203,15 @@ class OrgConfig(_Frozen):
         le=0.5,
         description="Share of non-lead people who move to another team during the window.",
     )
+    homonyms: int = Field(
+        default=0,
+        ge=0,
+        le=20,
+        description=(
+            "Pairs of people in different departments given one full name, each labelled "
+            "homonym_of in the gold KG (world_builders/homonyms.py)."
+        ),
+    )
 
     @model_validator(mode="after")
     def _check(self) -> OrgConfig:
