@@ -20,6 +20,7 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from enterprise_sim.core.config.diversity import (
+    ChatConfig,
     DataMessinessConfig,
     FactsConfig,
     FormatsConfig,
@@ -280,6 +281,10 @@ class WorldConfig(_Frozen):
     messiness: MessinessConfig = Field(
         default_factory=MessinessConfig,
         description="Surface noise injected into rendered documents, labelled in the gold KG.",
+    )
+    chat: ChatConfig = Field(
+        default_factory=ChatConfig,
+        description="Team-channel threads restating documents' facts, one fact per message.",
     )
     formats: FormatsConfig = Field(
         default_factory=FormatsConfig,

@@ -27,6 +27,7 @@ function of ``(event, view)`` — deterministic given a deterministic backend.
 
 from __future__ import annotations
 
+import hashlib
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -80,6 +81,16 @@ class ProducerContext:
     noise: ProseNoise | None = None
     #: ``[formats]`` overrides: deliverable kind -> producer name.
     formats: tuple[tuple[str, str], ...] = ()
+    #: ``[chat] rate`` and the world seed that picks which documents get a thread.
+    chat_rate: float = 0.0
+    seed: int = 0
+
+    def wants_chat(self, event_id: str) -> bool:
+        """Whether the document of ``event_id`` also gets a chat thread (seeded)."""
+        if self.chat_rate <= 0:
+            return False
+        digest = hashlib.sha256(f"chat\x00{self.seed}\x00{event_id}".encode()).hexdigest()
+        return int(digest[:8], 16) / 0xFFFFFFFF < self.chat_rate
 
     def messy(self, text: str, *, key: str, roster: Roster) -> str:
         """``text`` with this scenario's messiness applied (quirks logged under ``key``).

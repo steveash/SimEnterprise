@@ -64,7 +64,7 @@ _MIN_TOKEN = 3
 #: TS-DISCOVERED's grouping separators: a declared value may hold none of them.
 _GROUPING = (",", "_", "'", "\u00a0", "\u202f")
 _RENDERED = (".docx", ".pptx", ".eml", ".ics")
-_TEXT = (".md", ".json")
+_TEXT = (".md", ".json", ".jsonl")
 _SLICE_NAME = re.compile(r"[^a-z0-9-]+")
 
 

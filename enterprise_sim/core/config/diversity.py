@@ -221,7 +221,19 @@ class FormatsConfig(_Frozen):
     invites: bool = False
 
 
+class ChatConfig(_Frozen):
+    """Team-channel threads beside documents (``producers/chat.py``)."""
+
+    rate: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+        description="Probability a document also gets a chat thread restating its facts.",
+    )
+
+
 __all__ = [
+    "ChatConfig",
     "DataMessinessConfig",
     "FormatsConfig",
     "FactsConfig",

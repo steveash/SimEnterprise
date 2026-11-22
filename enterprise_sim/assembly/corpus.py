@@ -65,6 +65,7 @@ from enterprise_sim.facts import (
 from enterprise_sim.jobs.control import RunControl, RunPaused
 from enterprise_sim.jobs.progress import NullSink, ProgressEvent, ProgressSink
 from enterprise_sim.producers.artifact import ProducedArtifact, apply_to_world
+from enterprise_sim.producers.chat import ChatProducer
 from enterprise_sim.producers.jira import JiraProducer
 from enterprise_sim.producers.markdown import MarkdownProducer, ProducerContext
 from enterprise_sim.producers.noise import ProseNoise, is_clean
@@ -261,6 +262,8 @@ def build_corpus(
                     if is_clean(config.messiness)
                     else ProseNoise(config.messiness, seed=config.seed),
                     formats=format_overrides(config),
+                    chat_rate=config.chat.rate,
+                    seed=config.seed,
                 ),
             )
         )
@@ -283,7 +286,7 @@ def build_corpus(
         )
         attach(journal.ordered(), assertions)
 
-    num_artifacts = sum(_deliverable_count(plan.journal, plan.ctx.formats) for plan in plans)
+    num_artifacts = sum(_deliverable_count(plan.journal, plan.ctx) for plan in plans)
     progress.emit(
         ProgressEvent.now(
             "scheduled",
@@ -292,7 +295,7 @@ def build_corpus(
             scenarios=[
                 {
                     "id": plan.initiative_id,
-                    "artifacts": _deliverable_count(plan.journal, plan.ctx.formats),
+                    "artifacts": _deliverable_count(plan.journal, plan.ctx),
                 }
                 for plan in plans
             ],
@@ -361,7 +364,7 @@ def _people_by_department(world: World) -> dict[str, tuple[str, ...]]:
     return {dept: tuple(sorted(names)) for dept, names in out.items()}
 
 
-def _deliverable_count(journal: EventJournal, overrides: tuple[tuple[str, str], ...] = ()) -> int:
+def _deliverable_count(journal: EventJournal, ctx: ProducerContext | None = None) -> int:
     """Number of *render tasks* in ``journal`` — one per (deliverable × bound producer).
 
     A one-to-many fan-out (``backlog`` → ``markdown`` + ``jira``, D6) renders a
@@ -370,7 +373,8 @@ def _deliverable_count(journal: EventJournal, overrides: tuple[tuple[str, str], 
     estimate equal to the artifact count the run actually produces.
     """
     return sum(
-        len(_producers_for(event.deliverable.kind, overrides))
+        len(_producers_for(event.deliverable.kind, ctx.formats if ctx else ()))
+        + (1 if ctx is not None and ctx.wants_chat(event.id) else 0)
         for event in journal.ordered()
         if event.deliverable is not None
     )
@@ -511,6 +515,8 @@ _PRODUCERS: dict[str, _Producer] = {
     InviteProducer.name: InviteProducer(),
 }
 
+_CHAT = ChatProducer()
+
 #: ``[formats]`` switch -> (kit kinds it rebinds, producer name).
 _FORMAT_SWITCHES: dict[str, tuple[tuple[str, ...], str]] = {
     "decks": (("business_review", "board_pack", "launch_plan"), PptxProducer.name),
@@ -603,19 +609,22 @@ def _render_scenario(
         view = world.projection(at=event.timestamp)
         producers = _producers_for(event.deliverable.kind, ctx.formats)
         produced = [producer.produce(event, view, client, ctx) for producer in producers]
+        if ctx.wants_chat(event.id):
+            produced.append(_CHAT.produce(event, view, client, ctx))
         if ctx.noise is not None:
             produced += apply_document_messiness(produced, ctx.noise)
         apply_to_world(world, produced)
         rendered.extend(produced)
         cost = client.cost
-        for producer, artifact in zip(producers, produced[: len(producers)], strict=True):
+        names = [p.name for p in producers] + (["chat"] if ctx.wants_chat(event.id) else [])
+        for producer_name, artifact in zip(names, produced[: len(names)], strict=True):
             done, total = counter.increment()
             progress.emit(
                 ProgressEvent.now(
                     "artifact",
                     scenario_id=scenario_id,
                     event_id=event.id,
-                    producer=producer.name,
+                    producer=producer_name,
                     path=artifact.path,
                     cached=artifact.cache_hit,
                     done=done,

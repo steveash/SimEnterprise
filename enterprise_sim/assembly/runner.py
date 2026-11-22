@@ -227,6 +227,7 @@ def _drop_default_sections(payload: dict[str, object]) -> None:
     effective offline backend reaches the digest as ``render_backend``.
     """
     from enterprise_sim.core.config.diversity import (
+        ChatConfig,
         FactsConfig,
         FormatsConfig,
         MessinessConfig,
@@ -235,6 +236,7 @@ def _drop_default_sections(payload: dict[str, object]) -> None:
 
     defaults = {
         "formats": FormatsConfig().model_dump(mode="json"),
+        "chat": ChatConfig().model_dump(mode="json"),
         "facts": FactsConfig().model_dump(mode="json"),
         "messiness": MessinessConfig().model_dump(mode="json"),
         "org": OrgConfig().model_dump(mode="json"),
