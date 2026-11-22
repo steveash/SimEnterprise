@@ -208,10 +208,13 @@ def test_a_fork_export_states_its_family_and_base_digest(tmp_path: Path) -> None
     assert manifest["heldout"] == {"family": "coding-team-clean", "base_config_digest": digest}
     assert manifest["config_digest"] != digest
     assert not [f for f in manifest["files"] if "heldout" in f["path"]]
+    from enterprise_sim.assembly import canonical_config
+
     fork = json.loads((result.directory / "config.json").read_text(encoding="utf-8"))
-    public = base.model_dump(mode="json")
+    public = canonical_config(base)  # what a public export's config.json holds
+    assert "worlds_root" not in fork and "worlds_root" not in public  # never a host path
     differ = {k for k in set(fork) | set(public) if fork.get(k) != public.get(k)}
-    assert differ <= {"seed", "company", "worlds_root"}
-    assert {k for k in fork["company"] if fork["company"][k] != public["company"].get(k)} == {
-        "name"
-    }
+    assert differ == {"seed", "company"}
+    company = public["company"]
+    assert isinstance(company, dict)
+    assert {k for k in fork["company"] if fork["company"][k] != company.get(k)} == {"name"}
