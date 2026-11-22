@@ -18,7 +18,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 
-__all__ = ["Attribute", "Context", "attributes_for"]
+__all__ = ["Attribute", "Context", "attributes_for", "value_token"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,7 +82,18 @@ def _date_mutate(rng: random.Random, old: str, ctx: Context) -> str:
 
 
 def _money(value: int) -> str:
-    return f"${value:,}"
+    """``$250k`` / ``$1.2M``: no grouping separator, so the value is one token."""
+    if value >= 1_000_000:
+        text = f"{value / 1_000_000:.2f}".rstrip("0").rstrip(".")
+        return f"${text}M"
+    return f"${value // 1000}k"
+
+
+def _money_value(text: str) -> int:
+    body = text.lstrip("$")
+    if body.endswith("M"):
+        return round(float(body[:-1]) * 1_000_000)
+    return int(body.rstrip("k")) * 1000
 
 
 def _money_draw(rng: random.Random, ctx: Context) -> str:
@@ -90,7 +101,7 @@ def _money_draw(rng: random.Random, ctx: Context) -> str:
 
 
 def _money_mutate(rng: random.Random, old: str, ctx: Context) -> str:
-    base = int(old.replace("$", "").replace(",", ""))
+    base = _money_value(old)
     factor = rng.choice((0.8, 0.9, 1.15, 1.25, 1.5))
     return _money(max(10_000, round(base * factor / 10_000) * 10_000))
 
@@ -501,3 +512,17 @@ _BY_ARCHETYPE: dict[str, tuple[Attribute, ...]] = {
 def attributes_for(archetype: str) -> tuple[Attribute, ...]:
     """The attributes a project of ``archetype`` carries: domain ones first."""
     return _BY_ARCHETYPE.get(archetype, OPERATIONS) + GENERIC
+
+
+def value_token(value: str) -> str:
+    """The value's most specific whitespace-free run (>= 3 characters).
+
+    A test set that asks a persona to find a value declares a canonical string
+    with no whitespace (the gym's discovered-knowledge rule); the token is that
+    string, and it occurs verbatim inside every statement of the value.
+    """
+    runs = [r.strip(".,;:") for r in value.split()]
+    runs = [r for r in runs if len(r) >= 3]
+    if not runs:
+        return value
+    return max(runs, key=lambda r: (sum(ch.isdigit() or ch in "._-:$%" for ch in r), len(r)))

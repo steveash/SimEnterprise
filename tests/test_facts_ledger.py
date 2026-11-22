@@ -334,3 +334,36 @@ def test_extending_the_window_never_rewrites_a_past_document(
     assert len(after) > len(before)
     changed = [str(path) for path, data in before.items() if after.get(path) != data]
     assert changed == []
+
+
+@pytest.mark.parametrize(
+    ("value", "token"),
+    [
+        ("daily at 02:00 UTC", "02:00"),
+        ("$250k", "$250k"),
+        ("2026-05-14", "2026-05-14"),
+        ("PostgreSQL", "PostgreSQL"),
+        ("analytics.fct_orders", "analytics.fct_orders"),
+        ("150 ms", "150"),
+        ("the nightly crm extract", "nightly"),
+    ],
+)
+def test_value_tokens_are_whitespace_free_substrings(value: str, token: str) -> None:
+    from enterprise_sim.facts.catalog import value_token
+
+    assert value_token(value) == token
+    assert token in value and " " not in token
+
+
+def test_money_values_have_no_grouping_separator() -> None:
+    import random
+
+    from enterprise_sim.facts.catalog import _money, _money_mutate, _money_value
+
+    assert _money(250_000) == "$250k" and _money(1_200_000) == "$1.2M"
+    assert _money_value("$1.2M") == 1_200_000 and _money_value("$250k") == 250_000
+    rng = random.Random(1)
+    value = "$900k"
+    for _ in range(20):
+        value = _money_mutate(rng, value, None)  # type: ignore[arg-type]
+        assert "," not in value

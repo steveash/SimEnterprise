@@ -40,7 +40,7 @@ from enterprise_sim.core.config.diversity import FactsConfig
 from enterprise_sim.core.config.seed import SeedContext
 from enterprise_sim.core.events import Event
 from enterprise_sim.core.world import Edge, Node, World
-from enterprise_sim.facts.catalog import Attribute, Context, attributes_for
+from enterprise_sim.facts.catalog import Attribute, Context, attributes_for, value_token
 
 __all__ = [
     "Assertion",
@@ -407,6 +407,7 @@ def ledger_graph(world: World, ledger: Ledger) -> None:
                         "fact": record.id,
                         "version": version.number,
                         "value": version.value,
+                        "token": value_token(version.value),
                         "valid_from": version.valid_from.isoformat(),
                         "valid_to": version.valid_to.isoformat() if version.valid_to else None,
                     },
