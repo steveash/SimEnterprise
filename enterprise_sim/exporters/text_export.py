@@ -558,9 +558,43 @@ def export_world(world_dir: Path | str, out_root: Path | str) -> ExportResult:
             }
         )
 
-    from enterprise_sim.worlds.slice import project_slices
+    from enterprise_sim.worlds.slice import (
+        TRAIL_COLUMNS,
+        project_slices,
+        project_trail,
+        slice_name,
+    )
 
     slices = project_slices(world_dir)
+    projects = {
+        n["id"]
+        for n in (
+            json.loads(line)
+            for line in (world_dir / "kg" / "nodes.jsonl").read_text(encoding="utf-8").splitlines()
+            if line
+        )
+        if n["type"] == "Project"
+    }
+    by_name = {s["name"]: s for s in slices}
+    for project in sorted(projects):
+        rows = project_trail(world_dir, project)
+        entry = by_name.get(slice_name(project))
+        if not rows or entry is None:
+            continue
+        names = [c for c, _ in TRAIL_COLUMNS]
+        body = "\n".join([_csv_line(names), *(_csv_line([r[c] for c in names]) for r in rows)])
+        rel = writer.write(f"trails/{entry['name']}.csv", (body + "\n").encode("utf-8"), "text/csv")
+        writer.tables.append(
+            {
+                "name": f"trail.{entry['name']}",
+                "path": rel,
+                "kind": "trail",
+                "columns": [{"name": c, "type": t} for c, t in TRAIL_COLUMNS],
+                "primary_key": [],
+                "foreign_keys": [],
+            }
+        )
+        entry["files"] = sorted([*entry["files"], rel])
     for entry in slices:
         missing = [f for f in entry["files"] if f not in writer.paths]
         if missing:

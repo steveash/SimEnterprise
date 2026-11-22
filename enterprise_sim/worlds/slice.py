@@ -39,9 +39,11 @@ from enterprise_sim.exporters.text_export import export_path
 
 __all__ = [
     "MATERIALIZED_DOCS",
+    "TRAIL_COLUMNS",
     "SliceError",
     "materialized_doc_path",
     "project_slices",
+    "project_trail",
     "slice_documents",
     "slice_name",
     "slice_world",
@@ -306,3 +308,50 @@ def add_slice_parser(world_subparsers: Any) -> None:
     parser.add_argument("--at", default=None, help="scenario date (YYYY-MM-DD); default window end")
     parser.add_argument("--with-dependencies", action="store_true", dest="with_dependencies")
     parser.set_defaults(func=_cmd_world_slice)
+
+
+#: Columns of a project's trail table (``trails/<slice>.csv``).
+TRAIL_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("logged_at", "timestamp"),
+    ("author", "text"),
+    ("kind", "text"),
+    ("document", "text"),
+    ("summary", "text"),
+)
+
+
+def project_trail(world_dir: Path | str, project: str) -> list[dict[str, str]]:
+    """The dated trail of one project: each fact statement of its documents, one row each.
+
+    A structured log beside the prose (the shape a decision or change log has):
+    when it was written, by whom, in which kind of document (its export path), and
+    the statement exactly as the document makes it, commas replaced by
+    semicolons so no cell needs quoting. Stale and wrong statements appear as
+    the documents make them: the trail carries no labels (those stay gold).
+    """
+    world_dir = Path(world_dir)
+    nodes = {n["id"]: n for n in _jsonl(world_dir / "kg" / "nodes.jsonl")}
+    edges = _jsonl(world_dir / "kg" / "edges.jsonl")
+    events = {e["id"]: e for e in _jsonl(world_dir / "kg" / "events.jsonl")}
+    authors: dict[str, list[str]] = {}
+    for edge in edges:
+        if edge["type"] == "authored":
+            name = str(nodes.get(edge["src"], {}).get("props", {}).get("name", edge["src"]))
+            authors.setdefault(edge["dst"], []).append(name)
+    rows: list[dict[str, str]] = []
+    for doc in slice_documents(nodes, edges, [project]):
+        event = events.get(str(doc["props"].get("event", "")))
+        rel = _export_rel(str(doc["props"]["path"]))
+        if event is None or rel is None or "duplicate_of" in doc["props"]:
+            continue
+        for fact in event.get("payload", {}).get("facts") or []:
+            rows.append(
+                {
+                    "logged_at": f"{event['timestamp'][:19]}Z",
+                    "author": "; ".join(sorted(authors.get(doc["id"], []))),
+                    "kind": str(doc["props"].get("kind", "")),
+                    "document": rel,
+                    "summary": str(fact["statement"]).replace(",", ";"),
+                }
+            )
+    return sorted(rows, key=lambda r: (r["logged_at"], r["document"], r["summary"]))

@@ -120,3 +120,24 @@ def test_world_slice_cli(
         main(["world", "slice", str(world_dir), "--project", "x", "--out", str(tmp_path / "d")])
         == 2
     )
+
+
+def test_each_project_slice_carries_a_dated_trail(world_dir: Path, tmp_path: Path) -> None:
+    import csv
+
+    result = export_world(world_dir, tmp_path / "out")
+    manifest = json.loads((result.directory / "export.json").read_text(encoding="utf-8"))
+    trails = {t["name"]: t for t in manifest["tables"] if t["kind"] == "trail"}
+    assert f"trail.{slice_name(_PROJECT)}" in trails
+    slices = {s["name"]: s for s in manifest["slices"]}
+    for name, table in trails.items():
+        entry = slices[name.removeprefix("trail.")]
+        assert table["path"] in entry["files"]
+        with (result.directory / table["path"]).open(encoding="utf-8", newline="") as fh:
+            rows = list(csv.DictReader(fh))
+        assert rows
+        assert list(rows[0]) == ["logged_at", "author", "kind", "document", "summary"]
+        for row in rows:
+            assert re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", row["logged_at"])
+            assert "," not in row["summary"] and row["author"]
+            assert row["document"] in entry["files"]
