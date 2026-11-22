@@ -68,6 +68,7 @@ SPECIALS = {
         "departments": ["legal", "finance", "people_ops"],
         "data": [],
         "what": "a document-only advisory firm (legal, finance, people)",
+        "privacy": 0.3,
     },
     "special-retail-chain": {
         "vertical": "retail",
@@ -86,12 +87,14 @@ SPECIALS = {
         "departments": ["sales", "marketing", "support", "finance"],
         "data": ["sales_pipeline", "marketing_attribution"],
         "what": "a sales-led company with go-to-market functions only",
+        "privacy": 0.1,
     },
     "special-support-led": {
         "vertical": "customer service",
         "departments": ["support", "engineering", "data_analytics"],
         "data": ["support_ops"],
         "what": "a support-heavy company whose tickets drive engineering",
+        "privacy": 0.1,
     },
     "special-all-departments": {
         "vertical": "software",
@@ -110,6 +113,7 @@ SPECIALS = {
         ],
         "data": ["sales_pipeline", "support_ops"],
         "what": "every department kind at once, one squad each",
+        "privacy": 0.15,
     },
 }
 
@@ -212,6 +216,8 @@ def _config(name: str, cell: dict[str, str], spec: dict[str, object], used: set[
         "entity_ids = true",
     ]
     lines += ["", "[chat]", f"rate = {0.4 if high else 0.1}"]
+    if spec.get("privacy"):
+        lines += ["", "[privacy]", f"sensitive_rate = {spec['privacy']}"]
     if spec.get("code"):
         lines += ["", "[code]", "enabled = true"]
     if large:

@@ -38,6 +38,9 @@ entity_ids = true
 [chat]
 rate = 0.4
 
+[privacy]
+sensitive_rate = 0.3
+
 [formats]
 decks = true
 email = true
