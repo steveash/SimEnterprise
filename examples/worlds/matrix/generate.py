@@ -7,7 +7,8 @@ Full factorial over the priority families' axes (docs/../ diversity matrix):
     structure   docs   | data          (data: the family's scenarios at scale 0.05)
     size        small  | large         (large: more departments, 2..3 squads, enterprise band)
     churn       low    | high          (high: facts change often, 4 versions, turnover,
-                                        transfers, a six-month window, busier chat)
+                                        transfers, a six-month window, busier chat;
+                                        messy x high adds retractions)
 
 Large worlds also render decks, e-mail threads and meeting invites ([formats]);
 every world has team-chat threads ([chat]); coding and data-engineering worlds
@@ -215,6 +216,8 @@ def _config(name: str, cell: dict[str, str], spec: dict[str, object], used: set[
         f"cross_team = {0.8 if large else 0.3}",
         "entity_ids = true",
     ]
+    if messy and high:
+        lines.append("retraction_rate = 0.3")
     lines += ["", "[chat]", f"rate = {0.4 if high else 0.1}"]
     if spec.get("privacy"):
         lines += ["", "[privacy]", f"sensitive_rate = {spec['privacy']}"]

@@ -38,6 +38,7 @@ conflict_rate = 0.1
 hedge_rate = 0.15
 cross_team = 0.8
 entity_ids = true
+retraction_rate = 0.3
 
 [chat]
 rate = 0.4
