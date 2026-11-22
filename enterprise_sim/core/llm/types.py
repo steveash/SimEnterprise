@@ -142,11 +142,16 @@ class TransientLLMError(LLMError):
 
     ``retry_after`` mirrors the HTTP ``Retry-After`` header when the provider
     supplied one; the client's backoff honors it instead of its own schedule.
+    ``rate_limited`` marks a provider quota refusal (HTTP 429): the client backs
+    off longer, with jitter, and counts it for the call governor.
     """
 
-    def __init__(self, message: str, *, retry_after: float | None = None) -> None:
+    def __init__(
+        self, message: str, *, retry_after: float | None = None, rate_limited: bool = False
+    ) -> None:
         super().__init__(message)
         self.retry_after = retry_after
+        self.rate_limited = rate_limited
 
 
 class CostCeilingExceeded(LLMError):

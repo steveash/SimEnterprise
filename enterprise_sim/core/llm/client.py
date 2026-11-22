@@ -12,7 +12,9 @@ concerns the architecture demands:
 * **Cost accounting + ceiling** (D13) — every non-cached call's tokens are priced
   and aggregated; a call that would breach the ceiling raises *before* it runs.
 * **Bounded concurrency** — :meth:`generate_many` fans out through a thread pool
-  capped at ``max_concurrency`` (the Layer C parallelism dial, §16.4).
+  capped at ``max_concurrency`` (the Layer C parallelism dial, §16.4); the
+  account-wide cap on live attempts is the call governor
+  (:mod:`enterprise_sim.core.llm.governor`), which every live attempt passes.
 
 Determinism is structural (§7): the client decides *which* calls happen, in what
 order, with what context — content varies, but the fake backend + caches make
@@ -21,6 +23,7 @@ re-runs reproducible.
 
 from __future__ import annotations
 
+import random
 import threading
 import time
 from collections.abc import Callable, Mapping, Sequence
@@ -30,6 +33,7 @@ from typing import Any
 
 from enterprise_sim.core.llm.backends import Backend, build_backend, estimate_tokens
 from enterprise_sim.core.llm.cache import ResponseCache, request_key
+from enterprise_sim.core.llm.governor import CallGovernor
 from enterprise_sim.core.llm.pricing import DEFAULT_MODEL, ModelPricing, cost_of, estimate_cost
 from enterprise_sim.core.llm.prompt import Prompt
 from enterprise_sim.core.llm.types import (
@@ -95,6 +99,15 @@ class LLMConfig:
     max_retries: int = 3
     backoff_base_seconds: float = 0.5
     backoff_max_seconds: float = 30.0
+    # A provider quota refusal (429) backs off longer and with jitter, so
+    # clients that were refused together do not retry together.
+    rate_limit_retries: int = 8
+    rate_limit_base_seconds: float = 4.0
+    rate_limit_max_seconds: float = 180.0
+    # The shared live-call gate (:mod:`enterprise_sim.core.llm.governor`);
+    # None falls back to the SIMENTERPRISE_CALL_GATE environment variable.
+    gate_dir: str | None = None
+    gate_slots: int | None = None
     max_concurrency: int = 8
     cost_ceiling_usd: float | None = None
     cache_dir: str | None = None
@@ -113,8 +126,11 @@ class LLMClient:
         cost_tracker: CostTracker | None = None,
         pricing_table: dict[str, ModelPricing] | None = None,
         sleep: Callable[[float], None] = time.sleep,
+        governor: CallGovernor | None = None,
     ) -> None:
         self._backend = backend
+        self._governor = governor
+        self._jitter = random.Random()  # timing only: never feeds content
         self._config = config or LLMConfig(backend=backend.name)
         self._cache = cache or ResponseCache(
             self._config.cache_dir, enabled=self._config.cache_enabled
@@ -137,12 +153,18 @@ class LLMClient:
         backend = build_backend(config.backend, **backend_kwargs)
         cache = ResponseCache(config.cache_dir, enabled=config.cache_enabled)
         cost = CostTracker(pricing_table=pricing_table)
+        governor = (
+            None
+            if config.backend in _OFFLINE_BACKENDS
+            else CallGovernor.from_env(config.gate_dir, config.gate_slots)
+        )
         return cls(
             backend,
             config=config,
             cache=cache,
             cost_tracker=cost,
             sleep=sleep,
+            governor=governor,
         )
 
     # -- introspection --------------------------------------------------------
@@ -318,17 +340,55 @@ class LLMClient:
 
         Transient covers an unusable model sample as well as a transport fault
         (:class:`TransientLLMError`), so re-invoking ``run`` doubles as resampling.
+        A rate-limit refusal has its own longer budget and jittered schedule.
+        Each attempt goes through the call governor when one is configured.
         """
         attempt = 0
+        limited = 0
         while True:
             try:
-                return run()
+                return self._attempt(run)
             except TransientLLMError as exc:
-                if attempt >= self._config.max_retries:
-                    raise
-                delay = self._backoff_delay(attempt, exc.retry_after)
-                attempt += 1
+                if exc.rate_limited:
+                    if limited >= self._config.rate_limit_retries:
+                        raise
+                    delay = self._rate_limit_delay(limited, exc.retry_after)
+                    limited += 1
+                else:
+                    if attempt >= self._config.max_retries:
+                        raise
+                    delay = self._backoff_delay(attempt, exc.retry_after)
+                    attempt += 1
                 self._sleep(delay)
+
+    def _attempt(self, run: Callable[[], Completion]) -> Completion:
+        """One provider attempt: inside a governor slot, its outcome recorded."""
+        governor = self._governor
+        if governor is None:
+            return run()
+        with governor.slot():
+            try:
+                completion = run()
+            except TransientLLMError as exc:
+                if exc.rate_limited:
+                    governor.record(rate_limited=True)  # raises once the gate trips
+                raise
+        governor.record(rate_limited=False)
+        return completion
+
+    def _rate_limit_delay(self, attempt: int, retry_after: float | None) -> float:
+        """Exponential backoff with equal jitter after a 429; never an immediate retry.
+
+        Half of the step is fixed and half drawn at random, so the delay is at
+        least ``rate_limit_base_seconds / 2`` and refused clients spread out. A
+        provider ``Retry-After`` is a floor, not a replacement.
+        """
+        cap = self._config.rate_limit_max_seconds
+        step = min(cap, self._config.rate_limit_base_seconds * (2.0**attempt))
+        delay = step / 2 + self._jitter.uniform(0.0, step / 2)
+        if retry_after is not None and retry_after > delay:
+            delay = min(cap, retry_after)
+        return delay
 
     def _backoff_delay(self, attempt: int, retry_after: float | None) -> float:
         """Compute the backoff delay, honoring ``Retry-After`` when present.
@@ -341,6 +401,9 @@ class LLMClient:
             return retry_after if retry_after < cap else cap
         delay = self._config.backoff_base_seconds * (2**attempt)
         return delay if delay < cap else cap
+
+
+_OFFLINE_BACKENDS = frozenset({"fake", "synth"})
 
 
 def build_client(

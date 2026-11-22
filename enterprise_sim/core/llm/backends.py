@@ -329,6 +329,11 @@ class _AnthropicSDKBackend:
         )
 
 
+# The SDK's own retries would retry a 429 within a second, outside the client's
+# backoff and the call governor; the client owns every retry.
+_SDK_RETRIES = 0
+
+
 class AnthropicAPIBackend(_AnthropicSDKBackend):
     """Official SDK + ``ANTHROPIC_API_KEY`` (§7). Supports prompt caching."""
 
@@ -338,7 +343,7 @@ class AnthropicAPIBackend(_AnthropicSDKBackend):
         import importlib
 
         anthropic = importlib.import_module("anthropic")
-        return anthropic.Anthropic()
+        return anthropic.Anthropic(max_retries=_SDK_RETRIES)
 
 
 class BedrockBackend(_AnthropicSDKBackend):
@@ -356,9 +361,11 @@ class BedrockBackend(_AnthropicSDKBackend):
             # request itself; the SDK still signs locally first, so it needs some
             # key material, and placeholders are enough: no credential is used.
             return anthropic.AnthropicBedrock(
-                aws_access_key="signed-by-proxy", aws_secret_key="signed-by-proxy"
+                aws_access_key="signed-by-proxy",
+                aws_secret_key="signed-by-proxy",
+                max_retries=_SDK_RETRIES,
             )
-        return anthropic.AnthropicBedrock()
+        return anthropic.AnthropicBedrock(max_retries=_SDK_RETRIES)
 
 
 # Reframes the Claude Code agent as a bulk text-generation endpoint. Without it
@@ -536,7 +543,9 @@ def _normalize_sdk_error(exc: Exception) -> LLMError:  # pragma: no cover - requ
     """
     status = getattr(exc, "status_code", None)
     retry_after = _retry_after_from(exc)
-    if status == 429 or (isinstance(status, int) and 500 <= status < 600):
+    if status == 429:
+        return TransientLLMError(str(exc), retry_after=retry_after, rate_limited=True)
+    if isinstance(status, int) and 500 <= status < 600:
         return TransientLLMError(str(exc), retry_after=retry_after)
     if retry_after is not None:
         return TransientLLMError(str(exc), retry_after=retry_after)
