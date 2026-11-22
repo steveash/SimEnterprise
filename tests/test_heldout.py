@@ -192,3 +192,26 @@ def test_the_cli_prints_no_secret_and_no_derived_seed(
 def test_the_default_families_are_every_example_world() -> None:
     assert [p.name for p in default_families()] == sorted(p.name for p in _EXAMPLES.glob("*.toml"))
     assert len(default_families()) >= 9
+
+
+def test_a_fork_export_states_its_family_and_base_digest(tmp_path: Path) -> None:
+    from enterprise_sim.assembly import compute_config_digest
+    from enterprise_sim.core.config import load_config
+    from enterprise_sim.exporters.text_export import export_world
+
+    seed = _secret(tmp_path, "fork", "fork")
+    (world,) = build_heldout([_FAMILY], seed, tmp_path / "store")
+    result = export_world(Path(world["world_dir"]), tmp_path / "exports")
+    manifest = json.loads((result.directory / "export.json").read_text(encoding="utf-8"))
+    base = load_config(_FAMILY)
+    digest = compute_config_digest(base, backend=base.model.offline_backend.value)
+    assert manifest["heldout"] == {"family": "coding-team-clean", "base_config_digest": digest}
+    assert manifest["config_digest"] != digest
+    assert not [f for f in manifest["files"] if "heldout" in f["path"]]
+    fork = json.loads((result.directory / "config.json").read_text(encoding="utf-8"))
+    public = base.model_dump(mode="json")
+    differ = {k for k in set(fork) | set(public) if fork.get(k) != public.get(k)}
+    assert differ <= {"seed", "company", "worlds_root"}
+    assert {k for k in fork["company"] if fork["company"][k] != public["company"].get(k)} == {
+        "name"
+    }

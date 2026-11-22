@@ -74,7 +74,7 @@ _TEXT_MEDIA: dict[str, str] = {
 }
 
 #: Top-level world entries that are bookkeeping, never exported.
-_SKIP_TOP: frozenset[str] = frozenset({".world", ".jobs", ".cache", ".control"})
+_SKIP_TOP: frozenset[str] = frozenset({".world", ".jobs", ".cache", ".control", ".heldout"})
 
 #: Derived interop renderings of the gold KG (rebuildable from ``kg/*.jsonl``).
 _SKIP_PREFIXES: tuple[str, ...] = ("kg/neo4j/",)
@@ -1011,6 +1011,9 @@ def export_world(
         "tables": sorted(writer.tables, key=lambda t: t["name"]),
         "slices": slices,
     }
+    marker = world_dir / ".heldout"  # a held-out fork (worlds.heldout): family, base digest
+    if marker.is_file():
+        manifest["heldout"] = json.loads(marker.read_text(encoding="utf-8"))
     body = json.dumps(manifest, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     (target / "export.json").write_bytes(body.encode("utf-8"))
     return ExportResult(target, _sha256(body.encode("utf-8")), len(writer.files))

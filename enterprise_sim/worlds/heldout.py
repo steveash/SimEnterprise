@@ -28,6 +28,13 @@ name come from HMAC-SHA256(secret, label + F), so
   company name, so a held-out world cannot be matched to its public twin by name;
 * one family's derived seed reveals nothing about another family's or the secret.
 
+Each fork's world directory gets a ``.heldout`` marker, ``{"family", "base_config_digest"}``:
+the family (the config file's stem, UTF-8) and the config digest of the public world
+it is a variant of (the ``config_digest`` its release states). ``world export`` copies
+it into ``export.json`` as ``heldout``, so an importer can find the base release, check
+that the fork's config equals the base's except ``seed`` and ``company.name``, and
+recompute both from the secret. A world that is not a fork has no marker and no field.
+
 Nothing derived is printed: the summary names each family's world id and directory.
 The derived seed is inside each world's ``.world`` (it has to be, to rebuild it); that
 file lives in the held-out store, never in a repository.
@@ -48,6 +55,7 @@ from typing import Any
 from enterprise_sim.core.config import WorldConfig
 
 __all__ = [
+    "HELDOUT_MARKER",
     "HeldoutError",
     "add_heldout_parser",
     "default_families",
@@ -56,6 +64,7 @@ __all__ = [
     "read_secret",
 ]
 
+HELDOUT_MARKER = ".heldout"
 _SEED_TAG = "spindle-heldout-seed/1"
 _SEED_LINE = re.compile(rf"{re.escape(_SEED_TAG)} ([0-9a-f]{{64}})")
 _EXAMPLES = Path(__file__).resolve().parents[2] / "examples" / "worlds"
@@ -164,7 +173,8 @@ def build_heldout(
     root.mkdir(parents=True, exist_ok=True)
     summary: list[dict[str, Any]] = []
     for path, family in zip(configs, families, strict=True):
-        config = heldout_config(load_config(path), secret, family, root)
+        base = load_config(path)
+        config = heldout_config(base, secret, family, root)
         backend = render_backend_for(config, live=live)
         digest = compute_config_digest(config, backend=backend)
         world_id = compute_world_id(config, digest=digest)
@@ -172,6 +182,13 @@ def build_heldout(
         if read_world(world_dir) is None:
             world_dir.mkdir(parents=True, exist_ok=True)
             write_world(world_dir, build_world_file(config, backend=backend, live=live))
+        marker = {
+            "family": family,
+            "base_config_digest": compute_config_digest(base, backend=backend),
+        }
+        (world_dir / HELDOUT_MARKER).write_text(
+            json.dumps(marker, sort_keys=True) + "\n", encoding="utf-8"
+        )
         sink = JsonlSink(None, also_to=progress_log_path(world_dir))
         try:
             state = run_job(world_dir, progress=sink)
