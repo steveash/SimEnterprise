@@ -223,6 +223,7 @@ def _build_data(
                 "rows_per_partition": plan.rows_per_partition,
             },
             "loop": {"iterations": plan.iterations},
+            "messiness": plan.messiness.model_dump(),
             "model": {
                 "backend": backend,
                 "name": config.model.name,

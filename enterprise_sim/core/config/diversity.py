@@ -181,7 +181,26 @@ class OrgConfig(_Frozen):
         return _range(self.squads_per_team)
 
 
+class DataMessinessConfig(_Frozen):
+    """Raw-table noise for structured data products (0 everywhere = clean).
+
+    Applied by :mod:`enterprise_sim.data_products.messiness` to the raw tables
+    after views and answers are final.
+    """
+
+    null_rate: float = Field(default=0.0, ge=0.0, le=0.5)
+    duplicate_rate: float = Field(default=0.0, ge=0.0, le=0.5)
+    label_drift_rate: float = Field(default=0.0, ge=0.0, le=1.0)
+    outlier_rate: float = Field(default=0.0, ge=0.0, le=0.2)
+    schema_drift: bool = False
+
+    @property
+    def clean(self) -> bool:
+        return not any(self.model_dump().values())
+
+
 __all__ = [
+    "DataMessinessConfig",
     "FactsConfig",
     "MessinessConfig",
     "OfflineBackend",

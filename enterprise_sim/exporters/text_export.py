@@ -310,8 +310,15 @@ def _table_csv(directory: Path, where: str) -> tuple[str, list[dict[str, str]]]:
     if not parts:
         raise ExportError(f"{directory}: no parquet parts")
     tables = [pq.read_table(part) for part in parts]
-    schema = tables[0].schema
-    rows = [row for table in tables for row in table.to_pylist()]
+    # Parts may differ in columns (schema drift): the union, first seen first.
+    fields: dict[str, Any] = {}
+    for table in tables:
+        for f in table.schema:
+            fields.setdefault(f.name, f)
+    schema = list(fields.values())
+    rows = [
+        {f.name: row.get(f.name) for f in schema} for table in tables for row in table.to_pylist()
+    ]
     types = {f.name: _column_type(f.type) for f in schema}
     for name, kind in types.items():
         if kind == "timestamp":

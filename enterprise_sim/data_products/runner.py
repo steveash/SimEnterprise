@@ -47,6 +47,7 @@ from enterprise_sim.data_products import questions as questions_mod
 from enterprise_sim.data_products.config import AuthoringMode, DataRunConfig
 from enterprise_sim.data_products.linking import LinkageError, load_world_kg
 from enterprise_sim.data_products.lint import projected_rows, require_clean
+from enterprise_sim.data_products.messiness import apply_data_messiness
 from enterprise_sim.data_products.questions import QuestionState
 from enterprise_sim.data_products.sampler import sample_scenario
 from enterprise_sim.data_products.scenarios import DATA_SCENARIOS, discover_scenarios
@@ -301,6 +302,10 @@ def _run_scenario(
         questions_mod.questions_payload(spec, states, iterations_run=iterations_run),
     )
 
+    quirk_counts = apply_data_messiness(
+        spec.model_dump(mode="json"), data_dir, config.messiness, seed=config.seed
+    )
+
     answerable = sum(1 for state in states if state.answerable)
     summary = {
         "schema_version": DATA_SCHEMA_VERSION,
@@ -322,6 +327,7 @@ def _run_scenario(
         "rows_by_table": dict(report.rows_by_table),
         "iterations": iteration_stats,
         "questions": {"total": len(states), "answerable": answerable},
+        "quirks": quirk_counts,
         "llm_cost_usd": (round(client.cost.total_cost_usd, 6) if client is not None else 0.0),
     }
 

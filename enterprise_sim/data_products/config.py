@@ -30,6 +30,9 @@ __all__ = [
 ]
 
 
+from enterprise_sim.core.config.diversity import DataMessinessConfig
+
+
 class _Frozen(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -160,6 +163,10 @@ class DataRunConfig(_Frozen):
     scale: DataScaleConfig = Field(default_factory=DataScaleConfig)
     loop: LoopConfig = Field(default_factory=LoopConfig)
     model: DataModelConfig = Field(default_factory=DataModelConfig)
+    messiness: DataMessinessConfig = Field(
+        default_factory=DataMessinessConfig,
+        description="Raw-table noise applied after views and answers are final (quirks.json).",
+    )
 
 
 def load_data_config(path: str | Path) -> DataRunConfig:

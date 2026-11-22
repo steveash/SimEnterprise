@@ -20,6 +20,7 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from enterprise_sim.core.config.diversity import (
+    DataMessinessConfig,
     FactsConfig,
     MessinessConfig,
     OfflineBackend,
@@ -228,6 +229,10 @@ class DataPlanConfig(_Frozen):
     )
     rows_per_partition: int = Field(
         default=2_000_000, ge=10_000, description="Target rows per parquet part file."
+    )
+    messiness: DataMessinessConfig = Field(
+        default_factory=DataMessinessConfig,
+        description="Raw-table noise (nulls, duplicate rows, label drift, outliers, schema drift).",
     )
 
 
