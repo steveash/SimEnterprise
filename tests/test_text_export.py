@@ -57,6 +57,7 @@ def test_export_lists_every_file_with_its_digest_and_nothing_else(
     result = export_world(world_dir, tmp_path / "out")
     manifest = _manifest(result.directory)
     assert manifest["format"] == EXPORT_FORMAT
+    assert manifest["simenterprise"]["repository"] == "SimEnterprise"
     assert result.directory.name == manifest["world_id"] == world_dir.name
     raw = (result.directory / "export.json").read_bytes()
     assert result.digest == hashlib.sha256(raw).hexdigest()

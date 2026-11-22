@@ -48,6 +48,7 @@ from enterprise_sim.worlds.file import read_world
 
 __all__ = [
     "EXPORT_FORMAT",
+    "REPOSITORY",
     "ExportError",
     "ExportResult",
     "export_world",
@@ -58,6 +59,11 @@ __all__ = [
 ]
 
 EXPORT_FORMAT = "simenterprise-export/1"
+
+#: A stable public identifier of the generator's repository (the project name,
+#: never a host path or an account): with ``commit`` it names the code that
+#: built an export.
+REPOSITORY = "SimEnterprise"
 
 #: Text files copied verbatim (after CRLF → LF), keyed by suffix → media type.
 _TEXT_MEDIA: dict[str, str] = {
@@ -790,7 +796,12 @@ def export_world(world_dir: Path | str, out_root: Path | str) -> ExportResult:
         "window": world.window,
         "prose_backend": prose_backend_of(world.render_backend),
         "render_backend": world.render_backend,
-        "simenterprise": {"version": __version__, "commit": commit, "dirty": dirty},
+        "simenterprise": {
+            "version": __version__,
+            "commit": commit,
+            "dirty": dirty,
+            "repository": REPOSITORY,
+        },
         "counts": world.counts,
         "files": sorted(writer.files, key=lambda f: f["path"]),
         "tables": sorted(writer.tables, key=lambda t: t["name"]),
