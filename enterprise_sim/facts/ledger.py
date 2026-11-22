@@ -319,6 +319,10 @@ def build_ledger(world: World, cfg: FactsConfig, *, seed: int, start: date, end:
         )
         if others and rng.random() < cfg.cross_team:
             ledger.depends_on[project.id] = [rng.choice(others)]
+    if any(d.props.get("merged_at") for d in world.nodes_by_type("Department")):
+        from enterprise_sim.facts.merger import add_merger_facts
+
+        add_merger_facts(world, ledger, start=start)
     if any(p.props.get("reorg_at") for p in projects):
         from enterprise_sim.facts.reorg import add_reorg_facts
 

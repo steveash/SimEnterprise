@@ -277,6 +277,21 @@ class _WorldBuilder:
                 span_days=(sim.period_end - sim.period_start).days,
                 horizon_days=self._config.org.horizon_days,
             )
+        if self._config.org.merger_days:
+            from datetime import datetime as _dtm
+            from datetime import time as _tm
+
+            from enterprise_sim.world_builders.mergers import plan_merger
+
+            sim = self._config.simulation
+            plan_merger(
+                self._world,
+                self._ctx.rng("merger"),
+                start=_dtm.combine(sim.period_start, _tm(9, 0)),
+                span_days=(sim.period_end - sim.period_start).days,
+                merger_days=self._config.org.merger_days,
+                department=self._config.org.merger_department,
+            )
         apply_turnover(self._world, self._config, self._ctx, self._slugs)
         return self._world
 

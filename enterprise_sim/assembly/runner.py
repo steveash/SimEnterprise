@@ -224,7 +224,14 @@ def compute_config_digest(config: WorldConfig, *, backend: str | None = None) ->
 #: section (tests/test_world_ids.py pins example world ids).
 _LATE_FIELDS: dict[str, tuple[str, ...]] = {
     "facts": ("entity_ids", "retraction_rate", "horizon_days"),
-    "org": ("project_names", "horizon_days", "homonyms", "reorgs"),
+    "org": (
+        "project_names",
+        "horizon_days",
+        "homonyms",
+        "reorgs",
+        "merger_days",
+        "merger_department",
+    ),
     "code": ("sessions_per_project",),
 }
 

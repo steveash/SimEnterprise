@@ -1,0 +1,47 @@
+# Benchmark world: an analytics shop that acquires another company mid-quarter (P570787453,
+# diversity axis 13).
+#
+# Same seed and departments as analytics-structured-clean. On 2026-02-14 an acquired company
+# joins (an Acquisition node, a dated acquired edge) and brings the sales department, whose
+# projects keep their records in the acquired company's CRM until that day and in the
+# company's own from it: two systems of one kind, resolved by date. Documents state the
+# system of record with the ledger's stances (current, update, stale).
+#
+#   enterprise-sim world create examples/worlds/analytics-merger.toml
+seed = 104
+worlds_root = "worlds"
+
+[company]
+name = "Corvid Analytics"
+vertical = "analytics"
+size = "medium"
+description = "A marketplace company whose analytics team answers the business's questions."
+
+[simulation]
+period_start = 2026-01-05
+period_end = 2026-03-27
+
+[model]
+backend = "anthropic_api"
+name = "claude-haiku-4-5"
+offline_backend = "synth"
+
+[[departments]]
+archetype = "data_analytics"
+[[departments]]
+archetype = "marketing"
+[[departments]]
+archetype = "sales"
+
+[facts]
+per_project = 8
+change_rate = 0.3
+
+[data]
+scenarios = ["product_growth", "sales_pipeline", "support_ops", "subscription_finance", "marketing_attribution"]
+scale_factor = 0.1  # catalog size (datasets-cc: wave 2 at 0.1); `world data ... --scale 10` for full scale
+iterations = 3
+
+[org]
+merger_days = 40
+merger_department = "sales"

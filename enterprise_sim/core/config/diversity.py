@@ -212,6 +212,19 @@ class OrgConfig(_Frozen):
             "horizon_days); each gets a two-version reporting_line fact (needs [facts])."
         ),
     )
+    merger_days: int = Field(
+        default=0,
+        ge=0,
+        le=3650,
+        description=(
+            "Days after the window start on which an acquired company joins, bringing "
+            "merger_department; its projects' system_of_record changes that day. 0: no merger."
+        ),
+    )
+    merger_department: str | None = Field(
+        default=None,
+        description="Archetype of the department the acquired company brings (default: last).",
+    )
     homonyms: int = Field(
         default=0,
         ge=0,
