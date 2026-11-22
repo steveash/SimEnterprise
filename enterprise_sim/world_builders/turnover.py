@@ -111,6 +111,11 @@ def _leave(
         return  # the seat stays open until after the window
     rng = ctx.rng("successor", person.id)
     name = f"{pick(rng, FIRST_NAMES)} {pick(rng, LAST_NAMES)}"
+    if world.edges_by_type("walled_from"):
+        # a walled world names everyone apart (decision record 0036)
+        taken = {str(n.props.get("name")) for n in world.nodes_by_type("Person")}
+        while name in taken:
+            name = f"{pick(rng, FIRST_NAMES)} {pick(rng, LAST_NAMES)}"
     successor_id = f"person:{slugs.allocate(name)}"
     props = {
         key: value

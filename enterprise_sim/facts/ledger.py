@@ -41,6 +41,7 @@ from enterprise_sim.core.config.seed import SeedContext
 from enterprise_sim.core.events import Event
 from enterprise_sim.core.world import Edge, Node, World
 from enterprise_sim.facts.catalog import Attribute, Context, attributes_for, value_token
+from enterprise_sim.facts.engagement import ENGAGEMENT_CODE
 from enterprise_sim.world_builders.walls import across_wall, staff_of, walled_pairs, walled_projects
 
 __all__ = [
@@ -258,6 +259,8 @@ def build_ledger(world: World, cfg: FactsConfig, *, seed: int, start: date, end:
         picked = set(rng.sample(range(len(pool)), k=min(cfg.per_project, len(pool))))
         chosen = [attr for i, attr in enumerate(pool) if i in picked]
         side = sides.get(project.id)
+        if side is not None:
+            chosen.append(ENGAGEMENT_CODE)  # every walled project has a value of its own
         people = (
             _people_of(world, department)
             if side is None

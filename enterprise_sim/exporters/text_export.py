@@ -983,7 +983,7 @@ def export_world(
                 if f["role"] == "data" and not f["path"].startswith(("data/",))
             ],
             {entry["name"]: entry["files"] for entry in slices},
-            [t["name"] for t in writer.tables],
+            [t["name"] for t in writer.tables if str(t["path"]).startswith("data/")],
         )
 
     commit, dirty = _git_commit(Path(__file__).resolve().parents[2])

@@ -1,0 +1,60 @@
+# Benchmark world (M): a mid-sized software company whose sales team works four walled
+# key accounts (P570624023, decision record 0036).
+#
+# Sales runs four account engagements with one topic stem and one playbook. Accounts 1
+# and 2 share a side (one client group, groups = [[1, 2], [3], [4]]): they are not
+# walled from each other, but each is walled from 3 and 4. Pricing exceptions go out
+# as email threads and forecast calls as meeting invites, so the walls hold across
+# formats; chat threads restate documents' facts. Marketing and support are unwalled.
+#
+#   enterprise-sim world create examples/worlds/walled-medium-sales.toml
+seed = 162
+worlds_root = "worlds"
+
+[company]
+name = "Corbel Software"
+vertical = "software"
+size = "medium"
+description = "A B2B software company selling to large accounts."
+
+[simulation]
+period_start = 2026-01-05
+period_end = 2026-04-24
+
+[model]
+backend = "anthropic_api"
+name = "claude-haiku-4-5"
+offline_backend = "synth"
+
+[[departments]]
+archetype = "sales"
+[[departments]]
+archetype = "marketing"
+[[departments]]
+archetype = "support"
+
+[isolation]
+walled_projects = 4
+department = "sales"
+groups = [[1, 2], [3], [4]]
+
+[facts]
+per_project = 8
+change_rate = 0.4
+stale_rate = 0.2
+conflict_rate = 0.05
+cross_team = 0.6
+
+[formats]
+email = true
+invites = true
+
+[chat]
+rate = 0.4
+
+[messiness]
+alias_rate = 0.2
+date_format_mix = 0.2
+
+[org]
+squads_per_team = "2..2"

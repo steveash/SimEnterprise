@@ -254,6 +254,10 @@ class _WorldBuilder:
         for index, spec in enumerate(archetypes):
             self._build_department(index, spec)
         self._write_affinities()
+        if self._config.isolation.enabled:
+            from enterprise_sim.world_builders.walls import unique_staff_names
+
+            unique_staff_names(self._world, self._ctx.rng("walls", "names"))
         apply_turnover(self._world, self._config, self._ctx, self._slugs)
         return self._world
 

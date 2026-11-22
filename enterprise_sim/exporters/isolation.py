@@ -111,7 +111,7 @@ def declare_shared(
     slice_files: Mapping[str, list[str]],
     tables: list[str],
 ) -> None:
-    """Fill ``mapping["shared"]``: the data files in no project slice, and every table.
+    """Fill ``mapping["shared"]``: the data files in no project slice, and the data tables.
 
     Structured data and the organization pages are company-wide (record 0036): no test
     may treat them as one project's.

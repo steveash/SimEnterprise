@@ -200,7 +200,17 @@ def _staff_disjoint(graph: _Graph) -> list[str]:
     ]
 
 
+def _staff_names_unique(graph: _Graph) -> list[str]:
+    names: dict[str, list[str]] = {}
+    for node in graph.nodes.values():
+        if node["type"] == "Person":
+            names.setdefault(str(node["props"].get("name")), []).append(node["id"])
+    staff = set().union(*graph.staff.values())
+    return [f"{n}: {ids}" for n, ids in names.items() if len(ids) > 1 and staff & set(ids)]
+
+
 ENTRY_POINTS: dict[str, Callable[[_Graph], list[str]]] = {
+    "names: walled staff are named apart from everyone": _staff_names_unique,
     "staffing (resolver binds, project members)": _staff_disjoint,
     "documents md/docx/jira/pptx/eml/ics: authors and reviewers": lambda g: _authors_are_own_staff(
         g, "document"
@@ -258,7 +268,12 @@ def test_the_export_declares_the_map_in_the_importer_shape(
         listed = {f["path"] for f in manifest["files"]}
         in_walled = set().union(*(slices[name] for name in walled))
         assert set(iso["shared"]["files"]) <= listed - in_walled
-        assert set(iso["shared"]["tables"]) == {t["name"] for t in manifest["tables"]}
+        assert set(iso["shared"]["tables"]) == {
+            t["name"] for t in manifest["tables"] if t["path"].startswith("data/")
+        }
+        assert all(
+            any(v["attribute"] == "engagement_code" for v in p["values"]) for p in iso["projects"]
+        )
 
 
 def test_groups_wall_only_pairs_on_different_sides(worlds: list[tuple[Path, Path]]) -> None:

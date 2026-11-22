@@ -23,6 +23,7 @@ __all__ = [
     "across_wall",
     "assign_walls",
     "hidden_from",
+    "unique_staff_names",
     "walled_view",
     "staff_of",
     "walled_pairs",
@@ -158,3 +159,31 @@ def walled_view(world: World, at: datetime, project_id: str | None) -> WorldView
         return world.projection(at=at)
     keep = [n.id for n in world.nodes() if n.id not in hidden]
     return world.projection(at=at, focus=keep)
+
+
+def unique_staff_names(world: World, rng: random.Random) -> None:
+    """Rename every walled staffer whose full name someone else in the world also has.
+
+    The must-not-cross map names staff by full name, so two people sharing one would
+    make a crossing undecidable. Runs after the whole org is staffed, before turnover
+    (whose successors avoid taken names in a walled world, ``turnover._leave``).
+    """
+    from enterprise_sim.world_builders.names import FIRST_NAMES, LAST_NAMES, pick
+
+    staff = {pid for project in walled_projects(world) for pid in staff_of(world, project) or ()}
+    people = world.nodes_by_type("Person")
+    count: dict[str, int] = {}
+    for person in people:
+        name = str(person.props.get("name", ""))
+        count[name] = count.get(name, 0) + 1
+    for person in sorted(people, key=lambda n: n.id):
+        name = str(person.props.get("name", ""))
+        if person.id not in staff or count.get(name, 0) < 2:
+            continue
+        fresh = name
+        while fresh in count:
+            fresh = f"{pick(rng, FIRST_NAMES)} {pick(rng, LAST_NAMES)}"
+        count[name] -= 1
+        count[fresh] = 1
+        person.props["name"] = fresh
+        person.aliases[:] = [fresh, *(a for a in person.aliases if a != name)]

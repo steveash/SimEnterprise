@@ -1,0 +1,66 @@
+# Benchmark world (L): a large software platform company whose engineering department
+# runs five walled client engagements (P570624023, decision record 0036).
+#
+# Engineering builds the same product for five clients: one topic stem, one playbook,
+# the same fact attributes (API version, datastore, latency target, budget), values
+# drawn so each engagement's are its own. Code repositories, chat threads, sensitive
+# sentences, near-duplicate copies and turnover all stay inside their engagement's
+# wall. Data engineering and security are unwalled and company-wide.
+#
+#   enterprise-sim world create examples/worlds/walled-large-platform.toml
+seed = 163
+worlds_root = "worlds"
+
+[company]
+name = "Halyard Platforms"
+vertical = "software"
+size = "large"
+description = "A platform company building custom deployments for enterprise clients."
+
+[simulation]
+period_start = 2026-01-05
+period_end = 2026-06-26
+
+[model]
+backend = "anthropic_api"
+name = "claude-haiku-4-5"
+offline_backend = "synth"
+
+[[departments]]
+archetype = "engineering"
+[[departments]]
+archetype = "data_engineering"
+[[departments]]
+archetype = "security"
+
+[isolation]
+walled_projects = 5
+department = "engineering"
+
+[facts]
+per_project = 8
+change_rate = 0.5
+max_versions = 4
+stale_rate = 0.2
+conflict_rate = 0.05
+cross_team = 0.6
+
+[code]
+enabled = true
+
+[chat]
+rate = 0.3
+
+[privacy]
+sensitive_rate = 0.2
+
+[messiness]
+typo_rate = 0.005
+alias_rate = 0.25
+duplicate_rate = 0.1
+filler_rate = 0.15
+
+[org]
+squads_per_team = "3..3"
+turnover_rate = 0.15
+transfer_rate = 0.1
