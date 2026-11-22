@@ -611,6 +611,7 @@ def export_world(world_dir: Path | str, out_root: Path | str) -> ExportResult:
     from enterprise_sim.worlds.slice import (
         REGISTRY_COLUMNS,
         TRAIL_COLUMNS,
+        core_slice_name,
         project_registry,
         project_slices,
         project_trail,
@@ -669,6 +670,9 @@ def export_world(world_dir: Path | str, out_root: Path | str) -> ExportResult:
             }
         )
         entry["files"] = sorted([*entry["files"], rel])
+        core = by_name.get(core_slice_name(project))
+        if core is not None:
+            core["files"] = sorted([*core["files"], rel])
     for entry in slices:
         missing = [f for f in entry["files"] if f not in writer.paths]
         if missing:

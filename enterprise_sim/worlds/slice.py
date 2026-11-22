@@ -40,6 +40,8 @@ from enterprise_sim.exporters.text_export import export_path
 __all__ = [
     "MATERIALIZED_DOCS",
     "canonical_token",
+    "core_documents",
+    "core_slice_name",
     "REGISTRY_COLUMNS",
     "TOOL_VOCABULARY",
     "TRAIL_COLUMNS",
@@ -145,6 +147,69 @@ def slice_name(project: str) -> str:
     return f"{base[:25].rstrip('-')}-{tag}"
 
 
+#: A core slice: at most this many changed facts and documents (casebook size).
+CORE_FACTS = 6
+CORE_DOCS = 24
+
+
+def core_slice_name(project: str) -> str:
+    """The catalog name of a project's core slice (``<name>-core``, at most 32 characters)."""
+    base = slice_name(project)
+    return f"{base[:27].rstrip('-')}-core"
+
+
+def core_documents(
+    nodes: dict[str, dict[str, Any]],
+    edges: list[dict[str, Any]],
+    project: str,
+    *,
+    until: str | None = None,
+) -> tuple[list[str], list[dict[str, Any]]]:
+    """A casebook-size cut of one project: its changed facts and the documents that state them.
+
+    Up to :data:`CORE_FACTS` facts with at least two versions (so every fact has
+    a superseded value); for each, the latest document stating each version,
+    every document announcing a change, and up to two documents stating a
+    superseded or wrong value; at most :data:`CORE_DOCS` documents in all,
+    earliest-dated dropped first. Returns ``(fact ids, artifact nodes)``.
+    """
+    all_docs = {d["id"]: d for d in slice_documents(nodes, edges, [project], until=until)}
+    changed = sorted(
+        n["id"]
+        for n in nodes.values()
+        if n["type"] == "Fact"
+        and n["props"].get("subject") == project
+        and int(n["props"].get("versions", 1)) > 1
+    )[:CORE_FACTS]
+    by_fact: dict[str, list[dict[str, Any]]] = {}
+    for edge in edges:
+        if edge["type"] == "asserts" and edge["dst"] in changed and edge["src"] in all_docs:
+            by_fact.setdefault(edge["dst"], []).append(edge)
+    chosen: set[str] = set()
+    for fact in changed:
+        edges_of = sorted(
+            by_fact.get(fact, []),
+            key=lambda e: (str(all_docs[e["src"]]["props"].get("date", "")), e["src"]),
+        )
+        latest: dict[object, str] = {}
+        misleading: list[str] = []
+        for edge in edges_of:
+            stance = edge["props"]["stance"]
+            if stance in _TRUE_STANCES:
+                latest[edge["props"].get("stated_version")] = edge["src"]
+            if stance == "update":
+                chosen.add(edge["src"])
+            if stance in ("stale", "conflicting"):
+                misleading.append(edge["src"])
+        chosen.update(latest.values())
+        chosen.update(misleading[-2:])
+    docs = sorted(
+        (all_docs[d] for d in chosen),
+        key=lambda n: (str(n["props"].get("date", "")), n["id"]),
+    )
+    return changed, docs[-CORE_DOCS:]
+
+
 def project_slices(world_dir: Path | str) -> list[dict[str, Any]]:
     """One slice per project: name, description and the export paths of its documents."""
     world_dir = Path(world_dir)
@@ -172,6 +237,30 @@ def project_slices(world_dir: Path | str) -> list[dict[str, Any]]:
         slices.append(
             {"name": name, "description": f"Documents of the project {title}.", "files": files}
         )
+        _, core = core_documents(nodes, edges, project)
+        core_files = sorted(
+            {
+                rel
+                for d in core
+                if (rel := _export_rel(str(d["props"]["path"]))) is not None
+                and (world_dir / str(d["props"]["path"])).is_file()
+            }
+        )
+        if core_files:
+            core_name = core_slice_name(project)
+            if core_name in used:
+                raise SliceError(f"slice name {core_name!r} is used twice")
+            used.add(core_name)
+            slices.append(
+                {
+                    "name": core_name,
+                    "description": (
+                        f"Casebook-size cut of {title}: its changed facts and the documents "
+                        "stating their current, superseded and wrong values."
+                    ),
+                    "files": core_files,
+                }
+            )
     return slices
 
 
@@ -182,8 +271,13 @@ def slice_world(
     *,
     at: str | None = None,
     with_dependencies: bool = False,
+    core: bool = False,
 ) -> dict[str, Any]:
-    """Write ``knowledge.draft.toml`` and ``answers.json`` for ``project`` into ``out``."""
+    """Write ``knowledge.draft.toml`` and ``answers.json`` for ``project`` into ``out``.
+
+    With ``core``, only the project's core slice (:func:`core_documents`): its
+    changed facts and the documents stating them.
+    """
     world_dir, out = Path(world_dir), Path(out)
     nodes = {n["id"]: n for n in _jsonl(world_dir / "kg" / "nodes.jsonl")}
     edges = _jsonl(world_dir / "kg" / "edges.jsonl")
@@ -201,7 +295,12 @@ def slice_world(
         scope += sorted(
             e["dst"] for e in edges if e["type"] == "depends_on" and e["src"] == project
         )
-    docs = slice_documents(nodes, edges, scope, until=cut)
+    core_facts: list[str] | None = None
+    if core:
+        scope = [project]
+        core_facts, docs = core_documents(nodes, edges, project, until=cut)
+    else:
+        docs = slice_documents(nodes, edges, scope, until=cut)
     paths: dict[str, str] = {}
     for doc in docs:
         mapped = materialized_doc_path(str(doc["props"]["path"]))
@@ -218,14 +317,20 @@ def slice_world(
             asserts.setdefault(edge["dst"], []).append(edge)
 
     facts = sorted(
-        (n for n in nodes.values() if n["type"] == "Fact" and n["props"].get("subject") in scope),
+        (
+            n
+            for n in nodes.values()
+            if n["type"] == "Fact"
+            and n["props"].get("subject") in scope
+            and (core_facts is None or n["id"] in core_facts)
+        ),
         key=lambda n: n["id"],
     )
     knowledge: list[str] = []
     answers: dict[str, Any] = {
         "world_id": world["world_id"],
         "project": project,
-        "slices": [slice_name(p) for p in scope],
+        "slices": [core_slice_name(project)] if core else [slice_name(p) for p in scope],
         "at": cut,
         "facts": [],
     }
@@ -377,6 +482,7 @@ def _cmd_world_slice(args: Any) -> int:
             args.out,
             at=args.at,
             with_dependencies=args.with_dependencies,
+            core=args.core,
         )
     except SliceError as exc:
         print(f"enterprise-sim world slice: {exc}", file=sys.stderr)
@@ -395,6 +501,9 @@ def add_slice_parser(world_subparsers: Any) -> None:
     parser.add_argument("--out", required=True, type=Path, metavar="DIR")
     parser.add_argument("--at", default=None, help="scenario date (YYYY-MM-DD); default window end")
     parser.add_argument("--with-dependencies", action="store_true", dest="with_dependencies")
+    parser.add_argument(
+        "--core", action="store_true", help="the casebook-size core slice (changed facts only)"
+    )
     parser.set_defaults(func=_cmd_world_slice)
 
 

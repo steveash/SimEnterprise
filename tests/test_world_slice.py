@@ -45,10 +45,12 @@ def test_the_export_declares_one_slice_per_project(world_dir: Path, tmp_path: Pa
     manifest = json.loads((result.directory / "export.json").read_text(encoding="utf-8"))
     files = {f["path"]: f for f in manifest["files"]}
     slices = manifest["slices"]
-    assert {s["name"] for s in slices} == {
-        slice_name(_PROJECT),
-        slice_name("project:sell-merchandise-retail"),
-    }
+    from enterprise_sim.worlds.slice import core_slice_name
+
+    projects = (_PROJECT, "project:sell-merchandise-retail")
+    full = {slice_name(p) for p in projects}
+    assert full <= {s["name"] for s in slices}
+    assert {s["name"] for s in slices} <= full | {core_slice_name(p) for p in projects}
     for entry in slices:
         assert re.fullmatch(r"[a-z][a-z0-9-]{0,31}", entry["name"])
         assert entry["files"]
@@ -241,3 +243,29 @@ def test_slice_answers_report_vocabulary_conflicts(world_dir: Path, tmp_path: Pa
     slice_world(world_dir, _PROJECT, tmp_path / "v")
     answers = json.loads((tmp_path / "v" / "answers.json").read_text(encoding="utf-8"))
     assert isinstance(answers["vocabulary_conflicts"], list)
+
+
+def test_core_slices_are_casebook_size(world_dir: Path, tmp_path: Path) -> None:
+    from enterprise_sim.worlds.slice import CORE_DOCS, core_slice_name
+
+    export = export_world(world_dir, tmp_path / "out").directory
+    manifest = json.loads((export / "export.json").read_text(encoding="utf-8"))
+    slices = {s["name"]: s for s in manifest["slices"]}
+    core = slices[core_slice_name(_PROJECT)]
+    assert re.fullmatch(r"[a-z][a-z0-9-]{0,31}", core["name"])
+    docs = [f for f in core["files"] if not f.startswith(("registry/", "trails/"))]
+    assert 0 < len(docs) <= CORE_DOCS
+    assert any(f.startswith("registry/") for f in core["files"])
+    assert sum((export / f).stat().st_size for f in core["files"]) < 100_000
+    assert set(core["files"]) <= set(slices[slice_name(_PROJECT)]["files"])
+
+    out = tmp_path / "core"
+    summary = slice_world(world_dir, _PROJECT, out, core=True)
+    answers = json.loads((out / "answers.json").read_text(encoding="utf-8"))
+    assert answers["slices"] == [core.get("name")]
+    assert summary["knowledge"] > 0
+    for fact in answers["facts"]:
+        assert len(fact["history"]) >= 2  # every drawn fact has a superseded value
+        for paths in fact["documents"].values():
+            for path in paths:
+                assert path.removeprefix(f"{MATERIALIZED_DOCS}/") in core["files"]
