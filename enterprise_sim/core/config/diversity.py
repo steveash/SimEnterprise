@@ -216,6 +216,26 @@ class OrgConfig(_Frozen):
         return _range(self.squads_per_team)
 
 
+class QuirkRecipe(StrEnum):
+    """How a messy data scenario draws its quirks' shape (see :class:`DataMessinessConfig`)."""
+
+    FIXED = "fixed"
+    VARIED = "varied"
+
+
+class NullPolicy(StrEnum):
+    """Which cells of a messy raw table may be null.
+
+    ``any`` — any non-key cell; ``attributes`` — only an entity's attribute
+    columns, never a day-varying measure; ``carry_forward`` — only a cell that
+    repeats the entity's previous dated value, so filling forward recovers it.
+    """
+
+    ANY = "any"
+    ATTRIBUTES = "attributes"
+    CARRY_FORWARD = "carry_forward"
+
+
 class DataMessinessConfig(_Frozen):
     """Raw-table noise for structured data products (0 everywhere = clean).
 
@@ -228,10 +248,43 @@ class DataMessinessConfig(_Frozen):
     label_drift_rate: float = Field(default=0.0, ge=0.0, le=1.0)
     outlier_rate: float = Field(default=0.0, ge=0.0, le=0.2)
     schema_drift: bool = False
+    recipe: QuirkRecipe = Field(
+        default=QuirkRecipe.FIXED,
+        description=(
+            "'fixed': drift at the window midpoint named <col>_v2, outliers x100 or negated. "
+            "'varied': each (scenario, table) draws its drift day, renamed column and unit factor."
+        ),
+    )
+    null_policy: NullPolicy = Field(
+        default=NullPolicy.ANY,
+        description=(
+            "'any': any non-key cell may be null. 'attributes': only per-entity attribute "
+            "columns. 'carry_forward': only a cell equal to the entity's previous dated value."
+        ),
+    )
 
     @property
     def clean(self) -> bool:
-        return not any(self.model_dump().values())
+        return not (
+            self.null_rate
+            or self.duplicate_rate
+            or self.label_drift_rate
+            or self.outlier_rate
+            or self.schema_drift
+        )
+
+    def stated(self) -> dict[str, object]:
+        """The config as quirks.json states it: fields added later only when set."""
+        out = self.model_dump(mode="json")
+        for name in _DATA_LATE_FIELDS:
+            if out[name] == type(self).model_fields[name].default:
+                del out[name]
+        return out
+
+
+#: Fields of [data.messiness] added after worlds shipped with it; at their
+#: defaults they stay out of quirks.json so those worlds rebuild byte-identically.
+_DATA_LATE_FIELDS = ("recipe", "null_policy")
 
 
 class FormatsConfig(_Frozen):
@@ -280,11 +333,13 @@ class PrivacyConfig(_Frozen):
 __all__ = [
     "ChatConfig",
     "PrivacyConfig",
+    "QuirkRecipe",
     "CodeConfig",
     "DataMessinessConfig",
     "FormatsConfig",
     "FactsConfig",
     "MessinessConfig",
+    "NullPolicy",
     "OfflineBackend",
     "OrgConfig",
 ]
