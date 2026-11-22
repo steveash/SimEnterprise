@@ -55,7 +55,7 @@ from enterprise_sim.core.registry.binding import BindingMap
 from enterprise_sim.core.sim.calendar import WorkingCalendar
 from enterprise_sim.core.sim.scheduler import Scheduler, ValidationIssue
 from enterprise_sim.core.sim.spec import Activation, Scenario
-from enterprise_sim.core.world import Node, World
+from enterprise_sim.core.world import Edge, Node, World
 from enterprise_sim.facts import (
     assertion_edges,
     assign_assertions,
@@ -72,6 +72,7 @@ from enterprise_sim.producers.markdown import MarkdownProducer, ProducerContext
 from enterprise_sim.producers.noise import ProseNoise, is_clean
 from enterprise_sim.producers.outlook import InviteProducer, OutlookProducer
 from enterprise_sim.producers.pptx import PptxProducer
+from enterprise_sim.producers.sensitive import SensitivePlanter
 from enterprise_sim.producers.word import WordProducer
 
 
@@ -263,6 +264,13 @@ def build_corpus(
                     if is_clean(config.messiness)
                     else ProseNoise(config.messiness, seed=config.seed),
                     formats=format_overrides(config),
+                    sensitive=SensitivePlanter(
+                        config.privacy.sensitive_rate,
+                        seed=config.seed,
+                        department=str(initiative.props.get("department", "")),
+                    )
+                    if config.privacy.sensitive_rate > 0
+                    else None,
                     chat_rate=config.chat.rate,
                     seed=config.seed,
                 ),
@@ -621,6 +629,22 @@ def _render_scenario(
         produced = [producer.produce(event, view, client, ctx) for producer in producers]
         if ctx.wants_chat(event.id):
             produced.append(_CHAT.produce(event, view, client, ctx))
+        if ctx.sensitive is not None:
+            for artifact in produced:
+                labels = ctx.sensitive.labels(artifact.artifact_id)
+                if labels:
+                    artifact.node.props["sensitive"] = labels
+                    for label in labels:
+                        artifact.edges.append(
+                            Edge(
+                                f"edge:mentions_sensitive:{artifact.artifact_id}->{label['entity']}",
+                                "mentions_sensitive",
+                                artifact.artifact_id,
+                                label["entity"],
+                                event.timestamp,
+                                props={"category": label["category"]},
+                            )
+                        )
         if ctx.noise is not None:
             produced += apply_document_messiness(produced, ctx.noise)
         apply_to_world(world, produced)

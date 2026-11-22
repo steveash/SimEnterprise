@@ -243,9 +243,11 @@ def _drop_default_sections(payload: dict[str, object]) -> None:
         FormatsConfig,
         MessinessConfig,
         OrgConfig,
+        PrivacyConfig,
     )
 
     defaults = {
+        "privacy": PrivacyConfig().model_dump(mode="json"),
         "formats": FormatsConfig().model_dump(mode="json"),
         "chat": ChatConfig().model_dump(mode="json"),
         "code": CodeConfig().model_dump(mode="json"),

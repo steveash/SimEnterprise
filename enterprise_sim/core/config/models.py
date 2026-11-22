@@ -28,6 +28,7 @@ from enterprise_sim.core.config.diversity import (
     MessinessConfig,
     OfflineBackend,
     OrgConfig,
+    PrivacyConfig,
 )
 
 
@@ -282,6 +283,10 @@ class WorldConfig(_Frozen):
     messiness: MessinessConfig = Field(
         default_factory=MessinessConfig,
         description="Surface noise injected into rendered documents, labelled in the gold KG.",
+    )
+    privacy: PrivacyConfig = Field(
+        default_factory=PrivacyConfig,
+        description="Labelled sensitive-category sentences about people (no PII shapes).",
     )
     code: CodeConfig = Field(
         default_factory=CodeConfig,

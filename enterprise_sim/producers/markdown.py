@@ -49,6 +49,7 @@ from enterprise_sim.producers.grounding import (
     tag_mentions,
 )
 from enterprise_sim.producers.noise import ProseNoise
+from enterprise_sim.producers.sensitive import SensitivePlanter
 
 __all__ = ["MarkdownProducer", "ProducerContext"]
 
@@ -81,6 +82,8 @@ class ProducerContext:
     noise: ProseNoise | None = None
     #: ``[formats]`` overrides: deliverable kind -> producer name.
     formats: tuple[tuple[str, str], ...] = ()
+    #: ``[privacy]`` planter of labelled sensitive sentences (``None``: none).
+    sensitive: SensitivePlanter | None = None
     #: ``[chat] rate`` and the world seed that picks which documents get a thread.
     chat_rate: float = 0.0
     seed: int = 0
@@ -98,9 +101,13 @@ class ProducerContext:
         The one place every producer passes generated prose through; a clean
         context returns ``text`` unchanged.
         """
-        if self.noise is None:
+        if self.noise is None and self.sensitive is None:
             return text
         people = [(e.entity_id, e.canonical) for e in roster.entries if e.entity_type == "Person"]
+        if self.sensitive is not None and "#" not in key:
+            text = self.sensitive.apply(text, key=key, people=people)
+        if self.noise is None:
+            return text
         return self.noise.apply(text, key=key, people=people)
 
 

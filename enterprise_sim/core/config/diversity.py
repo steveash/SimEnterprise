@@ -251,8 +251,20 @@ class CodeConfig(_Frozen):
     enabled: bool = False
 
 
+class PrivacyConfig(_Frozen):
+    """Labelled sensitive-category sentences about people (``producers/sensitive.py``)."""
+
+    sensitive_rate: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+        description="Per-document probability in people ops, legal, finance (tenth elsewhere).",
+    )
+
+
 __all__ = [
     "ChatConfig",
+    "PrivacyConfig",
     "CodeConfig",
     "DataMessinessConfig",
     "FormatsConfig",
