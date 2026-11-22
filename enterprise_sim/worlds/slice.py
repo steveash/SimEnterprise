@@ -233,6 +233,9 @@ def slice_world(
                     for v in true
                 ],
                 "documents": {s: sorted(p) for s, p in sorted(by_stance.items())},
+                "valid_from": current["valid_from"],
+                "value_kind": "person" if fact["props"].get("attribute") == "owner" else "token",
+                "stale_values": _stale_values(asserts.get(fact["id"], []), paths, current),
             }
         )
         if not sources:
@@ -277,6 +280,38 @@ def slice_world(
         "undiscoverable": len(undiscoverable),
         "slices": answers["slices"],
     }
+
+
+def _stale_values(
+    edges: list[dict[str, Any]], paths: dict[str, str], current: dict[str, Any]
+) -> list[dict[str, Any]]:
+    """Each superseded or wrong value the slice states, with who states it.
+
+    ``clean`` is true when no document that states the current value also states
+    this one, so a test author can use it as a misleading value without an
+    ordinary reader of a current document tripping over it.
+    """
+    stated: dict[str, set[str]] = {}
+    for edge in edges:
+        stated.setdefault(str(edge["props"]["value"]), set()).add(paths[edge["src"]])
+    current_docs = stated.get(str(current["value"]), set())
+    out: list[dict[str, Any]] = []
+    for edge in edges:
+        if edge["props"]["stance"] not in ("stale", "conflicting"):
+            continue
+        value = str(edge["props"]["value"])
+        if value == current["value"] or any(o["value"] == value for o in out):
+            continue
+        docs = sorted(stated[value])
+        out.append(
+            {
+                "value": value,
+                "stance": edge["props"]["stance"],
+                "documents": docs,
+                "clean": not (set(docs) & current_docs),
+            }
+        )
+    return sorted(out, key=lambda o: o["value"])
 
 
 def _cmd_world_slice(args: Any) -> int:

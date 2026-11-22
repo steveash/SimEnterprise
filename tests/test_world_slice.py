@@ -87,6 +87,12 @@ def test_knowledge_drafts_point_at_materialized_paths_that_state_the_value(
     answers = json.loads((out / "answers.json").read_text(encoding="utf-8"))
     for fact in answers["facts"]:
         assert fact["current"]["value"] == fact["history"][-1]["value"]
+        assert fact["valid_from"] == fact["history"][-1]["valid_from"]
+        assert fact["value_kind"] in ("person", "token")
+        for stale in fact["stale_values"]:
+            assert stale["value"] != fact["current"]["value"]
+            if stale["clean"]:  # no document stating the current value states it
+                assert not set(fact["documents"].get("current", [])) & set(stale["documents"])
         for paths in fact["documents"].values():
             for path in paths:
                 assert (export / path.removeprefix(f"{MATERIALIZED_DOCS}/")).is_file()
