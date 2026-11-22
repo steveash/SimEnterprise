@@ -132,7 +132,7 @@ def _role(rel: str) -> str:
     # questions with their SQL answers; only tables/ and views/ are data.
     if parts[0] == "data" and len(parts) == 3:
         return "gold"
-    if rel == "config.json" or rel.startswith("replay/"):
+    if rel in ("config.json", "isolation.json") or rel.startswith("replay/"):
         return "gold"
     return "data"
 
@@ -962,29 +962,28 @@ def export_world(
         if missing:
             raise ExportError(f"slice {entry['name']}: files not in the export: {missing[:3]}")
 
-    from enterprise_sim.exporters.isolation import declare_shared, isolation_check, isolation_map
+    from enterprise_sim.exporters.isolation import ISOLATION_FILE, isolation_check, isolation_map
 
-    isolation = isolation_map(world_dir)
+    data_files = sorted(f["path"] for f in writer.files if f["role"] == "data")
+    isolation = isolation_map(
+        world_dir,
+        [entry["name"] for entry in slices],
+        data_files,
+        [t["name"] for t in writer.tables if str(t["path"]).startswith("data/")],
+    )
     if isolation is not None:
-        crossings = isolation_check(
+        findings = isolation_check(
             isolation,
             {entry["name"]: entry["files"] for entry in slices},
+            data_files,
             lambda rel: (target / rel).read_text(encoding="utf-8"),
         )
-        if crossings:
+        if findings:
             raise ExportError(
-                f"{len(crossings)} crossing(s) of a declared wall, e.g. {crossings[:3]}"
+                f"{len(findings)} crossing(s) of a declared wall, e.g. {findings[:3]}"
             )
-        declare_shared(
-            isolation,
-            [
-                f["path"]
-                for f in writer.files
-                if f["role"] == "data" and not f["path"].startswith(("data/",))
-            ],
-            {entry["name"]: entry["files"] for entry in slices},
-            [t["name"] for t in writer.tables if str(t["path"]).startswith("data/")],
-        )
+        body = json.dumps(isolation, sort_keys=True, indent=1, ensure_ascii=False) + "\n"
+        writer.write(ISOLATION_FILE, body.encode("utf-8"), "application/json")
 
     commit, dirty = _git_commit(Path(__file__).resolve().parents[2])
     manifest = {
@@ -1012,8 +1011,6 @@ def export_world(
         "tables": sorted(writer.tables, key=lambda t: t["name"]),
         "slices": slices,
     }
-    if isolation is not None:
-        manifest["isolation"] = isolation
     body = json.dumps(manifest, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     (target / "export.json").write_bytes(body.encode("utf-8"))
     return ExportResult(target, _sha256(body.encode("utf-8")), len(writer.files))

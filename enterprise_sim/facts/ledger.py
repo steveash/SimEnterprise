@@ -42,7 +42,7 @@ from enterprise_sim.core.events import Event
 from enterprise_sim.core.world import Edge, Node, World
 from enterprise_sim.facts.catalog import Attribute, Context, attributes_for, value_token
 from enterprise_sim.facts.engagement import ENGAGEMENT_CODE
-from enterprise_sim.world_builders.walls import across_wall, staff_of, walled_pairs, walled_projects
+from enterprise_sim.world_builders.walls import staff_of, walled_pairs, walled_projects
 
 __all__ = [
     "Assertion",
@@ -97,9 +97,9 @@ class FactRecord:
     #: a "conflicting" value is one outside this set, so extending the window
     #: never turns a past wrong statement into a merely early one.
     horizon_values: set[str] = field(default_factory=set)
-    #: values a walled project's documents must never state (decision record 0036): the
-    #: same attribute's values and the staff names of every project across a wall.
-    #: Empty for an unwalled project.
+    #: values this fact's documents must never state as a wrong value (decision record
+    #: 0036): another walled project's values of the attribute, and for a walled fact
+    #: the staff names across its walls. Empty in a world without walls.
     cross_wall_values: set[str] = field(default_factory=set)
 
     def version_at(self, at: datetime) -> Version:
@@ -313,7 +313,9 @@ def build_ledger(world: World, cfg: FactsConfig, *, seed: int, start: date, end:
             for d, ps in by_dept.items()
             if d != dept
             for p in ps
-            if not across_wall(world, project.id, p)
+            # a walled project neither cites nor is cited (decision record 0036): a
+            # project citing both sides of a wall would bridge it
+            if project.id not in sides and p not in sides
         )
         if others and rng.random() < cfg.cross_team:
             ledger.depends_on[project.id] = [rng.choice(others)]
@@ -399,28 +401,38 @@ def _staff_successor(
 
 
 def _mark_cross_wall_values(world: World, ledger: Ledger) -> None:
-    """Fill each walled fact's ``cross_wall_values`` from the projects across its walls."""
+    """Fill each fact's ``cross_wall_values`` in a walled world (decision record 0036).
+
+    Every fact, walled or not, avoids the values of every walled project but its own
+    (a document stating one would state a value that identifies another project); a
+    walled fact also avoids the names of the staff across its walls. A world without
+    walls changes nothing.
+    """
     pairs = walled_pairs(world)
     if not pairs:
         return
-    names: dict[str, set[str]] = {}
-    for pair in pairs:
-        for project in pair:
-            names[project] = {
-                str(n.props["name"])
-                for pid in staff_of(world, project) or frozenset()
-                if (n := world.get_node(pid)) is not None and n.props.get("name")
-            }
+    walled = walled_projects(world)
+    values: dict[tuple[str, str], set[str]] = {}  # (project, attribute) -> values
     for record in ledger.facts.values():
+        if record.subject in walled:
+            values.setdefault((record.subject, record.attribute.name), set()).update(
+                record.horizon_values
+            )
+    names: dict[str, set[str]] = {}
+    for project in walled:
+        names[project] = {
+            str(n.props["name"])
+            for pid in staff_of(world, project) or frozenset()
+            if (n := world.get_node(pid)) is not None and n.props.get("name")
+        }
+    for record in ledger.facts.values():
+        for project in walled:
+            if project != record.subject:
+                record.cross_wall_values |= values.get((project, record.attribute.name), set())
         for pair in pairs:
-            if record.subject not in pair:
-                continue
-            (other,) = pair - {record.subject}
-            record.cross_wall_values |= names.get(other, set())
-            for fact_id in ledger.by_project.get(other, []):
-                twin = ledger.facts[fact_id]
-                if twin.attribute.name == record.attribute.name:
-                    record.cross_wall_values |= twin.horizon_values
+            if record.subject in pair:
+                (other,) = pair - {record.subject}
+                record.cross_wall_values |= names.get(other, set())
 
 
 # -- assigning ---------------------------------------------------------------- #

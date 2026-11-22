@@ -245,35 +245,53 @@ def test_the_worlds_exercise_every_medium_and_format(worlds: list[tuple[Path, Pa
     assert {".md", ".docx", ".pptx", ".eml", ".ics"} <= formats
 
 
-def test_the_export_declares_the_map_in_the_importer_shape(
-    worlds: list[tuple[Path, Path]],
-) -> None:
+def _map(export_dir: Path) -> dict[str, Any]:
+    data: dict[str, Any] = json.loads((export_dir / "isolation.json").read_text(encoding="utf-8"))
+    return data
+
+
+def test_the_export_declares_the_map_as_a_gold_file(worlds: list[tuple[Path, Path]]) -> None:
     for world_dir, export_dir in worlds:
         manifest = json.loads((export_dir / "export.json").read_text(encoding="utf-8"))
-        iso = manifest["isolation"]
+        assert "isolation" not in manifest  # the map is a gold file, not inline
+        (entry,) = [f for f in manifest["files"] if f["path"] == "isolation.json"]
+        assert entry["role"] == "gold"
+        iso = _map(export_dir)
         assert set(iso) == {"walls", "projects", "shared"}
+        graph = _Graph(world_dir)
         slices = {s["name"]: set(s["files"]) for s in manifest["slices"]}
-        walled = {name for pair in iso["walls"] for name in pair}
-        assert all(len(pair) == 2 and pair[0] != pair[1] for pair in iso["walls"])
-        assert walled <= set(slices)
-        assert [p["slice"] for p in iso["projects"]] == sorted(walled)
-        people = {
-            n["props"]["name"] for n in _Graph(world_dir).nodes.values() if n["type"] == "Person"
-        }
+        by_id = {p["project"]: p for p in iso["projects"]}
+        assert set(by_id) == {i for i, n in graph.nodes.items() if n["type"] == "Project"}
+        assert {frozenset(w) for w in iso["walls"]} == graph.pairs
+        people = {n["props"]["name"] for n in graph.nodes.values() if n["type"] == "Person"}
+        owned: dict[str, str] = {}
         for project in iso["projects"]:
-            assert set(project) == {"slice", "staff", "values"}
-            assert project["staff"] and set(project["staff"]) <= people
-            assert project["values"], project["slice"]  # each identifies its owner
-            assert all(v["attribute"] and v["token"] for v in project["values"])
-        listed = {f["path"] for f in manifest["files"]}
-        in_walled = set().union(*(slices[name] for name in walled))
-        assert set(iso["shared"]["files"]) <= listed - in_walled
+            assert project["slices"], project["project"]
+            assert set(project["slices"]) <= set(slices)
+            for name in project["slices"]:
+                for path in slices[name]:
+                    assert owned.setdefault(path, project["project"]) == project["project"]
+            if project["walled"]:
+                assert set(project) == {"project", "walled", "slices", "staff", "values"}
+                assert project["staff"] and set(project["staff"]) <= people
+                assert any(v["attribute"] == "engagement_code" for v in project["values"])
+            else:
+                assert set(project) == {"project", "walled", "slices"}
+        tokens = [v["value"] for p in iso["projects"] for v in p.get("values", [])]
+        assert len(tokens) == len(set(tokens))  # pairwise disjoint across attributes
+        data = {f["path"] for f in manifest["files"] if f["role"] == "data"}
+        assert set(iso["shared"]["files"]) == {p for p in data if p.startswith("organization/")}
+        assert all(p in owned or p.startswith(("organization/", "data/")) for p in data)
         assert set(iso["shared"]["tables"]) == {
             t["name"] for t in manifest["tables"] if t["path"].startswith("data/")
         }
-        assert all(
-            any(v["attribute"] == "engagement_code" for v in p["values"]) for p in iso["projects"]
-        )
+
+
+def test_walled_projects_neither_cite_nor_are_cited(worlds: list[tuple[Path, Path]]) -> None:
+    for world_dir, _ in worlds:
+        graph = _Graph(world_dir)
+        depends = [e for e in graph.edges if e["type"] == "depends_on"]
+        assert not [e for e in depends if e["src"] in graph.walled or e["dst"] in graph.walled]
 
 
 def test_groups_wall_only_pairs_on_different_sides(worlds: list[tuple[Path, Path]]) -> None:
@@ -287,60 +305,74 @@ def test_groups_wall_only_pairs_on_different_sides(worlds: list[tuple[Path, Path
 
 def _mapping() -> dict[str, Any]:
     return {
-        "walls": [["alpha", "beta"]],
+        "walls": [["project:alpha", "project:beta"]],
         "projects": [
             {
-                "slice": "alpha",
+                "project": "project:alpha",
+                "walled": True,
+                "slices": ["alpha", "alpha-core"],
                 "staff": ["Ada Engel"],
-                "values": [{"attribute": "x", "token": "v2.0"}],
+                "values": [{"attribute": "x", "value": "v2.0"}],
             },
             {
-                "slice": "beta",
+                "project": "project:beta",
+                "walled": True,
+                "slices": ["beta"],
                 "staff": ["Omar Novak"],
-                "values": [{"attribute": "x", "token": "v3.1"}],
+                "values": [{"attribute": "y", "value": "KQT-4821"}],
             },
+            {"project": "project:gamma", "walled": False, "slices": ["gamma"]},
         ],
-        "shared": {"files": [], "tables": []},
+        "shared": {"files": ["organization/people.md"], "tables": []},
     }
 
 
+_SLICES = {"alpha": ["a.md"], "alpha-core": ["a.md"], "beta": ["b.md"], "gamma": ["g.md"]}
+
+
 @pytest.mark.parametrize(
-    ("text", "files", "found"),
+    ("path", "text", "found"),
     [
-        (
-            "Omar Novak reviewed the plan.",
-            {"alpha": ["a.md"], "beta": ["b.md"]},
-            "staff Omar Novak",
-        ),
-        ("We serve v3.1 now.", {"alpha": ["a.md"], "beta": ["b.md"]}, "value v3.1"),
-        ("clean text", {"alpha": ["a.md"], "beta": ["a.md"]}, "walled"),
-        ("Ada Engel and v2.0 are our own.", {"alpha": ["a.md"], "beta": ["b.md"]}, None),
-        ("We serve v3.10 and Omar Novakov.", {"alpha": ["a.md"], "beta": ["b.md"]}, None),
+        ("a.md", "Omar Novak reviewed the plan.", "names staff Omar Novak"),
+        ("a.md", "Filed under KQT-4821 now.", "states KQT-4821"),
+        ("g.md", "Gamma also uses KQT-4821.", "states KQT-4821"),  # unwalled project's file
+        ("organization/people.md", "Code KQT-4821.", "states KQT-4821"),  # shared file
+        ("n.md", "a file the slicer missed", "assigned to no project"),
+        ("a.md", "Ada Engel and v2.0 are our own.", None),
+        ("a.md", "We serve v2.01, KQT-48211 and Omar Novakov.", None),  # whole tokens only
+        ("a.md", "Omar said hello.", None),  # a first name alone never matches
+        ("g.md", "Omar Novak helps gamma too.", None),  # names are walled, not banned
     ],
 )
-def test_the_check_refuses_each_kind_of_crossing(
-    text: str, files: dict[str, list[str]], found: str | None
-) -> None:
-    texts = {"a.md": text, "b.md": "beta's own text"}
-    problems = isolation_check(_mapping(), files, texts.__getitem__)
+def test_the_check_refuses_each_kind_of_finding(path: str, text: str, found: str | None) -> None:
+    texts = {"a.md": "alpha", "b.md": "beta", "g.md": "gamma", "organization/people.md": "x"}
+    texts[path] = text
+    problems = isolation_check(_mapping(), _SLICES, sorted(texts), texts.__getitem__)
     if found is None:
         assert problems == []
     else:
         assert any(found in p for p in problems), problems
 
 
+def test_a_file_in_two_projects_is_refused() -> None:
+    slices = {**_SLICES, "gamma": ["g.md", "a.md"]}
+    texts = {"a.md": "alpha", "b.md": "beta", "g.md": "gamma"}
+    problems = isolation_check(_mapping(), slices, sorted(texts), texts.__getitem__)
+    assert any("in the slices of" in p for p in problems)
+
+
 def test_a_planted_crossing_refuses_the_export(
     worlds: list[tuple[Path, Path]], tmp_path: Path
 ) -> None:
     world_dir, export_dir = worlds[0]
-    manifest = json.loads((export_dir / "export.json").read_text(encoding="utf-8"))
-    alpha, beta = manifest["isolation"]["projects"][:2]
+    walled = [p for p in _map(export_dir)["projects"] if p["walled"]]
+    alpha, beta = walled[:2]
     graph = _Graph(world_dir)
     md = next(
         a
         for a in graph.artifacts("document")
         if str(graph.nodes[a]["props"]["path"]).endswith(".md")
-        and graph.nodes[graph.project_of[a]]["id"].endswith(alpha["slice"])
+        and graph.project_of[a] == alpha["project"]
     )
     path = world_dir / str(graph.nodes[md]["props"]["path"])
     original = path.read_text(encoding="utf-8")
@@ -389,3 +421,4 @@ def test_a_world_without_walls_carries_no_isolation_key(tmp_path: Path) -> None:
     result = export_world(world_dir, root / "out")
     manifest = json.loads((result.directory / "export.json").read_text(encoding="utf-8"))
     assert "isolation" not in manifest
+    assert not (result.directory / "isolation.json").exists()

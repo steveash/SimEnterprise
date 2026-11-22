@@ -1,51 +1,79 @@
 """The must-not-cross map of a walled world, and the export check (decision record 0036).
 
-Invariant: in a world built with walls, no exported file of a walled project belongs
-to, names staff of, or states a decisive value of a project across a wall, and the
-export declares the walls. :func:`isolation_check` is the one place that verifies it;
-``world export`` calls it over the files it has just written and refuses the export on
-any finding, so a world whose oracle would be wrong is never published.
+Invariant: in a world built with walls, every exported data file is assigned to
+exactly one project or to the shared set; no file of a walled project names staff of
+a project across a wall; and no file other than a walled project's own states one of
+its decisive values. The export declares the map in the gold file ``isolation.json``.
+:func:`isolation_check` is the one place that verifies it: ``world export`` calls it
+over the files it has just written and refuses the export on any finding, so a world
+whose oracle would be wrong is never published.
 
 Everything is read from the gold KG (``kg/nodes.jsonl``, ``kg/edges.jsonl``), where
 :func:`enterprise_sim.world_builders.walls.assign_walls`'s plan was written.
 
-* **Staff** of a walled project: its ``member_of`` people, by name.
-* **Decisive values** of a walled project: the whitespace-free token
+* **Projects** are keyed by project id. Each lists every slice that holds its files
+  (the full slice and its ``-core`` cut).
+* **Shared** files are the organization pages (``organization/``) and the structured
+  data tables (``data/``): company-wide, no project's.
+* **Staff** of a walled project: its ``member_of`` people, by full name. Walled staff
+  are named apart from everyone (``walls.unique_staff_names``). A person matches only
+  by full name, as a whole token, case-sensitive; a first name alone never matches.
+* **Decisive values** of a walled project (``{"attribute", "value"}``; the key is not
+  ``token``, which privacy checks read as a secret name): the whitespace-free token
   (:func:`~enterprise_sim.facts.catalog.value_token`) of each of its fact values that is
   distinctive (:func:`~enterprise_sim.worlds.slice.distinctive_token`), at least three
-  characters, not a date nor a number under four digits, and held by no other project
-  of the world. A value that is a person's name is not a value token: people are
-  declared, and checked by full name, as staff. A value another
-  project also holds is not declared, so a grader never blames a system for a value
-  that is legitimately elsewhere; a short label (``P0``) or a date can occur in any
-  document by chance, so neither is declared either.
+  characters, not a date nor a number under four digits, not a person's name (people
+  are staff), and held by no other fact of the world in any attribute. Declared token
+  sets are therefore pairwise disjoint across projects and attributes. A token matches
+  as a whole token (not inside a longer word, number or version). A value a bank could
+  not keep apart is shared, so it is not declared; every walled project still has its
+  engagement code (:mod:`enterprise_sim.facts.engagement`).
 """
 
 from __future__ import annotations
 
 import json
 import re
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-__all__ = ["isolation_check", "isolation_map"]
+__all__ = ["ISOLATION_FILE", "SHARED_PREFIXES", "isolation_check", "isolation_map"]
+
+ISOLATION_FILE = "isolation.json"
+SHARED_PREFIXES = ("organization/", "data/")
 
 
 def _jsonl(path: Path) -> list[dict[str, Any]]:
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line]
 
 
-def isolation_map(world_dir: Path) -> dict[str, Any] | None:
-    """The walls, each walled project's staff and decisive values; ``None`` without walls."""
+def _decisive(token: str, value: str, distinctive: Any, typed: Any) -> bool:
+    if len(token) < 3 or not distinctive(token) or typed(value).get("type") == "date":
+        return False
+    return not (token.isdigit() and len(token) < 4)  # "200" occurs in text by chance
+
+
+def isolation_map(
+    world_dir: Path, slice_names: Sequence[str], data_files: Sequence[str], tables: Sequence[str]
+) -> dict[str, Any] | None:
+    """The map of a walled world (``None`` without walls).
+
+    ``slice_names`` are the export's slices, ``data_files`` its data-role paths and
+    ``tables`` its data-table names.
+    """
     from enterprise_sim.facts.catalog import value_token
-    from enterprise_sim.worlds.slice import distinctive_token, slice_name, typed_value
+    from enterprise_sim.worlds.slice import (
+        core_slice_name,
+        distinctive_token,
+        slice_name,
+        typed_value,
+    )
 
     nodes = {n["id"]: n for n in _jsonl(world_dir / "kg" / "nodes.jsonl")}
     edges = _jsonl(world_dir / "kg" / "edges.jsonl")
-    walled = sorted(
-        i for i, n in nodes.items() if n["type"] == "Project" and n["props"].get("walled")
-    )
+    project_ids = sorted(i for i, n in nodes.items() if n["type"] == "Project")
+    walled = [p for p in project_ids if nodes[p]["props"].get("walled")]
     if not walled:
         return None
     staff: dict[str, set[str]] = {p: set() for p in walled}
@@ -59,120 +87,104 @@ def isolation_map(world_dir: Path) -> dict[str, Any] | None:
         for n in nodes.values()
         if n["type"] == "Person" and n["props"].get("name")
     }
-    holders: dict[str, set[str]] = {}
-    values: dict[str, list[dict[str, str]]] = {p: [] for p in walled}
+    facts_of: dict[str, set[str]] = {}  # token -> every fact holding it, any attribute
+    candidates: dict[str, set[tuple[str, str]]] = {p: set() for p in walled}
     for node in nodes.values():
         if node["type"] != "FactVersion":
             continue
-        fact = nodes.get(str(node["props"].get("fact")))
-        subject = str(fact["props"].get("subject")) if fact else ""
+        fact_id = str(node["props"].get("fact"))
+        fact = nodes.get(fact_id)
         value = str(node["props"].get("value", ""))
         token = value_token(value)
-        if not token:
+        if fact is None or not token:
             continue
-        holders.setdefault(token, set()).add(subject)  # every project, walled or not
-        if value in people:
-            continue  # a person is declared and checked by full name, as staff
-        if subject not in staff or not _decisive(token, value, distinctive_token, typed_value):
+        facts_of.setdefault(token, set()).add(fact_id)
+        subject = str(fact["props"].get("subject"))
+        if value in people or subject not in staff:
             continue
-        values[subject].append(
-            {
-                "attribute": str(fact["props"].get("attribute")) if fact else "",
-                "fact": str(node["props"].get("fact")),
-                "token": token,
-            }
-        )
-    walls = sorted(
-        sorted((slice_name(e["src"]), slice_name(e["dst"])))
-        for e in edges
-        if e["type"] == "walled_from"
-    )
+        if _decisive(token, value, distinctive_token, typed_value):
+            candidates[subject].add((str(fact["props"].get("attribute")), token))
+    existing = set(slice_names)
     projects = []
-    for project in walled:
-        own = {
-            (v["attribute"], v["token"])
-            for v in values[project]
-            if holders[v["token"]] == {project}
-        }
-        projects.append(
-            {
-                "slice": slice_name(project),
-                "staff": sorted(staff[project]),
-                "values": [{"attribute": a, "token": t} for a, t in sorted(own)],
-            }
-        )
-    projects.sort(key=lambda p: str(p["slice"]))
-    return {"walls": walls, "projects": projects, "shared": {"files": [], "tables": []}}
-
-
-def declare_shared(
-    mapping: dict[str, Any],
-    data_files: list[str],
-    slice_files: Mapping[str, list[str]],
-    tables: list[str],
-) -> None:
-    """Fill ``mapping["shared"]``: the data files in no project slice, and the data tables.
-
-    Structured data and the organization pages are company-wide (record 0036): no test
-    may treat them as one project's.
-    """
-    in_a_slice = {path for files in slice_files.values() for path in files}
-    mapping["shared"] = {
-        "files": sorted(p for p in data_files if p not in in_a_slice),
-        "tables": sorted(tables),
+    for project in project_ids:
+        own = [s for s in (slice_name(project), core_slice_name(project)) if s in existing]
+        entry: dict[str, Any] = {"project": project, "walled": project in staff, "slices": own}
+        if project in staff:
+            entry["staff"] = sorted(staff[project])
+            entry["values"] = [
+                {"attribute": a, "value": t}
+                for a, t in sorted(candidates[project])
+                if len(facts_of[t]) == 1
+            ]
+        projects.append(entry)
+    walls = sorted(sorted((e["src"], e["dst"])) for e in edges if e["type"] == "walled_from")
+    shared_files = sorted(p for p in data_files if p.startswith(SHARED_PREFIXES[0]))
+    return {
+        "walls": walls,
+        "projects": projects,
+        "shared": {"files": shared_files, "tables": sorted(tables)},
     }
 
 
-def _decisive(token: str, value: str, distinctive: Any, typed: Any) -> bool:
-    if len(token) < 3 or not distinctive(token) or typed(value).get("type") == "date":
-        return False
-    return not (token.isdigit() and len(token) < 4)  # "200" occurs in text by chance
+def _whole(text: str) -> re.Pattern[str]:
+    """``text`` as a whole token: not inside a longer word, number or version."""
+    return re.compile(rf"(?<![\w.]){re.escape(text)}(?![\w]|\.\w)")
 
 
 def isolation_check(
-    mapping: Mapping[str, Any], slice_files: Mapping[str, list[str]], read: Any
+    mapping: Mapping[str, Any],
+    slice_files: Mapping[str, Sequence[str]],
+    data_files: Sequence[str],
+    read: Callable[[str], str],
 ) -> list[str]:
-    """Every crossing in the exported files of walled slices (empty when none).
+    """Every finding against the map in the exported data files (empty when none).
 
-    ``slice_files`` maps a slice name to its export paths; ``read(path)`` returns a
-    file's exported text. A file crosses a wall when it is in the slices of two
-    projects across a wall, names a person on the staff of a project across a wall,
-    or contains a decisive value token of a project across a wall.
+    ``slice_files`` maps a slice name to its export paths, ``data_files`` lists every
+    data-role path, and ``read(path)`` returns a file's exported text. Findings:
+
+    1. a data file outside ``organization/`` and ``data/`` that is in no project's
+       slices (unassigned), or in the slices of two projects;
+    2. a file of a walled project naming, by full name, staff of a project across a
+       wall;
+    3. any file but a walled project's own stating one of its decisive values,
+       whichever project or shared set the file belongs to.
     """
-    projects = {p["slice"]: p for p in mapping["projects"]}
-    across: dict[str, set[str]] = {name: set() for name in projects}
+    projects = {p["project"]: p for p in mapping["projects"]}
+    across: dict[str, set[str]] = {p: set() for p in projects}
     for a, b in mapping["walls"]:
         across[a].add(b)
         across[b].add(a)
-    owners: dict[str, set[str]] = {}
-    for name in projects:
-        for path in slice_files.get(name, []):
-            owners.setdefault(path, set()).add(name)
+    owner: dict[str, set[str]] = {}
+    for project in projects.values():
+        for name in project["slices"]:
+            for path in slice_files.get(name, ()):
+                owner.setdefault(path, set()).add(project["project"])
     problems: list[str] = []
-    for path, names in sorted(owners.items()):
-        for name in sorted(names):
-            if names & across[name]:
-                problems.append(f"{path}: in the slices of {sorted(names)}, which are walled")
-                break
-    patterns = {
-        other: [
-            (f"staff {person}", re.compile(rf"(?<![\w]){re.escape(person)}(?![\w])"))
-            for person in projects[other]["staff"]
-        ]
-        + [
-            (
-                f"value {v['token']} ({v['attribute']})",
-                re.compile(rf"(?<![\w.]){re.escape(v['token'])}(?![\w])"),
-            )
-            for v in projects[other]["values"]
-        ]
-        for other in projects
+    for path in data_files:
+        owners = owner.get(path, set())
+        if len(owners) > 1:
+            problems.append(f"{path}: in the slices of {sorted(owners)}")
+        elif not owners and not path.startswith(SHARED_PREFIXES):
+            problems.append(f"{path}: assigned to no project and not shared")
+    names = {
+        p: [(person, _whole(person)) for person in projects[p].get("staff", ())] for p in projects
     }
-    for name in sorted(projects):
-        for path in slice_files.get(name, []):
-            text = read(path)
-            for other in sorted(across[name]):
-                for what, pattern in patterns[other]:
-                    if pattern.search(text):
-                        problems.append(f"{path} ({name}) states {what} of {other}")
+    tokens = {p: [(v, _whole(v["value"])) for v in projects[p].get("values", ())] for p in projects}
+    for path in data_files:
+        text = read(path)
+        owners = owner.get(path, set())
+        mine = next(iter(owners)) if len(owners) == 1 else None
+        for other in sorted(across.get(mine, set()) if mine else ()):
+            for person, pattern in names[other]:
+                if pattern.search(text):
+                    problems.append(f"{path} ({mine}) names staff {person} of {other}")
+        for project, values in tokens.items():
+            if project == mine:
+                continue
+            for value, pattern in values:
+                if pattern.search(text):
+                    problems.append(
+                        f"{path} ({mine or 'shared'}) states {value['value']} "
+                        f"({value['attribute']}) of {project}"
+                    )
     return problems
