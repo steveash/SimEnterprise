@@ -20,7 +20,7 @@ builder and this generator, and labels separate the two derivations. Any other c
 and the error never quotes it.
 
 **Derivation.** The secret is the seed file's 64 hex digits. For family `F` (the config's
-file stem), the world seed is `HMAC-SHA256(secret, "seed" || F)` mod 2^31. The company name is a
+file stem), the world seed is the first 8 bytes of `HMAC-SHA256(secret, "seed" || F)`, big-endian (the full 64 bits). The company name is a
 word pair picked by `HMAC-SHA256(secret, "name" || F)`, so a held-out world cannot be matched to
 its public twin by name. Nothing derived is printed. The derived seed is stored in each world's
 `.world`, inside the store, so the world can be rebuilt.
@@ -45,3 +45,10 @@ the twin's values. It is not implemented.
 and fact set.
 
 Live prose is available with `--live`; it goes through the call governor like every live build.
+
+**Strength residual.** Decision record 0015 asks for 128 unguessable bits behind a
+held-out corpus. The secret has 256 bits and the world seed 64. Every RNG stream
+SimEnterprise draws from is seeded by a 64-bit sub-seed (`derive_subseed`, BLAKE2b with
+an 8-byte digest), so a wider root seed would add no strength. Recovering one stream
+costs at most about 2^64 work, and reveals only that stream. Widening the sub-seeds
+to 128 bits would change the bytes of every world ever built. It is not done.

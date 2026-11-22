@@ -142,7 +142,9 @@ def _draw(secret: bytes, label: str, family: str) -> int:
 
 def heldout_config(config: WorldConfig, secret: bytes, family: str, out: Path) -> WorldConfig:
     """``config`` with the family's derived seed and company name, rooted at ``out``."""
-    seed = _draw(secret, "seed", family) % (2**31)
+    # The full 64 bits: SimEnterprise hashes the root seed into 64-bit sub-streams
+    # (core.config.seed.derive_subseed), so a wider root would add no strength.
+    seed = _draw(secret, "seed", family)
     pick = _draw(secret, "name", family)
     name = f"{_FIRST[pick % len(_FIRST)]} {_SECOND[(pick // len(_FIRST)) % len(_SECOND)]}"
     company = config.company.model_copy(update={"name": name})
