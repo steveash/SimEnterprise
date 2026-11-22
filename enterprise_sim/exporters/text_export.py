@@ -586,7 +586,8 @@ def export_world(world_dir: Path | str, out_root: Path | str) -> ExportResult:
         rel = writer.write(f"trails/{entry['name']}.csv", (body + "\n").encode("utf-8"), "text/csv")
         writer.tables.append(
             {
-                "name": f"trail.{entry['name']}",
+                # table names map to identifiers ([a-z_][a-z0-9_]*) downstream.
+                "name": f"trail.{entry['name'].replace('-', '_')}",
                 "path": rel,
                 "kind": "table",
                 "columns": [{"name": c, "type": t} for c, t in TRAIL_COLUMNS],

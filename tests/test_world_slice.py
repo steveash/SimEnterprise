@@ -147,10 +147,12 @@ def test_each_project_slice_carries_a_dated_trail(world_dir: Path, tmp_path: Pat
     manifest = json.loads((result.directory / "export.json").read_text(encoding="utf-8"))
     trails = {t["name"]: t for t in manifest["tables"] if t["path"].startswith("trails/")}
     assert all(t["kind"] == "table" and t["primary_key"] == [] for t in trails.values())
-    assert f"trail.{slice_name(_PROJECT)}" in trails
+    assert f"trail.{slice_name(_PROJECT).replace('-', '_')}" in trails
+    for table in manifest["tables"]:
+        assert re.fullmatch(r"[a-z_][a-z0-9_]*\.[a-z_][a-z0-9_]*", table["name"]), table["name"]
     slices = {s["name"]: s for s in manifest["slices"]}
-    for name, table in trails.items():
-        entry = slices[name.removeprefix("trail.")]
+    for table in trails.values():
+        entry = slices[Path(table["path"]).stem]
         assert table["path"] in entry["files"]
         with (result.directory / table["path"]).open(encoding="utf-8", newline="") as fh:
             rows = list(csv.DictReader(fh))
