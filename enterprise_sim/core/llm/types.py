@@ -154,6 +154,10 @@ class TransientLLMError(LLMError):
         self.rate_limited = rate_limited
 
 
+class RateLimitTripped(LLMError):
+    """The shared call gate stopped: too many rate-limited attempts (see ``governor``)."""
+
+
 class CostCeilingExceeded(LLMError):
     """Raised when a call would push accumulated spend past the configured ceiling."""
 
@@ -182,3 +186,17 @@ def verify_references(claimed: Sequence[str], candidates: Sequence[str]) -> tupl
             seen.add(ref)
             kept.append(ref)
     return tuple(kept)
+
+
+def is_interruption(exc: BaseException) -> bool:
+    """Whether ``exc`` means the provider is unavailable to this build, not a bad sample.
+
+    A tripped call gate, the cost ceiling, and a rate limit whose retries ran
+    out stop the build so it can resume later. Code that repairs or skips a
+    failed call (a repair loop, a best-effort phase) must re-raise these rather
+    than treat them as a content failure: catching one silently ships a world
+    with fallback content instead of the live content it was asked for.
+    """
+    if isinstance(exc, (RateLimitTripped, CostCeilingExceeded)):
+        return True
+    return isinstance(exc, TransientLLMError) and exc.rate_limited

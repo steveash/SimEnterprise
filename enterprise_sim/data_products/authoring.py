@@ -31,7 +31,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from enterprise_sim.core.llm import LLMClient
 from enterprise_sim.core.llm.prompt import assemble_prompt
-from enterprise_sim.core.llm.types import LLMError
+from enterprise_sim.core.llm.types import LLMError, is_interruption
 from enterprise_sim.core.world import World
 from enterprise_sim.data_products.lint import SpecLintError, require_clean
 from enterprise_sim.data_products.scenarios import DataScenario
@@ -174,6 +174,8 @@ def author_spec(
             if sql_errors:
                 raise SpecAuthoringError("; ".join(sql_errors))
         except (ValidationError, SpecLintError, SpecAuthoringError, LLMError) as exc:
+            if is_interruption(exc):
+                raise  # the provider is unavailable: not a sample to repair
             errors = [str(exc)[:2000]]
             report.errors.append(errors[0])
             continue
@@ -240,6 +242,8 @@ def generate_questions(
             result = client.generate_structured(prompt, schema)
             batch = _QuestionBatch.model_validate(result.data)
         except (ValidationError, LLMError) as exc:
+            if is_interruption(exc):
+                raise  # the provider is unavailable: not a sample to repair
             errors = [str(exc)[:2000]]
             report.errors.append(errors[0])
             continue
@@ -313,6 +317,8 @@ def propose_gap_fixes(
             result = client.generate_structured(prompt, schema)
             batch = _GapBatch.model_validate(result.data)
         except (ValidationError, LLMError) as exc:
+            if is_interruption(exc):
+                raise  # the provider is unavailable: not a sample to repair
             errors = [str(exc)[:2000]]
             report.errors.append(errors[0])
             continue

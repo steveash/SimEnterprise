@@ -32,6 +32,7 @@ from typing import Any
 from enterprise_sim.benchmark.schema import QAPair
 from enterprise_sim.core.llm import LLMClient
 from enterprise_sim.core.llm.prompt import assemble_prompt
+from enterprise_sim.core.llm.types import is_interruption
 from enterprise_sim.core.world import Node, World
 
 __all__ = [
@@ -263,7 +264,9 @@ def llm_critique(
         prompt = assemble_prompt(system=_LLM_SYSTEM, brief=brief)
         try:
             data = client.generate_structured(prompt, _LLM_SCHEMA).data
-        except Exception:  # noqa: BLE001 - a failed batch leaves those pairs structural-only
+        except Exception as exc:  # noqa: BLE001 - a failed batch leaves those pairs structural-only
+            if is_interruption(exc):
+                raise
             continue
         for item in data.get("reviews", []) if isinstance(data, dict) else []:
             if not isinstance(item, dict) or item.get("id") not in wanted:

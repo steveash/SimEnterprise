@@ -34,7 +34,7 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
-from enterprise_sim.core.llm.types import LLMError
+from enterprise_sim.core.llm.types import RateLimitTripped
 
 __all__ = [
     "GATE_ENV",
@@ -46,10 +46,6 @@ __all__ = [
 GATE_ENV = "SIMENTERPRISE_CALL_GATE"
 SLOTS_ENV = "SIMENTERPRISE_CALL_SLOTS"
 _TAIL_BYTES = 1 << 20  # ~60k outcome lines: far more than a 10-minute window holds
-
-
-class RateLimitTripped(LLMError):
-    """The shared rate-limit share crossed its threshold; the build must stop."""
 
 
 class CallGovernor:

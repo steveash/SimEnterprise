@@ -22,6 +22,7 @@ from pathlib import Path
 from enterprise_sim.assembly.runner import execute_run, llm_config_for, render_backend_for
 from enterprise_sim.core.config import WorldConfig
 from enterprise_sim.core.llm import CostCeilingExceeded, LLMClient, build_client
+from enterprise_sim.core.llm.types import LLMError, is_interruption
 from enterprise_sim.jobs.control import RunControl, RunPaused, install_signal_handlers
 from enterprise_sim.jobs.progress import NullSink, ProgressEvent, ProgressSink
 from enterprise_sim.jobs.state import JobState, Segment
@@ -113,12 +114,24 @@ def run_job(world_dir: Path, *, progress: ProgressSink | None = None) -> JobStat
     state.artifacts_total = len(result.corpus.artifacts)
     state.artifacts_done = len(result.corpus.artifacts)
 
-    if config.data.scenarios:
-        progress.emit(ProgressEvent.now("phase", phase="data"))
-        _build_data(world_dir, config, live=world.live, progress=progress)
+    try:
+        if config.data.scenarios:
+            progress.emit(ProgressEvent.now("phase", phase="data"))
+            _build_data(world_dir, config, live=world.live, progress=progress)
 
-    progress.emit(ProgressEvent.now("phase", phase="evals"))
-    _finalize(world_dir, progress)
+        progress.emit(ProgressEvent.now("phase", phase="evals"))
+        _finalize(world_dir, progress)
+    except LLMError as exc:
+        if not is_interruption(exc):
+            raise
+        # The corpus segment is closed; the job fails so a resume (every
+        # artifact a cache hit) rebuilds the data and evals it did not finish.
+        state.status = "failed"
+        state.error = {"message": str(exc), "type": type(exc).__name__}
+        state.finished_at = datetime.now(UTC).isoformat()
+        write_job_state(world_dir, state)
+        progress.emit(ProgressEvent.now("error", message=str(exc), type=type(exc).__name__))
+        return state
 
     state.status = "done"
     state.finished_at = datetime.now(UTC).isoformat()
@@ -238,6 +251,8 @@ def _build_data(
     try:
         result = execute_data_run(data_config, world_dir=world_dir, on_scenario=started)
     except Exception as exc:  # noqa: BLE001 - data never fails the corpus build
+        if is_interruption(exc):
+            raise  # the provider stopped: fail the job so a resume rebuilds the data
         progress.emit(
             ProgressEvent.now(
                 "warning",
@@ -298,6 +313,8 @@ def write_run_evals(world_dir: Path, *, progress: ProgressSink | None = None) ->
         benchmark.write_jsonl(evals_dir / _QUESTIONS_JSONL)
         return len(benchmark.pairs)
     except Exception as exc:  # noqa: BLE001 - eval generation must never fail the job
+        if is_interruption(exc):
+            raise
         progress.emit(
             ProgressEvent.now(
                 "warning",
