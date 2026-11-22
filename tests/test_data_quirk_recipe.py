@@ -86,8 +86,11 @@ def test_a_varied_recipe_draws_per_table_and_states_what_it_drew(
         for table, quirks in report["tables"].items():
             recipe = report["recipes"][table]
             drawn.append(tuple(sorted(recipe.items())))
-            day = date.fromisoformat(recipe["drift_day"])
-            assert date(2026, 1, 5) < day < date(2026, 2, 27)
+            if not any(q["kind"] == "schema_drift" for q in quirks):
+                assert recipe["drift_day"] is None and recipe["drift_name"] is None, table
+            else:
+                day = date.fromisoformat(recipe["drift_day"])
+                assert date(2026, 1, 5) < day < date(2026, 2, 27)
             for q in quirks:
                 if q["kind"] == "outlier":
                     original, surface = q["original"], q["surface"]

@@ -22,6 +22,9 @@ PINNED = {
     "worlds/data-eng-platform.toml": "brightwater-data-4ce82a188ccf",
     "worlds/analytics-structured-clean.toml": "corvid-analytics-876dab12c875",
     "worlds/analytics-structured-messy.toml": "corvid-analytics-251be658ee48",
+    # [data] is not part of a world's id: a data-only variant shares its twin's id.
+    "worlds/analytics-structured-messy-varied.toml": "corvid-analytics-251be658ee48",
+    "worlds/data-eng-platform-attributes.toml": "brightwater-data-4ce82a188ccf",
     "worlds/docs-only-professional.toml": "harrow-vale-advisory-cba54c864d9b",
     "worlds/retail-chain-ops.toml": "tallow-street-goods-7220fc0e985a",
     "worlds/enterprise-sprawl.toml": "meridian-holdings-8ea3a90f92f0",

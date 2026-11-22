@@ -327,6 +327,8 @@ def apply_data_messiness(
         report["tables"][table["name"]] = quirks
         if declare:
             stated = recipe.stated()
+            if not any(q["kind"] == "schema_drift" for q in quirks):
+                stated["drift_day"] = stated["drift_name"] = None  # no drift in this table
             if cfg.null_policy is not NullPolicy.ANY:
                 stated["null_rule"] = _NULL_RULES[cfg.null_policy]
                 stated["null_columns"] = sorted(

@@ -1,0 +1,58 @@
+# Benchmark world: analytics-structured-messy with a per-table quirk recipe and recoverable nulls
+# (P570529989, asked by sets2-cc for fin sets on day-varying measures).
+#
+# Same seed, org, documents and world id as analytics-structured-messy (the [data] plan is not part of a
+# world's id): only [data.messiness] adds recipe = "varied" (each table draws its drift day, renamed
+# column, unit factor and sign-flip share, stated in quirks.json recipes) and null_policy =
+# "carry_forward" (a null only where the cell repeats the entity's previous dated value). Its clean twin
+# is still analytics-structured-clean.
+#
+#   enterprise-sim world create examples/worlds/analytics-structured-messy-varied.toml
+seed = 104
+worlds_root = "worlds"
+
+[company]
+name = "Corvid Analytics"
+vertical = "analytics"
+size = "medium"
+description = "A marketplace company whose analytics team answers the business's questions."
+
+[simulation]
+period_start = 2026-01-05
+period_end = 2026-03-27
+
+[model]
+backend = "anthropic_api"
+name = "claude-haiku-4-5"
+offline_backend = "synth"
+
+[[departments]]
+archetype = "data_analytics"
+[[departments]]
+archetype = "marketing"
+[[departments]]
+archetype = "sales"
+
+[facts]
+per_project = 8
+change_rate = 0.3
+
+[data]
+scenarios = ["product_growth", "sales_pipeline", "support_ops", "subscription_finance", "marketing_attribution"]
+scale_factor = 0.1  # catalog size (datasets-cc: wave 2 at 0.1); `world data ... --scale 10` for full scale
+iterations = 3
+
+[data.messiness]
+null_rate = 0.04
+duplicate_rate = 0.03
+label_drift_rate = 0.15
+outlier_rate = 0.01
+schema_drift = true
+recipe = "varied"
+null_policy = "carry_forward"
+
+[messiness]
+typo_rate = 0.015
+alias_rate = 0.3
+date_format_mix = 0.4
+duplicate_rate = 0.05

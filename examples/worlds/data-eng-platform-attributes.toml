@@ -1,0 +1,58 @@
+# Benchmark world: data-eng-platform with nulls only in attribute columns (P570529989, sets2-cc).
+#
+# Same seed, org, documents and world id as data-eng-platform: only [data.messiness] adds
+# recipe = "varied" and null_policy = "attributes" (every measure complete; nulls fall on per-entity
+# attributes), with outliers on so the unit factor is drawn per table.
+#
+#   enterprise-sim world create examples/worlds/data-eng-platform-attributes.toml
+seed = 103
+worlds_root = "worlds"
+
+[company]
+name = "Brightwater Data"
+vertical = "data platform"
+size = "medium"
+description = "A subscription analytics vendor whose product is its data pipeline."
+
+[simulation]
+period_start = 2026-01-05
+period_end = 2026-03-27
+
+[model]
+backend = "anthropic_api"
+name = "claude-haiku-4-5"
+offline_backend = "synth"
+
+[[departments]]
+archetype = "data_engineering"
+[[departments]]
+archetype = "data_analytics"
+[[departments]]
+archetype = "engineering"
+
+[facts]
+per_project = 10
+change_rate = 0.5
+max_versions = 4
+stale_rate = 0.2
+conflict_rate = 0.05
+cross_team = 0.9
+
+[messiness]
+typo_rate = 0.01
+alias_rate = 0.2
+date_format_mix = 0.2
+
+[data]
+scenarios = ["product_growth", "support_ops"]
+scale_factor = 0.1  # catalog size (datasets-cc: wave 2 at 0.1); `world data ... --scale 10` for full scale
+iterations = 2
+
+[data.messiness]
+null_rate = 0.02
+duplicate_rate = 0.01
+label_drift_rate = 0.05
+schema_drift = true
+outlier_rate = 0.01
+recipe = "varied"
+null_policy = "attributes"
