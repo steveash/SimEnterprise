@@ -77,6 +77,12 @@ _REPLY_OPENERS: tuple[str, ...] = (
     "Following up on the thread:",
     "Good catch.",
 )
+_CHAT_OPENERS: tuple[str, ...] = (
+    "{posted}, see the doc for details.",
+    "just shared it: {posted} ({topic}).",
+    "{posted}. shout if anything looks off.",
+    "{posted} - main points below.",
+)
 _CONNECTIVES: tuple[str, ...] = (
     "For the record:",
     "As a reminder:",
@@ -137,6 +143,9 @@ def compose(brief: ParsedBrief, rng: random.Random) -> str:
     """Compose the prose for ``brief`` (pure in ``brief`` and the rng state)."""
     kind = (brief.kind or "document").lower()
     topic = _lower_topic(brief.topic, brief.title)
+    if kind.startswith("chat message"):
+        posted = (brief.title or "an update").rstrip(".").lower()
+        return rng.choice(_CHAT_OPENERS).format(posted=posted, topic=topic)
     if brief.is_comment:
         opener = rng.choice(_REPLY_OPENERS if brief.replying else _COMMENT_OPENERS)
         parts = [opener, *_fact_sentences(brief, rng), rng.choice(_COMMENT_CLOSERS)]
