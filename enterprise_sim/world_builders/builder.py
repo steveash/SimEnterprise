@@ -449,6 +449,11 @@ class _WorldBuilder:
             if is_lead:
                 lead_id = person_id
                 self._add_edge(E_LEADS, person_id, team_id)
+                base_title = next(
+                    (t for t in spec.team_lead_roles if shape.title.startswith(t)), None
+                )
+                if base_title is not None:
+                    self._mark_role(person_id, spec.team_lead_roles[base_title])
             else:
                 self._add_edge(E_REPORTS_TO, person_id, lead_id)
         return team_id, members, lead_id

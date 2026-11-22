@@ -11,7 +11,7 @@ def test_sales_registers_with_its_playbook() -> None:
     load_templates()
     spec = ARCHETYPES.get("sales")
     assert isinstance(spec, DepartmentArchetypeSpec)
-    assert spec.team_shapes and spec.lead_role == "sales_lead"
+    assert spec.team_shapes and spec.lead_role == "sales_director"
     assert spec.playbooks == ("run_sales",)
     assert "run_sales" in PLAYBOOKS
 

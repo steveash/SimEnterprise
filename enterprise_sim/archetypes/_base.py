@@ -16,7 +16,7 @@ the concrete archetype modules import :class:`DepartmentArchetypeSpec` from here
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass(slots=True)
@@ -62,3 +62,7 @@ class DepartmentArchetypeSpec:
     #: individual-contributor title noun for this department's people
     #: (``None``: derived from the team title, default ``Specialist``).
     ic_noun: str | None = None
+    #: team-shape title -> ``role`` given to that team's lead, for playbooks
+    #: that select a lead other than the department head (retail's sales lead
+    #: and demand planner).
+    team_lead_roles: dict[str, str] = field(default_factory=dict)

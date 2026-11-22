@@ -40,5 +40,11 @@ RETAIL = ARCHETYPES.register(
             ),
         ),
         playbooks=("sell_merchandise",),
+        # sell_merchandise chairs its weekly review with a sales lead and has a
+        # demand planner forecast; the department head is the buyer.
+        team_lead_roles={
+            "Store Operations": "sales_lead",
+            "Inventory / Replenishment": "demand_planner",
+        },
     )
 )

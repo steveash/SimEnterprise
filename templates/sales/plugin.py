@@ -45,7 +45,7 @@ SALES = register_kit(
                 ),
             ),
         ),
-        lead_role="sales_lead",
+        lead_role="sales_director",
         docs=(
             DocSpec(
                 "kickoff",

@@ -151,7 +151,9 @@ def test_every_kit_department_produces_authored_documents(tmp_path: Any) -> None
         {
             **_BASE,
             "simulation": {"period_start": "2026-01-05", "period_end": "2026-02-27"},
-            "departments": [{"archetype": name} for name in _KITS],
+            # retail too: its playbook selects a sales lead and a demand planner,
+            # which the archetype's team_lead_roles provide.
+            "departments": [{"archetype": name} for name in (*_KITS, "retail")],
             "worlds_root": str(tmp_path),
         }
     )
