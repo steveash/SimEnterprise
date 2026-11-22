@@ -91,8 +91,7 @@ def test_knowledge_drafts_point_at_materialized_paths_that_state_the_value(
         assert fact["value_kind"] in ("person", "token")
         for stale in fact["stale_values"]:
             assert stale["value"] != fact["current"]["value"]
-            if stale["clean"]:  # no document stating the current value states it
-                assert not set(fact["documents"].get("current", [])) & set(stale["documents"])
+            assert stale["stance"] in ("stale", "conflicting") and stale["documents"]
         for paths in fact["documents"].values():
             for path in paths:
                 assert (export / path.removeprefix(f"{MATERIALIZED_DOCS}/")).is_file()
@@ -147,3 +146,22 @@ def test_each_project_slice_carries_a_dated_trail(world_dir: Path, tmp_path: Pat
             assert re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", row["logged_at"])
             assert "," not in row["summary"] and row["author"]
             assert row["document"] in entry["files"]
+
+
+def test_a_misleading_value_is_clean_only_if_no_current_reader_meets_it() -> None:
+    from enterprise_sim.worlds.slice import _stale_values
+
+    def edge(doc: str, value: str, stance: str) -> dict:  # type: ignore[type-arg]
+        return {"src": doc, "props": {"value": value, "stance": stance}}
+
+    paths = {d: f"environment/docs/simx/{d}.md" for d in ("a", "b", "c")}
+    edges = [
+        edge("a", "v2.0", "current"),  # states the value true at the cut
+        edge("a", "v1.2", "stale"),  # ...and, in the same doc, an old one
+        edge("b", "v3.1", "stale"),  # only stated by a doc that never states v2.0
+        edge("c", "v4.0", "conflicting"),
+    ]
+    found = {o["value"]: o for o in _stale_values(edges, paths, {"value": "v2.0"})}
+    assert set(found) == {"v1.2", "v3.1", "v4.0"}
+    assert found["v1.2"]["clean"] is False
+    assert found["v3.1"]["clean"] is True and found["v4.0"]["stance"] == "conflicting"
