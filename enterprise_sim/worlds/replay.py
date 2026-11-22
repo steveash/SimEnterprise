@@ -30,7 +30,7 @@ def replay_export(export_dir: Path | str, worlds_root: Path | str) -> Path:
     from enterprise_sim.core.llm import LLMClient, LLMConfig
     from enterprise_sim.core.llm.cache import ResponseCache
     from enterprise_sim.exporters.text_export import REPLAY_KEY_BACK, REPLAY_USAGE_KEYS
-    from enterprise_sim.worlds.file import write_world
+    from enterprise_sim.worlds.file import WorldFile, update_world, write_world
 
     export_dir = Path(export_dir)
     manifest = json.loads((export_dir / "export.json").read_text(encoding="utf-8"))
@@ -80,7 +80,23 @@ def replay_export(export_dir: Path | str, worlds_root: Path | str) -> Path:
             cache=ResponseCache(str(cache_dir), enabled=True),
         )
     )
+    if config.data.scenarios and config.data.authoring.value == "llm":
+        raise ReplayError("llm-authored data specs are not recorded; replay supports template data")
     execute_run(config, client=client, live=live, world_dir=world_dir)
+    # The rest of a build, as the job worker runs it: data products (template
+    # authoring makes no model call) and the eval questions.
+    from enterprise_sim.jobs.progress import NullSink
+    from enterprise_sim.jobs.worker import _build_data, _finalize
+
+    if config.data.scenarios:
+        _build_data(world_dir, config, live=False, progress=NullSink())
+    _finalize(world_dir, NullSink())
+
+    def done(world: WorldFile) -> None:
+        world.job.status = "done"
+        world.job.phase = "done"
+
+    update_world(world_dir, done)
     return world_dir
 
 

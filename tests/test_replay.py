@@ -17,7 +17,9 @@ def _build(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> Path:
         "seed = 4\n"
         '[company]\nname = "Replay Co"\nvertical = "software"\nsize = "small"\n'
         "[simulation]\nperiod_start = 2026-01-05\nperiod_end = 2026-02-06\n"
-        '[model]\noffline_backend = "synth"\n[facts]\nper_project = 5\n[chat]\nrate = 0.3\n',
+        '[model]\noffline_backend = "synth"\n[facts]\nper_project = 5\n[chat]\nrate = 0.3\n'
+        '[data]\nscenarios = ["support_ops"]\nscale_factor = 0.02\niterations = 1\n'
+        "rows_per_partition = 50000\n",
         encoding="utf-8",
     )
     root = tmp_path / "worlds"
@@ -50,6 +52,12 @@ def test_replay_rebuilds_the_same_documents(
     rebuilt = replay_export(export, tmp_path / "again")
     assert rebuilt.name == world_dir.name
     assert _artifacts(rebuilt) == _artifacts(world_dir)
+    again = export_world(rebuilt, tmp_path / "out2", with_replay=True).directory
+    for sub in ("data", "evals", "kg"):
+        for path in sorted((export / sub).rglob("*")):
+            if path.is_file():
+                twin = again / path.relative_to(export)
+                assert twin.read_bytes() == path.read_bytes(), path
 
 
 def test_replay_of_a_live_world_without_responses_is_refused(
