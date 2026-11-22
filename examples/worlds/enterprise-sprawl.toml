@@ -1,0 +1,73 @@
+# Benchmark world: a sprawling enterprise (many departments, high volume, cross-team dependencies).
+#
+# Every department kind the simulator has, several squads per team, over six
+# months: high document volume, dense cross-team dependencies (and the stale
+# cross-team facts that come with them), turnover and transfers, moderate noise,
+# plus sales and support data. For scale, ranking and cross-team retrieval.
+#
+#   enterprise-sim world create examples/worlds/enterprise-sprawl.toml
+seed = 107
+worlds_root = "worlds"
+
+[company]
+name = "Meridian Holdings"
+vertical = "software"
+size = "enterprise"
+description = "A diversified software and services group with a retail arm."
+
+[simulation]
+period_start = 2026-01-05
+period_end = 2026-06-26
+
+[model]
+backend = "anthropic_api"
+name = "claude-haiku-4-5"
+offline_backend = "synth"
+
+[[departments]]
+archetype = "engineering"
+[[departments]]
+archetype = "data_engineering"
+[[departments]]
+archetype = "data_analytics"
+[[departments]]
+archetype = "security"
+[[departments]]
+archetype = "finance"
+[[departments]]
+archetype = "people_ops"
+[[departments]]
+archetype = "support"
+[[departments]]
+archetype = "sales"
+[[departments]]
+archetype = "marketing"
+[[departments]]
+archetype = "legal"
+[[departments]]
+archetype = "retail"
+
+[org]
+squads_per_team = "1..3"
+turnover_rate = 0.12
+transfer_rate = 0.08
+
+[facts]
+per_project = 8
+change_rate = 0.4
+stale_rate = 0.15
+conflict_rate = 0.05
+cross_team = 0.9
+cross_team_stale_boost = 2.5
+
+[messiness]
+typo_rate = 0.008
+alias_rate = 0.2
+date_format_mix = 0.25
+duplicate_rate = 0.05
+filler_rate = 0.1
+
+[data]
+scenarios = ["sales_pipeline", "support_ops"]
+scale_factor = 1.0
+iterations = 2

@@ -1,0 +1,45 @@
+# Benchmark world: a document-only professional-services firm (structure-free, privacy-sensitive).
+#
+# Legal, finance and people operations over six months, with no structured
+# data at all. People ops writes candidate debriefs, offer approvals and
+# performance notes (sensitive-category content); legal reviews contracts and
+# DPAs; finance raises invoice exceptions. Turnover replaces staff mid-window.
+# For test sets on private-vs-shared memory, retention and long time spans.
+#
+#   enterprise-sim world create examples/worlds/docs-only-professional.toml
+seed = 105
+worlds_root = "worlds"
+
+[company]
+name = "Harrow & Vale Advisory"
+vertical = "professional services"
+size = "medium"
+description = "A mid-sized advisory firm serving regulated clients."
+
+[simulation]
+period_start = 2026-01-05
+period_end = 2026-06-26
+
+[model]
+backend = "anthropic_api"
+name = "claude-haiku-4-5"
+offline_backend = "synth"
+
+[[departments]]
+archetype = "legal"
+[[departments]]
+archetype = "finance"
+[[departments]]
+archetype = "people_ops"
+
+[facts]
+per_project = 7
+change_rate = 0.35
+stale_rate = 0.15
+
+[messiness]
+alias_rate = 0.2
+date_format_mix = 0.3
+
+[org]
+turnover_rate = 0.25

@@ -86,6 +86,10 @@ class FactRecord:
     attribute: Attribute
     versions: list[Version] = field(default_factory=list)
     announced: set[int] = field(default_factory=set)
+    #: every value the fact takes over the whole horizon, beyond the window too:
+    #: a "conflicting" value is one outside this set, so extending the window
+    #: never turns a past wrong statement into a merely early one.
+    horizon_values: set[str] = field(default_factory=set)
 
     def version_at(self, at: datetime) -> Version:
         current = self.versions[0]
@@ -144,30 +148,41 @@ def _slug(text: str) -> str:
 
 
 def _people_of(world: World, department: str) -> tuple[str, ...]:
+    """The department's founding staff (successors excluded).
+
+    Successors exist only once their join date is inside the window, so drawing
+    owner values from them would make a past fact depend on the window end.
+    """
     names = [
         str(n.props.get("name"))
         for n in world.nodes_by_type("Person")
-        if n.props.get("department") == department and n.props.get("name")
+        if n.props.get("department") == department
+        and n.props.get("name")
+        and "joined_at" not in n.props
     ]
     return tuple(sorted(names))
 
 
+#: Change moments are drawn over this horizon from the ledger start, not up to
+#: the window end, so a fact's history is the same whatever the window: extending
+#: a world reveals later versions and never rewrites earlier ones.
+_HORIZON = timedelta(days=182)
+_GAP = timedelta(days=5)
+
+
 def _change_moments(
-    rng: random.Random, cfg: FactsConfig, attr: Attribute, start: datetime, end: datetime
+    rng: random.Random, cfg: FactsConfig, attr: Attribute, start: datetime
 ) -> list[datetime]:
     moments: list[datetime] = []
-    floor = start + timedelta(days=5)
+    floor = start + _GAP
+    per_draw = _HORIZON / max(1, cfg.max_versions - 1)
     for _ in range(cfg.max_versions - 1):
-        if rng.random() >= min(1.0, cfg.change_rate * attr.volatile):
-            continue
-        ceiling = end - timedelta(days=3)
-        if ceiling <= floor:
-            break
-        span = int((ceiling - floor).total_seconds() // 3600)
-        moment = floor + timedelta(hours=rng.randint(0, span))
-        moment = datetime.combine(moment.date(), time(9, 0))
-        moments.append(moment)
-        floor = moment + timedelta(days=5)
+        changes = rng.random() < min(1.0, cfg.change_rate * attr.volatile)
+        offset = rng.randint(0, int(per_draw.total_seconds() // 3600))
+        moment = datetime.combine((floor + timedelta(hours=offset)).date(), time(9, 0))
+        if changes:
+            moments.append(moment)
+        floor = max(floor, moment) + _GAP
     return moments
 
 
@@ -193,12 +208,16 @@ def build_ledger(world: World, cfg: FactsConfig, *, seed: int, start: date, end:
             fact_id = f"fact:{_slug(project.id.split(':', 1)[-1])}:{attr.name}"
             record = FactRecord(fact_id, project.id, name, department, attr)
             value = attr.draw(rng, ctx)
-            moments = _change_moments(rng, cfg, attr, t0, t1)
+            moments = _change_moments(rng, cfg, attr, t0)
             froms = [t0, *moments]
             for i, valid_from in enumerate(froms):
                 if i > 0:
                     value = attr.mutate(rng, value, ctx)
-                valid_to = froms[i + 1] if i + 1 < len(froms) else None
+                record.horizon_values.add(value)
+                if valid_from > t1:
+                    continue  # a later version: drawn (stable), not yet in the window
+                following = froms[i + 1] if i + 1 < len(froms) else None
+                valid_to = following if following is not None and following <= t1 else None
                 record.versions.append(Version(i + 1, value, valid_from, valid_to))
             ledger.facts[fact_id] = record
             ids.append(fact_id)
@@ -218,9 +237,10 @@ def build_ledger(world: World, cfg: FactsConfig, *, seed: int, start: date, end:
 # -- assigning ---------------------------------------------------------------- #
 
 
-def _distractor(rng: random.Random, record: FactRecord, ctx: Context) -> str:
-    seen = {v.value for v in record.versions}
-    value = record.versions[-1].value
+def _distractor(rng: random.Random, record: FactRecord, ctx: Context, true: Version) -> str:
+    """A plausible value near the one true at the time, never true over the horizon."""
+    seen = record.horizon_values | {v.value for v in record.versions}
+    value = true.value
     for _ in range(8):
         value = record.attribute.mutate(rng, value, ctx)
         if value not in seen:
@@ -322,8 +342,8 @@ def _assert(
         return made("stale", old_version.value, text, old_version.number)
     roll = rng.random()
     if roll < cfg.conflict_rate:
-        wrong = _distractor(rng, record, ctx)
-        if all(wrong != v.value for v in record.versions):
+        wrong = _distractor(rng, record, ctx, true)
+        if wrong not in record.horizon_values and all(wrong != v.value for v in record.versions):
             return made(
                 "conflicting", wrong, attr.state(template, subject=subject, value=wrong), None
             )

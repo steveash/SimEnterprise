@@ -308,3 +308,21 @@ def test_table_cells_follow_the_package_rules(world_dir: Path, tmp_path: Path) -
         with (result.directory / table["path"]).open(newline="", encoding="utf-8") as fh:
             rows = list(csv.reader(fh))
         assert all(len(row) == len(kinds) for row in rows)
+
+
+def test_world_profile_summarizes_a_world(world_dir: Path) -> None:
+    from enterprise_sim.worlds.profile import profile_world
+
+    profile = profile_world(world_dir)
+    assert profile["world_id"] == world_dir.name
+    assert profile["org"]["people"] > 0 and profile["org"]["departments"]
+    assert profile["documents"]["artifacts"] > 0
+    assert profile["documents"]["authored_share"] == 1.0
+    assert set(profile["data"]) == {"support_ops"}
+    assert profile["data"]["support_ops"]["rows"] > 0
+    assert profile["kg"]["nodes"] > 0
+
+
+def test_world_profile_cli(world_dir: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    assert main(["world", "profile", str(world_dir)]) == 0
+    assert json.loads(capsys.readouterr().out)["world_id"] == world_dir.name

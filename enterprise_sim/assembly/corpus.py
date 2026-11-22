@@ -350,7 +350,7 @@ def _people_by_department(world: World) -> dict[str, tuple[str, ...]]:
     out: dict[str, list[str]] = {}
     for node in world.nodes_by_type("Person"):
         name = node.props.get("name")
-        if name:
+        if name and "joined_at" not in node.props:
             out.setdefault(str(node.props.get("department", "")), []).append(str(name))
     return {dept: tuple(sorted(names)) for dept, names in out.items()}
 

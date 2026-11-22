@@ -1,0 +1,44 @@
+# Benchmark world: a retail chain's operations (industry: retail).
+#
+# Retail merchandising with its finance, marketing and customer-support
+# functions over one quarter. Suppliers switch, reorder points and margin
+# targets move, launches change region. Moderately noisy documents.
+#
+#   enterprise-sim world create examples/worlds/retail-chain-ops.toml
+seed = 106
+worlds_root = "worlds"
+
+[company]
+name = "Tallow Street Goods"
+vertical = "retail"
+size = "large"
+description = "A regional home-goods chain with forty stores and an online shop."
+
+[simulation]
+period_start = 2026-01-05
+period_end = 2026-03-27
+
+[model]
+backend = "anthropic_api"
+name = "claude-haiku-4-5"
+offline_backend = "synth"
+
+[[departments]]
+archetype = "retail"
+[[departments]]
+archetype = "finance"
+[[departments]]
+archetype = "marketing"
+[[departments]]
+archetype = "support"
+
+[facts]
+per_project = 7
+change_rate = 0.4
+stale_rate = 0.2
+conflict_rate = 0.05
+
+[messiness]
+typo_rate = 0.01
+alias_rate = 0.25
+duplicate_rate = 0.08

@@ -1,0 +1,55 @@
+# Benchmark world: a messy, churning product-engineering org (coding team, messy).
+#
+# Engineering with its security and support neighbours over one quarter. Facts
+# change often (launch dates slip, datastores migrate, owners hand over); many
+# documents state superseded or wrong values; people leave and join; the prose
+# is noisy (typos, nicknames, mixed date formats, duplicates, chatter).
+# Pair with coding-team-clean for clean-vs-messy comparisons.
+#
+#   enterprise-sim world create examples/worlds/coding-team-messy.toml
+seed = 102
+worlds_root = "worlds"
+
+[company]
+name = "Quillfeather Software"
+vertical = "software"
+size = "medium"
+description = "A growth-stage B2B SaaS company selling workflow automation."
+
+[simulation]
+period_start = 2026-01-05
+period_end = 2026-03-27
+
+[model]
+backend = "anthropic_api"
+name = "claude-haiku-4-5"
+offline_backend = "synth"
+
+[[departments]]
+archetype = "engineering"
+[[departments]]
+archetype = "security"
+[[departments]]
+archetype = "support"
+
+[facts]
+per_project = 9
+change_rate = 0.6
+max_versions = 4
+stale_rate = 0.3
+conflict_rate = 0.1
+hedge_rate = 0.15
+cross_team = 0.8
+
+[messiness]
+typo_rate = 0.02
+alias_rate = 0.35
+date_format_mix = 0.5
+duplicate_rate = 0.1
+drop_header_rate = 0.15
+filler_rate = 0.2
+
+[org]
+squads_per_team = "1..2"
+turnover_rate = 0.2
+transfer_rate = 0.1

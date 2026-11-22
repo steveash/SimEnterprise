@@ -35,6 +35,9 @@ E_REPORTS_TO = "reports_to"
 E_LEADS = "leads"
 E_REPLACES = "replaces"
 
+#: Turnover dates are drawn over this many days from the window start.
+_HORIZON_DAYS = 182
+
 
 def _day(start: datetime, rng_offset: int) -> datetime:
     return datetime.combine((start + timedelta(days=rng_offset)).date(), time(9, 0))
@@ -51,6 +54,9 @@ def apply_turnover(
     span = (config.simulation.period_end - config.simulation.period_start).days
     if span < 14:
         return
+    # Dates are drawn over a fixed horizon, not the window, so extending a
+    # world's window never moves a past departure; later ones are skipped.
+    horizon = _HORIZON_DAYS
     leads = {e.src for e in world.edges_by_type(E_LEADS)}
     people = [p for p in world.nodes_by_type("Person") if p.id not in leads]
     teams_by_dept: dict[str, list[str]] = {}
@@ -58,16 +64,20 @@ def apply_turnover(
         teams_by_dept.setdefault(str(team.props.get("department", "")), []).append(team.id)
     for person in people:
         rng = ctx.rng("turnover", person.id)
-        if rng.random() < org.turnover_rate:
-            left = _day(t0, rng.randint(10, max(11, span - 5)))
-            _leave(world, person, left, rng.randint(3, 14), ctx, slugs, t0, span)
+        leaves = rng.random() < org.turnover_rate
+        left = _day(t0, rng.randint(10, horizon))
+        gap = rng.randint(3, 14)
+        if leaves:
+            if (left - t0).days <= span - 5:
+                _leave(world, person, left, gap, ctx, slugs, t0, span)
             continue
-        if rng.random() < org.transfer_rate:
+        moves = rng.random() < org.transfer_rate
+        moved = _day(t0, rng.randint(7, horizon))
+        if moves and (moved - t0).days <= span - 3:
             dept = str(person.props.get("department", ""))
             current = _team_of(world, person.id)
             options = [t for t in teams_by_dept.get(dept, []) if t != current]
             if options and current is not None:
-                moved = _day(t0, rng.randint(7, max(8, span - 3)))
                 _transfer(world, person, current, rng.choice(sorted(options)), moved)
 
 

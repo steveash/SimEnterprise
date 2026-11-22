@@ -1,0 +1,31 @@
+# Benchmark world: a tiny startup over a full year (long time span, deep fact histories).
+#
+# One engineering team for twelve months. Few people, few documents per week,
+# but every fact can change up to six times, so "what is X now / what was X in
+# March" questions need recency, not just recall.
+#
+#   enterprise-sim world create examples/worlds/startup-long-horizon.toml
+seed = 108
+worlds_root = "worlds"
+
+[company]
+name = "Fennel Robotics"
+vertical = "software"
+size = "startup"
+description = "A three-founder startup writing fleet software for warehouse robots."
+
+[simulation]
+period_start = 2025-07-07
+period_end = 2026-06-26
+
+[model]
+backend = "anthropic_api"
+name = "claude-haiku-4-5"
+offline_backend = "synth"
+
+[facts]
+per_project = 10
+change_rate = 0.45
+max_versions = 6
+stale_rate = 0.2
+conflict_rate = 0.03

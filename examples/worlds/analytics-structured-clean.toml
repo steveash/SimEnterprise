@@ -1,0 +1,42 @@
+# Benchmark world: a structure-heavy analytics shop, CLEAN data (priority family: data analysis).
+#
+# Analytics leads, with marketing and sales as its customers. All five data
+# scenarios at full scale over a quarter: the documents (analysis requests and
+# reports, metric definitions, experiment readouts) sit on top of large, clean
+# tables and views. Twin of analytics-structured-messy (same seed and org; only
+# [data.messiness] and [messiness] differ), for controlled clean-vs-messy runs.
+#
+#   enterprise-sim world create examples/worlds/analytics-structured-clean.toml
+seed = 104
+worlds_root = "worlds"
+
+[company]
+name = "Corvid Analytics"
+vertical = "analytics"
+size = "medium"
+description = "A marketplace company whose analytics team answers the business's questions."
+
+[simulation]
+period_start = 2026-01-05
+period_end = 2026-03-27
+
+[model]
+backend = "anthropic_api"
+name = "claude-haiku-4-5"
+offline_backend = "synth"
+
+[[departments]]
+archetype = "data_analytics"
+[[departments]]
+archetype = "marketing"
+[[departments]]
+archetype = "sales"
+
+[facts]
+per_project = 8
+change_rate = 0.3
+
+[data]
+scenarios = ["product_growth", "sales_pipeline", "support_ops", "subscription_finance", "marketing_attribution"]
+scale_factor = 1.0
+iterations = 3

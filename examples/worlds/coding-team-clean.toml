@@ -1,0 +1,35 @@
+# Benchmark world: a clean, small coding team (priority family: coding team).
+#
+# One engineering department of a software startup over one quarter. Facts
+# change rarely and documents state them correctly: a low-noise baseline for
+# "does memory help a coding agent recall decisions" test sets.
+#
+#   enterprise-sim world create examples/worlds/coding-team-clean.toml
+seed = 101
+worlds_root = "worlds"
+
+[company]
+name = "Larkspur Labs"
+vertical = "software"
+size = "small"
+description = "A seed-stage developer-tools startup building a hosted CI cache."
+
+[simulation]
+period_start = 2026-01-05
+period_end = 2026-03-27
+
+[model]
+backend = "anthropic_api"
+name = "claude-haiku-4-5"
+offline_backend = "synth"
+
+[facts]
+per_project = 8
+change_rate = 0.15
+stale_rate = 0.0
+conflict_rate = 0.0
+hedge_rate = 0.0
+
+[[projects]]
+name = "Cache Eviction Rewrite"
+description = "Replace the LRU cache eviction with a cost-aware policy."

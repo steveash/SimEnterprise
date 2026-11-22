@@ -303,3 +303,34 @@ def test_ledger_questions_join_the_world_benchmark(
             assert nodes[vid]["props"]["value"] == pair.expected_label
     for pair in conflict:
         assert all(nodes[a]["type"] == "Artifact" for a in pair.expected_ids)
+
+
+def test_extending_the_window_never_rewrites_a_past_document(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Facts, turnover, noise and conflicts are drawn over a fixed horizon, not the window."""
+    world_dir = _build(
+        tmp_path,
+        capsys,
+        '[model]\noffline_backend = "synth"\n'
+        "[facts]\nper_project = 8\nchange_rate = 0.7\nmax_versions = 5\nstale_rate = 0.3\n"
+        "conflict_rate = 0.3\ncross_team = 1.0\n"
+        "[messiness]\ntypo_rate = 0.02\nalias_rate = 0.3\ndate_format_mix = 0.4\n"
+        "duplicate_rate = 0.2\nfiller_rate = 0.2\n"
+        "[org]\nturnover_rate = 0.3\ntransfer_rate = 0.2\n",
+    )
+    before = {
+        p.relative_to(world_dir): p.read_bytes()
+        for p in (world_dir / "artifacts").rglob("*")
+        if p.is_file()
+    }
+    assert main(["world", "extend", str(world_dir), "--period-end", "2026-04-24"]) == 0
+    capsys.readouterr()
+    after = {
+        p.relative_to(world_dir): p.read_bytes()
+        for p in (world_dir / "artifacts").rglob("*")
+        if p.is_file()
+    }
+    assert len(after) > len(before)
+    changed = [str(path) for path, data in before.items() if after.get(path) != data]
+    assert changed == []

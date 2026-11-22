@@ -66,9 +66,13 @@ def _choice(values: Sequence[str]) -> tuple[Draw, Mutate]:
     return draw, mutate
 
 
+#: Launch dates land 6 to 22 weeks after the ledger starts. Fixed (not tied to
+#: the window end) so extending a world's window never redraws a past fact.
+_DATE_SPAN_DAYS = (42, 154)
+
+
 def _date_draw(rng: random.Random, ctx: Context) -> str:
-    span = max(7, (ctx.end - ctx.start).days)
-    offset = rng.randint(span // 2, span + 70)
+    offset = rng.randint(*_DATE_SPAN_DAYS)
     return (ctx.start + timedelta(days=offset)).isoformat()
 
 
