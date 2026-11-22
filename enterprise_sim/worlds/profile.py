@@ -98,11 +98,25 @@ def profile_world(world_dir: Path | str) -> dict[str, Any]:
             else 0.0,
             "references": edge_types.get("references", 0),
             "quirks": dict(sorted(quirks.items())),
+            "sensitive": dict(
+                sorted(
+                    Counter(
+                        str(label["category"])
+                        for a in artifacts
+                        for label in a["props"].get("sensitive", []) or []
+                    ).items()
+                )
+            ),
+            "chat_threads": sum(1 for a in artifacts if a["props"].get("kind") == "chat_thread"),
+            "code_files": sum(1 for a in artifacts if a["props"].get("medium") == "code"),
         },
         "facts": {
             "facts": len(versions),
             "versions": sum(versions),
             "changed": sum(1 for v in versions if v > 1),
+            "retracted": sum(
+                1 for n in nodes if n["type"] == "FactVersion" and n["props"].get("retracted_at")
+            ),
             "assertions": dict(sorted(stances.items())),
         },
         "data": data,
