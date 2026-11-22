@@ -43,6 +43,10 @@ def test_replay_rebuilds_the_same_documents(
     manifest = json.loads((export / "export.json").read_text(encoding="utf-8"))
     files = {f["path"]: f for f in manifest["files"]}
     assert files["replay/llm-cache.jsonl"]["role"] == "gold"
+    first = json.loads(
+        (export / "replay/llm-cache.jsonl").read_text(encoding="utf-8").splitlines()[0]
+    )
+    assert not any(ch.isdigit() for ch in first["key"])  # no digit run can read as a card
     rebuilt = replay_export(export, tmp_path / "again")
     assert rebuilt.name == world_dir.name
     assert _artifacts(rebuilt) == _artifacts(world_dir)

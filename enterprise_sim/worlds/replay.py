@@ -29,7 +29,7 @@ def replay_export(export_dir: Path | str, worlds_root: Path | str) -> Path:
     from enterprise_sim.core.config import WorldConfig
     from enterprise_sim.core.llm import LLMClient, LLMConfig
     from enterprise_sim.core.llm.cache import ResponseCache
-    from enterprise_sim.exporters.text_export import REPLAY_USAGE_KEYS
+    from enterprise_sim.exporters.text_export import REPLAY_KEY_BACK, REPLAY_USAGE_KEYS
     from enterprise_sim.worlds.file import write_world
 
     export_dir = Path(export_dir)
@@ -59,7 +59,8 @@ def replay_export(export_dir: Path | str, worlds_root: Path | str) -> Path:
                 completion["usage"] = {
                     back.get(k, k): v for k, v in (completion.get("usage") or {}).items()
                 }
-                (cache_dir / f"{entry['key']}.json").write_text(
+                key = str(entry["key"]).translate(REPLAY_KEY_BACK)
+                (cache_dir / f"{key}.json").write_text(
                     json.dumps(completion, sort_keys=True, indent=2), encoding="utf-8"
                 )
     live = backend not in ("fake", "synth")

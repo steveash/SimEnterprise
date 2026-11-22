@@ -629,6 +629,18 @@ REPLAY_USAGE_KEYS = {
 }
 
 
+#: Request keys are sha256 hex; a run of 15-16 decimal digits inside one can pass
+#: Luhn and read as a card number, so the replay file spells hex digits 0-9 as
+#: letters g-p (``worlds.replay`` reverses it).
+REPLAY_KEY_DIGITS = str.maketrans("0123456789", "ghijklmnop")
+REPLAY_KEY_BACK = str.maketrans("ghijklmnop", "0123456789")
+
+
+def replay_key(key: str) -> str:
+    """A cache key as written in the replay file (no decimal digits)."""
+    return key.translate(REPLAY_KEY_DIGITS)
+
+
 def replay_record(path: Path) -> dict[str, Any]:
     """One cached response as a replay-file record (usage keys renamed)."""
     data: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
@@ -721,7 +733,7 @@ def export_world(
         cache = world_dir / ".cache" / "llm"
         lines = [
             json.dumps(
-                {"key": path.stem, "completion": replay_record(path)},
+                {"key": replay_key(path.stem), "completion": replay_record(path)},
                 sort_keys=True,
                 ensure_ascii=False,
             )
