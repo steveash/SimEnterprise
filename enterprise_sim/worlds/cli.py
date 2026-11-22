@@ -978,3 +978,7 @@ def add_world_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentPar
     from enterprise_sim.worlds.profile import add_profile_parser
 
     add_profile_parser(world_subparsers)
+
+    from enterprise_sim.worlds.slice import add_slice_parser
+
+    add_slice_parser(world_subparsers)

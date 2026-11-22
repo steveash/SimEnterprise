@@ -201,7 +201,7 @@ GENERIC: tuple[Attribute, ...] = (
 
 _store = _choice(("PostgreSQL", "MySQL", "DynamoDB", "Cassandra", "CockroachDB", "MongoDB"))
 _latency = _number((150, 200, 250, 300, 400, 500), " ms")
-_api = _choice(("v1", "v2", "v3", "v4"))
+_api = _choice(("v1.2", "v2.0", "v2.3", "v3.1", "v4.0"))
 _deploy = _choice(("daily", "twice a week", "weekly", "once per sprint"))
 _flag = _choice(("checkout_v2", "new_onboarding", "fast_search", "bulk_export", "sso_login"))
 
@@ -325,7 +325,7 @@ _table = _choice(
     )
 )
 _sla = _choice(("by 06:00 UTC", "by 09:00 UTC", "within two hours", "within 30 minutes"))
-_schema = _choice(("v3", "v4", "v5", "v6", "v7"))
+_schema = _choice(("v3.0", "v3.2", "v4.0", "v4.1", "v5.0"))
 _retention = _choice(("90 days", "13 months", "two years", "seven years"))
 
 DATA_ENGINEERING: tuple[Attribute, ...] = (

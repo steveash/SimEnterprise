@@ -14,8 +14,9 @@ bookkeeping (``.world``, ``.jobs/``, ``.cache/``) that changes on every build.
 * a CSV rendering of every parquet table and view (``tables/<name>.csv``), with
   its column schema, primary key and foreign keys recorded in ``export.json``;
 * ``export.json``: the format tag, the world identity (id, config digest, seed,
-  prose backend, SimEnterprise version and commit) and every file with its path,
-  media type, sha256, byte size and **role**.
+  prose backend, SimEnterprise version and commit), every file with its path,
+  media type, sha256, byte size and **role**, and ``slices``: one per project,
+  ``{name, description, files}`` (see :mod:`enterprise_sim.worlds.slice`).
 
 Roles split what an agent may read from the answer key: ``data`` (documents,
 organization pages, tables) and ``gold`` (the knowledge graph, eval questions,
@@ -557,6 +558,14 @@ def export_world(world_dir: Path | str, out_root: Path | str) -> ExportResult:
             }
         )
 
+    from enterprise_sim.worlds.slice import project_slices
+
+    slices = project_slices(world_dir)
+    for entry in slices:
+        missing = [f for f in entry["files"] if f not in writer.paths]
+        if missing:
+            raise ExportError(f"slice {entry['name']}: files not in the export: {missing[:3]}")
+
     commit, dirty = _git_commit(Path(__file__).resolve().parents[2])
     manifest = {
         "format": EXPORT_FORMAT,
@@ -571,6 +580,7 @@ def export_world(world_dir: Path | str, out_root: Path | str) -> ExportResult:
         "counts": world.counts,
         "files": sorted(writer.files, key=lambda f: f["path"]),
         "tables": sorted(writer.tables, key=lambda t: t["name"]),
+        "slices": slices,
     }
     body = json.dumps(manifest, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     (target / "export.json").write_bytes(body.encode("utf-8"))
