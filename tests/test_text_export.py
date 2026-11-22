@@ -376,3 +376,24 @@ def test_bedrock_ids_are_priced_as_their_model() -> None:
     from enterprise_sim.core.llm.pricing import PRICING, pricing_for
 
     assert pricing_for("us.anthropic.claude-haiku-5-5") == PRICING["claude-haiku-5-5"]
+
+
+def test_name_guard_breaks_unknown_given_name_pairs_only() -> None:
+    from enterprise_sim.exporters.text_export import NameGuard
+
+    guard = NameGuard(
+        ["Elena Cho"], ["Acme"], {"Revenue Dashboard", "Elena Cho"}, {"Elena", "Dario"}
+    )
+    text = "Elena Cho met Dario. Elena Topic was set. The Revenue Dashboard grew."
+    out = guard.apply(text, "artifacts/a.md")
+    assert out == "Elena Cho met Dario. Elena, Topic was set. The Revenue Dashboard grew."
+    assert guard.report() == [{"path": "artifacts/a.md", "pair": "Elena Topic", "count": 1}]
+    assert guard.roster() == {"people": ["Elena Cho"], "organizations": ["Acme"]}
+
+
+def test_exports_carry_a_roster(world_dir: Path, tmp_path: Path) -> None:
+    result = export_world(world_dir, tmp_path / "out")
+    manifest = json.loads((result.directory / "export.json").read_text(encoding="utf-8"))
+    assert manifest["roster"]["people"] and "Acme" in manifest["roster"]["organizations"]
+    assert manifest["prose_model"] is None  # not a live world
+    assert manifest["name_guard"] == []

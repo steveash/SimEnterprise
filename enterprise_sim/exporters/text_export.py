@@ -649,6 +649,83 @@ def replay_record(path: Path) -> dict[str, Any]:
     return data
 
 
+class NameGuard:
+    """Keeps exported prose free of person-like name pairs that are not the world's people.
+
+    A dataset catalog refuses any capitalised ``<given name> <Name>`` pair that
+    is not in the export's roster (a live model can glue a name to a heading
+    word: "Elena Topic"). For every such pair whose first word is a given name of
+    the simulator's name bank, and which is neither a roster person nor any other
+    surface of the world's KG, the export writes ``<given name>, <Name>`` and
+    records the change (``export.json`` ``name_guard``). Deterministic, so a
+    replayed world exports identically; the world's own files are untouched.
+    """
+
+    _PAIR = re.compile(r"\b([A-Z][a-z]+) ([A-Z][a-z]+)\b")
+
+    def __init__(self, people: list[str], orgs: list[str], surfaces: set[str], given: set[str]):
+        self._people = people
+        self._orgs = orgs
+        # every adjacent word pair inside a KG surface ("Revenue Dashboard Team")
+        self._surface_pairs = {
+            f"{a} {b}"
+            for surface in surfaces
+            for a, b in zip(surface.split(), surface.split()[1:], strict=False)
+        }
+        self._given = given
+        self._changes: dict[tuple[str, str], int] = {}
+
+    @classmethod
+    def for_world(cls, world_dir: Path) -> NameGuard:
+        from enterprise_sim.world_builders.names import FIRST_NAMES
+
+        people: set[str] = set()
+        orgs: set[str] = set()
+        surfaces: set[str] = set()
+        nodes_path = world_dir / "kg" / "nodes.jsonl"
+        lines = nodes_path.read_text(encoding="utf-8").splitlines() if nodes_path.is_file() else []
+        for line in lines:
+            if not line:
+                continue
+            node = json.loads(line)
+            name = node.get("props", {}).get("name")
+            if isinstance(name, str):
+                if node["type"] == "Person":
+                    people.add(name)
+                elif node["type"] in ("Company", "Department", "Team", "Project", "Initiative"):
+                    orgs.add(name)
+            for alias in node.get("aliases", []):
+                surfaces.add(str(alias))
+            for key in ("name", "title"):
+                value = node.get("props", {}).get(key)
+                if isinstance(value, str):
+                    surfaces.add(value)
+        given = set(FIRST_NAMES) | {p.split()[0] for p in people if p.split()}
+        return cls(sorted(people), sorted(orgs), surfaces, given)
+
+    def roster(self) -> dict[str, list[str]]:
+        return {"people": self._people, "organizations": self._orgs}
+
+    def report(self) -> list[dict[str, Any]]:
+        return [
+            {"path": path, "pair": pair, "count": count}
+            for (path, pair), count in sorted(self._changes.items())
+        ]
+
+    def apply(self, text: str, rel: str) -> str:
+        def fix(match: re.Match[str]) -> str:
+            pair = match.group(0)
+            if match.group(1) not in self._given or pair in self._people:
+                return pair
+            if pair in self._surface_pairs:
+                return pair
+            key = (rel, pair)
+            self._changes[key] = self._changes.get(key, 0) + 1
+            return f"{match.group(1)}, {match.group(2)}"
+
+        return self._PAIR.sub(fix, text)
+
+
 def export_world(
     world_dir: Path | str, out_root: Path | str, *, with_replay: bool | None = None
 ) -> ExportResult:
@@ -676,6 +753,7 @@ def export_world(
     config = json.dumps(world.config, sort_keys=True, indent=2, ensure_ascii=False) + "\n"
     writer.write("config.json", config.encode("utf-8"), "application/json")
 
+    guard = NameGuard.for_world(world_dir)
     data_dirs: set[Path] = set()
     for path in _world_files(world_dir):
         rel = path.relative_to(world_dir).as_posix()
@@ -685,9 +763,13 @@ def export_world(
             continue
         suffix = path.suffix.lower()
         if suffix in _TEXT_MEDIA:
-            writer.write(rel, _lf(path.read_bytes()), _TEXT_MEDIA[suffix])
+            data = _lf(path.read_bytes())
+            if rel.startswith("artifacts/"):
+                data = guard.apply(data.decode("utf-8"), rel).encode("utf-8")
+            writer.write(rel, data, _TEXT_MEDIA[suffix])
         elif suffix in _RENDERERS:
             text = _RENDERERS[suffix](path).replace("\r\n", "\n").replace("\r", "\n")
+            text = guard.apply(text, rel)
             writer.write(
                 f"{rel}.md",
                 text.encode("utf-8"),
@@ -849,6 +931,11 @@ def export_world(
         "seed": world.seed,
         "window": world.window,
         "prose_backend": prose_backend_of(world.render_backend),
+        "prose_model": str(world.config.get("model", {}).get("name", ""))
+        if prose_backend_of(world.render_backend) == "live"
+        else None,
+        "roster": guard.roster(),
+        "name_guard": guard.report(),
         "render_backend": world.render_backend,
         "simenterprise": {
             "version": __version__,
