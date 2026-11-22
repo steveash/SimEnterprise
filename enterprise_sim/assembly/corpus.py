@@ -39,6 +39,7 @@ from dataclasses import dataclass, replace
 from datetime import datetime
 from typing import Protocol, runtime_checkable
 
+from enterprise_sim.assembly.agent_sessions import build_sessions
 from enterprise_sim.assembly.code_repo import build_repositories
 from enterprise_sim.assembly.messy_docs import apply_document_messiness
 from enterprise_sim.authoring.lowering import lower_playbook
@@ -357,6 +358,12 @@ def build_corpus(
         )
         apply_to_world(world, repo)
         artifacts.extend(repo)
+        if config.code.sessions_per_project > 0:
+            sessions = build_sessions(
+                world, ledger, journal, per_project=config.code.sessions_per_project
+            )
+            apply_to_world(world, sessions)
+            artifacts.extend(sessions)
     if ledger:
         by_id = {event.id: event for event in journal.ordered()}
         for artifact in artifacts:

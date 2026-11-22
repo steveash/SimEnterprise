@@ -225,6 +225,7 @@ def compute_config_digest(config: WorldConfig, *, backend: str | None = None) ->
 _LATE_FIELDS: dict[str, tuple[str, ...]] = {
     "facts": ("entity_ids", "retraction_rate", "horizon_days"),
     "org": ("project_names", "horizon_days"),
+    "code": ("sessions_per_project",),
 }
 
 

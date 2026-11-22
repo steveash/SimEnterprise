@@ -1,0 +1,44 @@
+# Benchmark world: a coding team whose engineering projects carry coding-agent session
+# transcripts (P570787443, diversity axis 16).
+#
+# Same seed and org as coding-team-clean, with facts that change often ([facts] change_rate 0.8), plus
+# repository artifacts and 8 agent sessions per
+# engineering project on its commit days: the task, the files the agent read as they stood
+# that day, its edits and test runs, and its notes. A session on a change day makes the change
+# (read the old value, write the new); a session after the datastore changed reads the stale
+# storage comment and notes the correction. Every stated value is labelled in the gold KG.
+#
+#   enterprise-sim world create examples/worlds/coding-team-sessions.toml
+seed = 101
+worlds_root = "worlds"
+
+[company]
+name = "Larkspur Labs"
+vertical = "software"
+size = "small"
+description = "A seed-stage developer-tools startup building a hosted CI cache."
+
+[simulation]
+period_start = 2026-01-05
+period_end = 2026-03-27
+
+[model]
+backend = "anthropic_api"
+name = "claude-haiku-4-5"
+offline_backend = "synth"
+
+[facts]
+max_versions = 4
+per_project = 8
+change_rate = 0.8
+stale_rate = 0.0
+conflict_rate = 0.0
+hedge_rate = 0.0
+
+[[projects]]
+name = "Cache Eviction Rewrite"
+description = "Replace the LRU cache eviction with a cost-aware policy."
+
+[code]
+enabled = true
+sessions_per_project = 8

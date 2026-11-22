@@ -317,6 +317,15 @@ class CodeConfig(_Frozen):
     """Repository-like code artifacts for engineering projects (``assembly/code_repo.py``)."""
 
     enabled: bool = False
+    sessions_per_project: int = Field(
+        default=0,
+        ge=0,
+        le=40,
+        description=(
+            "Coding-agent session transcripts per engineering project, on its commit days "
+            "(assembly/agent_sessions.py); 0 writes none. Needs enabled = true."
+        ),
+    )
 
 
 class PrivacyConfig(_Frozen):
