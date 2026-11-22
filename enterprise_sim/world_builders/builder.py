@@ -151,6 +151,21 @@ _SUBGOAL_BANK: tuple[str, ...] = (
 
 _SENIORITY_BANK: tuple[str, ...] = ("senior", "mid", "mid", "junior")
 
+#: Department -> realistic project names (``[org] project_names``).
+_PROJECT_NAMES: dict[str, tuple[str, ...]] = {
+    "engineering": ("Checkout Rewrite", "Search Relevance", "Mobile Onboarding", "Billing Service"),
+    "retail": ("Spring Assortment", "Store Replenishment", "Private Label Launch"),
+    "data_engineering": ("Orders Ingestion", "Warehouse Migration", "Clickstream Pipeline"),
+    "data_analytics": ("Revenue Dashboard", "Churn Analysis", "Pricing Experiments"),
+    "security": ("Zero Trust Rollout", "Vulnerability Program", "Audit Readiness"),
+    "finance": ("Close Automation", "Annual Budget", "Vendor Consolidation"),
+    "people_ops": ("Engineering Hiring", "Performance Cycle", "Benefits Renewal"),
+    "support": ("Ticket Deflection", "Escalation Desk", "Help Center Refresh"),
+    "sales": ("Enterprise Pipeline", "Partner Channel", "Renewals Drive"),
+    "marketing": ("Product Launch", "Demand Campaign", "Brand Refresh"),
+    "legal": ("Contract Templates", "Privacy Program", "Entity Restructure"),
+}
+
 #: Call-sign suffixes for the second and later squads of one team shape.
 _SQUAD_NAMES: tuple[str, ...] = (
     "Alpha",
@@ -586,7 +601,7 @@ class _WorldBuilder:
         B have realistic project teams to draw on.
         """
         project_id = project_id or f"project:{slugify(playbook)}-{spec.name}"
-        display = name or f"{playbook.replace('_', ' ').title()} Delivery"
+        display = name or self._project_name(spec, playbook)
         self._add_node(
             project_id,
             N_PROJECT,
@@ -614,6 +629,18 @@ class _WorldBuilder:
             self._add_member(pid, project_id, "reviewer")
 
         self._seed_project_affinities(project_id, [lead_id, *others])
+
+    def _project_name(self, spec: DepartmentArchetypeSpec, playbook: str) -> str:
+        """A default project's display name.
+
+        ``<Playbook> Delivery`` unless ``[org] project_names`` is on, then a
+        seeded pick from the department's bank (:data:`_PROJECT_NAMES`).
+        """
+        legacy = f"{playbook.replace('_', ' ').title()} Delivery"
+        bank = _PROJECT_NAMES.get(spec.name)
+        if not self._config.org.project_names or not bank:
+            return legacy
+        return self._ctx.rng("project_name", spec.name, playbook).choice(bank)
 
     def _build_config_projects(
         self,

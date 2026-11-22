@@ -169,6 +169,10 @@ class OrgConfig(_Frozen):
         le=0.8,
         description="Share of non-lead people who leave during the window (a successor joins).",
     )
+    project_names: bool = Field(
+        default=False,
+        description="Name default projects from a per-department bank ('Checkout Rewrite').",
+    )
     transfer_rate: float = Field(
         default=0.0,
         ge=0.0,

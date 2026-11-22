@@ -171,3 +171,13 @@ def test_every_kit_department_produces_authored_documents(tmp_path: Any) -> None
     assert set(by_dept) == set(_KITS), by_dept
     artifacts = len(world.nodes_by_type("Artifact"))
     assert authored == artifacts, (authored, artifacts)
+
+
+def test_project_names_come_from_the_department_bank() -> None:
+    from enterprise_sim.world_builders.builder import _PROJECT_NAMES
+
+    legacy = {str(p.props["name"]) for p in _world().nodes_by_type("Project")}
+    assert all(name.endswith("Delivery") for name in legacy)
+    named = _world(org={"project_names": True})
+    for project in named.nodes_by_type("Project"):
+        assert project.props["name"] in _PROJECT_NAMES[str(project.props["department"])]
