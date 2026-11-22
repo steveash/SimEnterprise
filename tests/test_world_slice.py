@@ -310,6 +310,9 @@ def test_answers_flag_shared_values_and_kinds(world_dir: Path, tmp_path: Path) -
             o["kind"] in ("document", "chat", "code", "registry", "trail")
             for o in fact["occurrences"]
         )
+        assert all(
+            d["visibility"] in ("private", "team", "public") for d in fact["documents_by_version"]
+        )
         dates = [d["date"] for d in fact["documents_by_version"]]
         assert dates == sorted(dates)
     knowledge = tomllib.loads((tmp_path / "f" / "knowledge.draft.toml").read_text(encoding="utf-8"))

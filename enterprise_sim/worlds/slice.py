@@ -43,6 +43,7 @@ __all__ = [
     "distinctive_token",
     "source_kind",
     "typed_value",
+    "visibility",
     "core_documents",
     "core_slice_name",
     "REGISTRY_COLUMNS",
@@ -190,6 +191,38 @@ def source_kind(path: str) -> str:
     return "document"
 
 
+#: Document kinds a teammate plausibly holds as a private note or decision
+#: before (or instead of) publishing it; everything else reads as published.
+_PRIVATE_KINDS = frozenset(
+    {
+        "design_doc",
+        "schema_change_rfc",
+        "risk_assessment",
+        "postmortem",
+        "metric_definition",
+        "analysis_report",
+        "performance_note",
+        "candidate_debrief",
+        "offer_approval",
+        "pricing_exception",
+        "deal_review",
+        "contract_review",
+        "dpa_review",
+        "policy_memo",
+        "backfill_plan",
+        "account_plan",
+        "forecast_update",
+    }
+)
+
+
+def visibility(kind: str, path: str) -> str:
+    """``private`` (a note or decision a teammate may hold), ``team`` (chat) or ``public``."""
+    if source_kind(path) == "chat":
+        return "team"
+    return "private" if kind in _PRIVATE_KINDS else "public"
+
+
 def _documents_by_version(
     edges: list[dict[str, Any]], paths: dict[str, str], docs: dict[str, dict[str, Any]]
 ) -> list[dict[str, Any]]:
@@ -201,6 +234,10 @@ def _documents_by_version(
             "stated_version": e["props"].get("stated_version"),
             "stance": e["props"]["stance"],
             "kind": source_kind(paths[e["src"]]),
+            "doc_kind": str(docs.get(e["src"], {}).get("props", {}).get("kind", "")),
+            "visibility": visibility(
+                str(docs.get(e["src"], {}).get("props", {}).get("kind", "")), paths[e["src"]]
+            ),
         }
         for e in edges
     ]
