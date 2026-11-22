@@ -27,6 +27,7 @@ PINNED = {
     "worlds/data-eng-platform-attributes.toml": "brightwater-data-4ce82a188ccf",
     "worlds/coding-team-sessions.toml": "larkspur-labs-6cea26b7e38b",
     "worlds/analytics-homonyms.toml": "corvid-analytics-c16b7775e533",
+    "worlds/analytics-reorg.toml": "corvid-analytics-3cbc904785d6",
     "worlds/docs-only-professional.toml": "harrow-vale-advisory-cba54c864d9b",
     "worlds/retail-chain-ops.toml": "tallow-street-goods-7220fc0e985a",
     "worlds/enterprise-sprawl.toml": "meridian-holdings-8ea3a90f92f0",

@@ -262,6 +262,21 @@ class _WorldBuilder:
             from enterprise_sim.world_builders.homonyms import plant_homonyms
 
             plant_homonyms(self._world, self._config.org.homonyms, self._ctx.rng("homonyms"))
+        if self._config.org.reorgs:
+            from datetime import datetime as _dt
+            from datetime import time as _time
+
+            from enterprise_sim.world_builders.reorgs import plan_reorgs
+
+            sim = self._config.simulation
+            plan_reorgs(
+                self._world,
+                self._config.org.reorgs,
+                self._ctx.rng("reorgs"),
+                start=_dt.combine(sim.period_start, _time(9, 0)),
+                span_days=(sim.period_end - sim.period_start).days,
+                horizon_days=self._config.org.horizon_days,
+            )
         apply_turnover(self._world, self._config, self._ctx, self._slugs)
         return self._world
 

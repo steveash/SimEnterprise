@@ -1,0 +1,48 @@
+# Benchmark world: an analytics shop with two reorgs mid-quarter (P570787453, diversity axis 13).
+#
+# Same seed and departments as analytics-structured-clean. Two projects move to another
+# department on a dated day; each carries a reporting_line fact that changes that day
+# ("Sales under <head>" -> "Data Analytics under <head>"). Documents state the line with the
+# ledger's stances (current, update, and stale: written after the reorg but still naming the
+# old line), so a memory system must notice the change. Labelled in the gold KG
+# (reorganized_into edges, project reorg_at/from/to).
+#
+#   enterprise-sim world create examples/worlds/analytics-reorg.toml
+seed = 104
+worlds_root = "worlds"
+
+[company]
+name = "Corvid Analytics"
+vertical = "analytics"
+size = "medium"
+description = "A marketplace company whose analytics team answers the business's questions."
+
+[simulation]
+period_start = 2026-01-05
+period_end = 2026-03-27
+
+[model]
+backend = "anthropic_api"
+name = "claude-haiku-4-5"
+offline_backend = "synth"
+
+[[departments]]
+archetype = "data_analytics"
+[[departments]]
+archetype = "marketing"
+[[departments]]
+archetype = "sales"
+
+[facts]
+stale_rate = 0.3
+per_project = 8
+change_rate = 0.3
+
+[data]
+scenarios = ["product_growth", "sales_pipeline", "support_ops", "subscription_finance", "marketing_attribution"]
+scale_factor = 0.1  # catalog size (datasets-cc: wave 2 at 0.1); `world data ... --scale 10` for full scale
+iterations = 3
+
+[org]
+reorgs = 2
+horizon_days = 80

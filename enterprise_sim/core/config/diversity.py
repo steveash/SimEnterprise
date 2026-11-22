@@ -203,6 +203,15 @@ class OrgConfig(_Frozen):
         le=0.5,
         description="Share of non-lead people who move to another team during the window.",
     )
+    reorgs: int = Field(
+        default=0,
+        ge=0,
+        le=10,
+        description=(
+            "Projects that move to another department on a dated day (drawn over "
+            "horizon_days); each gets a two-version reporting_line fact (needs [facts])."
+        ),
+    )
     homonyms: int = Field(
         default=0,
         ge=0,
