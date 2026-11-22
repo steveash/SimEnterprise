@@ -38,7 +38,14 @@ from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-__all__ = ["ISOLATION_FILE", "SHARED_PREFIXES", "isolation_check", "isolation_map"]
+__all__ = [
+    "ISOLATION_FILE",
+    "SHARED_PREFIXES",
+    "isolation_check",
+    "isolation_map",
+    "matches",
+    "wall_markers",
+]
 
 ISOLATION_FILE = "isolation.json"
 SHARED_PREFIXES = ("organization/", "data/")
@@ -128,7 +135,38 @@ def isolation_map(
 
 def _whole(text: str) -> re.Pattern[str]:
     """``text`` as a whole token: not inside a longer word, number or version."""
-    return re.compile(rf"(?<![\w.]){re.escape(text)}(?![\w]|\.\w)")
+    needle = re.escape(" ".join(text.split())).replace(r"\ ", " ")
+    return re.compile(rf"(?<![\w.]){needle}(?![\w]|\.\w)")
+
+
+def _normal(text: str) -> str:
+    return " ".join(text.split())
+
+
+def matches(needle: str, text: str) -> bool:
+    """The one matcher the export check and graders share (decision record 0036).
+
+    Case-sensitive; runs of whitespace (line breaks, double spaces) count as one
+    space in both; ``needle`` must stand as a whole token: not inside a longer word,
+    number or version (``v3.1`` is not in ``v3.10``), while a trailing sentence
+    period or ``'s`` is a boundary (``v3.1.`` and ``Omar Novak's`` match).
+    """
+    return _whole(needle).search(_normal(text)) is not None
+
+
+def wall_markers(world_dir: Path) -> dict[str, list[str]]:
+    """What names a walled project besides its staff and values: its display name,
+    its project id and its initiative ids (cited artifacts carry them in their ids)."""
+    nodes = {n["id"]: n for n in _jsonl(world_dir / "kg" / "nodes.jsonl")}
+    edges = _jsonl(world_dir / "kg" / "edges.jsonl")
+    out: dict[str, list[str]] = {}
+    for project, node in nodes.items():
+        if node["type"] != "Project" or not node["props"].get("walled"):
+            continue
+        markers = {project, str(node["props"].get("name", ""))}
+        markers |= {e["dst"] for e in edges if e["type"] == "under" and e["src"] == project}
+        out[project] = sorted(m for m in markers if m)
+    return out
 
 
 def isolation_check(
@@ -136,16 +174,21 @@ def isolation_check(
     slice_files: Mapping[str, Sequence[str]],
     data_files: Sequence[str],
     read: Callable[[str], str],
+    *,
+    shared_paths: Sequence[str] = (),
+    markers: Mapping[str, Sequence[str]] | None = None,
 ) -> list[str]:
     """Every finding against the map in the exported data files (empty when none).
 
     ``slice_files`` maps a slice name to its export paths, ``data_files`` lists every
     data-role path, and ``read(path)`` returns a file's exported text. Findings:
 
-    1. a data file outside ``organization/`` and ``data/`` that is in no project's
-       slices (unassigned), or in the slices of two projects;
+    1. a data file in no project's slices and not shared (unassigned), in the slices of
+       two projects, or both shared and in a project's slices; ``shared_paths`` are the
+       declared shared files and the data tables' paths;
     2. a file of a walled project naming, by full name, staff of a project across a
-       wall;
+       wall, or naming such a project by its display name, project id or initiative id
+       (``markers``, from :func:`wall_markers`: a cited artifact's id carries them);
     3. any file but a walled project's own stating one of its decisive values,
        whichever project or shared set the file belongs to.
     """
@@ -159,25 +202,30 @@ def isolation_check(
         for name in project["slices"]:
             for path in slice_files.get(name, ()):
                 owner.setdefault(path, set()).add(project["project"])
+    shared = set(shared_paths)
     problems: list[str] = []
     for path in data_files:
         owners = owner.get(path, set())
         if len(owners) > 1:
             problems.append(f"{path}: in the slices of {sorted(owners)}")
-        elif not owners and not path.startswith(SHARED_PREFIXES):
+        elif owners and path in shared:
+            problems.append(f"{path}: both shared and in the slices of {sorted(owners)}")
+        elif not owners and path not in shared:
             problems.append(f"{path}: assigned to no project and not shared")
     names = {
-        p: [(person, _whole(person)) for person in projects[p].get("staff", ())] for p in projects
+        p: [(f"staff {person}", _whole(person)) for person in projects[p].get("staff", ())]
+        + [(f"the project as {m}", _whole(m)) for m in (markers or {}).get(p, ())]
+        for p in projects
     }
     tokens = {p: [(v, _whole(v["value"])) for v in projects[p].get("values", ())] for p in projects}
     for path in data_files:
-        text = read(path)
+        text = _normal(read(path))
         owners = owner.get(path, set())
         mine = next(iter(owners)) if len(owners) == 1 else None
         for other in sorted(across.get(mine, set()) if mine else ()):
-            for person, pattern in names[other]:
+            for what, pattern in names[other]:
                 if pattern.search(text):
-                    problems.append(f"{path} ({mine}) names staff {person} of {other}")
+                    problems.append(f"{path} ({mine}) names {what} of {other}")
         for project, values in tokens.items():
             if project == mine:
                 continue

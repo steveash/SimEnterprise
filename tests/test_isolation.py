@@ -328,6 +328,10 @@ def _mapping() -> dict[str, Any]:
 
 
 _SLICES = {"alpha": ["a.md"], "alpha-core": ["a.md"], "beta": ["b.md"], "gamma": ["g.md"]}
+_MARKERS = {
+    "project:alpha": ["Alpha Rollout for Client Alder", "initiative:walled-alpha", "project:alpha"],
+    "project:beta": ["Beta Rollout for Client Birch", "initiative:walled-beta", "project:beta"],
+}
 
 
 @pytest.mark.parametrize(
@@ -342,16 +346,53 @@ _SLICES = {"alpha": ["a.md"], "alpha-core": ["a.md"], "beta": ["b.md"], "gamma":
         ("a.md", "We serve v2.01, KQT-48211 and Omar Novakov.", None),  # whole tokens only
         ("a.md", "Omar said hello.", None),  # a first name alone never matches
         ("g.md", "Omar Novak helps gamma too.", None),  # names are walled, not banned
+        ("a.md", "See Beta Rollout for Client Birch.", "the project as Beta Rollout"),
+        ("a.md", "Cites artifact:initiative:walled-beta:status@x.", "initiative:walled-beta"),
+        ("a.md", "Omar\nNovak signed off.", "names staff Omar Novak"),  # whitespace runs
+        ("a.md", "Moved to KQT-4821.", "states KQT-4821"),  # a sentence period is a boundary
+        ("a.md", "omar novak, kqt-4821", None),  # case-sensitive
     ],
 )
 def test_the_check_refuses_each_kind_of_finding(path: str, text: str, found: str | None) -> None:
     texts = {"a.md": "alpha", "b.md": "beta", "g.md": "gamma", "organization/people.md": "x"}
     texts[path] = text
-    problems = isolation_check(_mapping(), _SLICES, sorted(texts), texts.__getitem__)
+    problems = isolation_check(
+        _mapping(),
+        _SLICES,
+        sorted(texts),
+        texts.__getitem__,
+        shared_paths=["organization/people.md"],
+        markers=_MARKERS,
+    )
     if found is None:
         assert problems == []
     else:
         assert any(found in p for p in problems), problems
+
+
+def test_a_shared_file_in_a_slice_is_refused() -> None:
+    texts = {"a.md": "alpha", "b.md": "beta", "g.md": "gamma"}
+    problems = isolation_check(
+        _mapping(), _SLICES, sorted(texts), texts.__getitem__, shared_paths=["a.md"]
+    )
+    assert any("both shared and in the slices" in p for p in problems)
+
+
+@pytest.mark.parametrize(
+    ("needle", "text", "hit"),
+    [
+        ("v3.1", "now v3.1.", True),
+        ("v3.1", "now v3.10", False),
+        ("Omar Novak", "Omar Novak's plan", True),
+        ("Omar Novak", "Omar  Novak", True),
+        ("Omar Novak", "omar novak", False),
+        ("KQT-4821", "KQT-48211", False),
+    ],
+)
+def test_the_shared_matcher(needle: str, text: str, hit: bool) -> None:
+    from enterprise_sim.exporters.isolation import matches
+
+    assert matches(needle, text) is hit
 
 
 def test_a_file_in_two_projects_is_refused() -> None:

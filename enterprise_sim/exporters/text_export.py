@@ -962,7 +962,12 @@ def export_world(
         if missing:
             raise ExportError(f"slice {entry['name']}: files not in the export: {missing[:3]}")
 
-    from enterprise_sim.exporters.isolation import ISOLATION_FILE, isolation_check, isolation_map
+    from enterprise_sim.exporters.isolation import (
+        ISOLATION_FILE,
+        isolation_check,
+        isolation_map,
+        wall_markers,
+    )
 
     data_files = sorted(f["path"] for f in writer.files if f["role"] == "data")
     isolation = isolation_map(
@@ -977,6 +982,11 @@ def export_world(
             {entry["name"]: entry["files"] for entry in slices},
             data_files,
             lambda rel: (target / rel).read_text(encoding="utf-8"),
+            shared_paths=[
+                *isolation["shared"]["files"],
+                *(str(t["path"]) for t in writer.tables if str(t["path"]).startswith("data/")),
+            ],
+            markers=wall_markers(world_dir),
         )
         if findings:
             raise ExportError(
