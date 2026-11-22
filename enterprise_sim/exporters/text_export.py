@@ -277,7 +277,21 @@ def render_ics(path: Path) -> str:
     return "\n".join(lines).rstrip("\n") + "\n"
 
 
-_RENDERERS = {".docx": render_docx, ".pptx": render_pptx, ".eml": render_eml, ".ics": render_ics}
+def render_code(path: Path) -> str:
+    """A Markdown rendering of a source or config file: its path, then the file, fenced."""
+    language = {".py": "python", ".toml": "toml"}.get(path.suffix, "")
+    text = path.read_text(encoding="utf-8").rstrip("\n")
+    return f"# {path.name}\n\n```{language}\n{text}\n```\n"
+
+
+_RENDERERS = {
+    ".docx": render_docx,
+    ".pptx": render_pptx,
+    ".eml": render_eml,
+    ".ics": render_ics,
+    ".py": render_code,
+    ".toml": render_code,
+}
 
 
 # -- tables -------------------------------------------------------------------- #

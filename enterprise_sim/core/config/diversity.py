@@ -232,8 +232,15 @@ class ChatConfig(_Frozen):
     )
 
 
+class CodeConfig(_Frozen):
+    """Repository-like code artifacts for engineering projects (``assembly/code_repo.py``)."""
+
+    enabled: bool = False
+
+
 __all__ = [
     "ChatConfig",
+    "CodeConfig",
     "DataMessinessConfig",
     "FormatsConfig",
     "FactsConfig",

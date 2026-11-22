@@ -21,6 +21,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from enterprise_sim.core.config.diversity import (
     ChatConfig,
+    CodeConfig,
     DataMessinessConfig,
     FactsConfig,
     FormatsConfig,
@@ -281,6 +282,10 @@ class WorldConfig(_Frozen):
     messiness: MessinessConfig = Field(
         default_factory=MessinessConfig,
         description="Surface noise injected into rendered documents, labelled in the gold KG.",
+    )
+    code: CodeConfig = Field(
+        default_factory=CodeConfig,
+        description="Repository artifacts per engineering project (config, README, source).",
     )
     chat: ChatConfig = Field(
         default_factory=ChatConfig,

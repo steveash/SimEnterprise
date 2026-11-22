@@ -39,6 +39,7 @@ from dataclasses import dataclass, replace
 from datetime import datetime
 from typing import Protocol, runtime_checkable
 
+from enterprise_sim.assembly.code_repo import build_repositories
 from enterprise_sim.assembly.messy_docs import apply_document_messiness
 from enterprise_sim.authoring.lowering import lower_playbook
 from enterprise_sim.authoring.sdk import Playbook as SdkPlaybook
@@ -338,6 +339,15 @@ def build_corpus(
     for scenario_artifacts in rendered:
         apply_to_world(world, scenario_artifacts)
         artifacts.extend(scenario_artifacts)
+    if ledger and config.code.enabled:
+        repo = build_repositories(
+            world,
+            ledger,
+            journal,
+            end=datetime.combine(config.simulation.period_end, calendar.day_end),
+        )
+        apply_to_world(world, repo)
+        artifacts.extend(repo)
     if ledger:
         by_id = {event.id: event for event in journal.ordered()}
         for artifact in artifacts:
