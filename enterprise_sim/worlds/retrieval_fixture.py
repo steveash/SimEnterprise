@@ -19,9 +19,10 @@ committable bundle that loads offline and is pinned by digest.
     typo, for example).
 
   Per fact, one query for the value at the window end; per changed fact, one ``as_of``
-  query inside each earlier version's interval, which serves that version and not
-  its successor. Question wording varies over the fact's own question and three
-  paraphrases, picked by a hash of the fact id.
+  query inside each earlier version's interval. Each query serves the version true in
+  its window and lists every other version of the fact's chain as ``not_served``
+  (earlier, later and retracted ones alike). Question wording varies over the fact's
+  own question and three paraphrases, picked by a hash of the fact id.
 * ``manifest.json``: the world id, the export digest (sha256 of its ``export.json``),
   counts, the rubric, and the sha256 of both files.
 
@@ -177,11 +178,15 @@ def build_fixture(export_dir: Path) -> dict[str, bytes]:
         )
 
         current = int(live[-1]["version"])
+        chain = [f"fact:{fact_id}@v{v['version']}" for v in history]
+
         queries.append(
             {
                 "id": f"{fact_id}:now",
                 "query": question,
                 "answers": _answers(fact_id, current, stated, about),
+                "served": [f"fact:{fact_id}@v{current}"],
+                "not_served": [k for k in chain if k != f"fact:{fact_id}@v{current}"],
             }
         )
         for older, newer in zip(live, live[1:], strict=False):
@@ -193,7 +198,7 @@ def build_fixture(export_dir: Path) -> dict[str, bytes]:
                     "as_of": _midpoint(str(older["valid_from"]), str(newer["valid_from"])),
                     "answers": _answers(fact_id, n, stated, about),
                     "served": [f"fact:{fact_id}@v{n}"],
-                    "not_served": [f"fact:{fact_id}@v{newer['version']}"],
+                    "not_served": [k for k in chain if k != f"fact:{fact_id}@v{n}"],
                 }
             )
 

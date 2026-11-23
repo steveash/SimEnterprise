@@ -76,8 +76,9 @@ def test_as_of_queries_serve_the_older_version_inside_its_interval(export: Path)
     assert as_of
     for query in as_of:
         (older,) = query["served"]
-        (newer,) = query["not_served"]
-        assert facts[newer]["replaces"] == older
+        chain = {k for k in facts if k.split("@")[0] == older.split("@")[0]}
+        assert set(query["not_served"]) == chain - {older}  # every off-window version
+        newer = next(k for k in query["not_served"] if facts[k].get("replaces") == older)
         at = datetime.fromisoformat(query["as_of"].replace("Z", ""))
         assert datetime.fromisoformat(facts[older]["valid_from"].replace("Z", "")) < at
         assert at < datetime.fromisoformat(facts[newer]["valid_from"].replace("Z", ""))
@@ -107,3 +108,12 @@ def test_the_cli_writes_the_bundle(
         "queries.jsonl",
     ]
     assert main(["world", "retrieval-fixture", str(tmp_path), "--out", str(tmp_path / "x")]) == 2
+
+
+def test_current_queries_exclude_every_other_version_of_the_chain(export: Path) -> None:
+    corpus, queries, _ = _bundle(export)
+    facts = {r["key"] for r in corpus if r["kind"] == "fact"}
+    for query in (q for q in queries if q["id"].endswith(":now")):
+        (current,) = query["served"]
+        chain = {k for k in facts if k.split("@")[0] == current.split("@")[0]}
+        assert set(query["not_served"]) == chain - {current}
