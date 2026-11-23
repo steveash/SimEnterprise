@@ -1021,6 +1021,9 @@ def export_world(
         "tables": sorted(writer.tables, key=lambda t: t["name"]),
         "slices": slices,
     }
+    ladder = world.config.get("ladder") or {}
+    if ladder.get("id"):  # a rung of a size ladder (worlds.ladder): id and rung
+        manifest["ladder"] = {"id": ladder["id"], "rung": ladder["rung"]}
     marker = world_dir / ".heldout"  # a held-out fork (worlds.heldout): family, base digest
     if marker.is_file():
         manifest["heldout"] = json.loads(marker.read_text(encoding="utf-8"))

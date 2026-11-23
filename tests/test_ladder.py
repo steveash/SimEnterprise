@@ -39,7 +39,7 @@ def rungs(tmp_path_factory: pytest.TempPathFactory) -> list[tuple[str, Path]]:
 def test_the_rungs_grow_and_keep_every_base_fact_and_statement(
     rungs: list[tuple[str, Path]],
 ) -> None:
-    record = ladder_check("test-ladder", rungs, _BASE)
+    record = ladder_check("simx-ladder-corvid", rungs, _BASE)
     sizes = record["rungs"]
     assert [r["size"] for r in sizes] == ["S", "M", "L"]
     for a, b in zip(sizes, sizes[1:], strict=False):
@@ -55,19 +55,50 @@ def test_a_ladder_whose_base_changes_is_refused(
 ) -> None:
     other = _rung(tmp_path / "l2", "l", squads="2..2")  # more squads re-staff the base departments
     with pytest.raises(LadderError, match="base facts differ"):
-        ladder_check("test-ladder", [rungs[0], rungs[1], ("L", other)], _BASE)
+        ladder_check("simx-ladder-corvid", [rungs[0], rungs[1], ("L", other)], _BASE)
 
 
 def test_a_ladder_that_does_not_grow_is_refused(rungs: list[tuple[str, Path]]) -> None:
     with pytest.raises(LadderError, match="does not grow"):
-        ladder_check("test-ladder", [rungs[1], rungs[0]], _BASE)
+        ladder_check("simx-ladder-corvid", [rungs[1], rungs[0]], _BASE)
 
 
 def test_the_cli_writes_the_record(rungs: list[tuple[str, Path]], tmp_path: Path) -> None:
     out = tmp_path / "ladder.json"
-    args = ["world", "ladder-check", "--ladder-id", "t"]
+    args = ["world", "ladder-check", "--ladder-id", "simx-ladder-corvid"]
     for dept in _BASE:
         args += ["--base", dept]
     args += [f"{size}={path}" for size, path in rungs] + ["--out", str(out)]
     assert main(args) == 0
     assert out.is_file()
+
+
+def test_the_ladder_label_is_exported_and_changes_no_world_id(
+    rungs: list[tuple[str, Path]],
+) -> None:
+    import json
+
+    from enterprise_sim.assembly import canonical_config, compute_config_digest
+    from enterprise_sim.core.config import WorldConfig, load_config
+
+    for size, export in rungs:
+        manifest = json.loads((export / "export.json").read_text(encoding="utf-8"))
+        assert manifest["ladder"] == {"id": "simx-ladder-corvid", "rung": size.lower()}
+    config = load_config(_LADDER / "ladder-m.toml")
+    unlabelled = WorldConfig.model_validate(
+        {**config.model_dump(mode="json"), "ladder": {"id": None, "rung": None}}
+    )
+    assert compute_config_digest(unlabelled) == compute_config_digest(config)
+    assert "ladder" not in canonical_config(unlabelled)  # unset: not even a key
+
+
+def test_a_ladder_needs_both_id_and_rung() -> None:
+    from enterprise_sim.core.config.ladder import LadderConfig
+
+    with pytest.raises(ValueError):
+        LadderConfig.model_validate({"id": "x"})
+
+
+def test_a_mislabelled_rung_is_refused(rungs: list[tuple[str, Path]]) -> None:
+    with pytest.raises(LadderError, match="labelled"):
+        ladder_check("another-ladder", rungs, _BASE)

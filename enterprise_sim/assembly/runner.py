@@ -177,6 +177,8 @@ def canonical_config(config: WorldConfig) -> dict[str, object]:
     """
     payload = config.model_dump(mode="json")
     payload.pop("worlds_root", None)
+    if payload.get("ladder") == {"id": None, "rung": None}:
+        payload.pop("ladder")  # unset: not even a key, so config.json is as before
     return payload
 
 
@@ -211,6 +213,7 @@ def compute_config_digest(config: WorldConfig, *, backend: str | None = None) ->
     payload.pop("scale", None)
     payload.pop("plugins", None)
     payload.pop("data", None)
+    payload.pop("ladder", None)  # a label: which ladder rung, never what the world is
     _drop_default_sections(payload)
     if backend is not None and backend != _DEFAULT_BACKEND:
         payload["render_backend"] = backend

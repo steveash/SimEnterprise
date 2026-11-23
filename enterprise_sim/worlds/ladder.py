@@ -16,8 +16,9 @@ and ``cross_team`` is 0 (see ``examples/worlds/ladder/``).
 * the **invariant assertions**: every (document, fact, stance, value) of a base
   project, the same at every rung, so a test set's evidence is where it expects it.
 
-The check refuses a ladder whose rungs do not grow, or whose base facts or base
-assertions differ between rungs.
+The check refuses a ladder whose rungs do not grow, whose base facts or base assertions
+differ between rungs, or whose exports carry a ``ladder`` label (``[ladder]``) other than
+this ladder id and the rung's size.
 """
 
 from __future__ import annotations
@@ -88,6 +89,7 @@ def _rung(export_dir: Path, base: Sequence[str]) -> dict[str, Any]:
         "people": sum(1 for n in nodes.values() if n["type"] == "Person"),
         "documents": sum(1 for f in manifest["files"] if f["path"].startswith("artifacts/")),
         "rows": rows,
+        "_label": manifest.get("ladder"),
         "_facts": facts,
         "_assertions": assertions,
     }
@@ -107,6 +109,14 @@ def ladder_check(
         for measure in ("people", "documents", "rows"):
             if not b[measure] > a[measure]:
                 raise LadderError(f"{measure} does not grow from {size_a} to {size_b}")
+    for size, rung in found:
+        label = rung["_label"]
+        if label is not None and (
+            label.get("id") != ladder_id or label.get("rung") != size.lower()
+        ):
+            raise LadderError(
+                f"rung {size}: its export is labelled {label}, not {ladder_id}/{size.lower()}"
+            )
     for size, rung in found[1:]:
         if rung["_facts"] != first["_facts"]:
             raise LadderError(f"rung {size}: the base facts differ from the smallest rung")

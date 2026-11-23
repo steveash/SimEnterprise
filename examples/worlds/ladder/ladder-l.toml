@@ -53,3 +53,7 @@ change_rate = 0.3
 scenarios = ["product_growth", "sales_pipeline", "support_ops", "subscription_finance", "marketing_attribution"]
 scale_factor = 1.0
 iterations = 3
+
+[ladder]
+id = "simx-ladder-corvid"
+rung = "l"

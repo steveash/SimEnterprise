@@ -31,6 +31,7 @@ from enterprise_sim.core.config.diversity import (
     PrivacyConfig,
 )
 from enterprise_sim.core.config.isolation import IsolationConfig
+from enterprise_sim.core.config.ladder import LadderConfig
 
 
 class _Frozen(BaseModel):
@@ -288,6 +289,10 @@ class WorldConfig(_Frozen):
     privacy: PrivacyConfig = Field(
         default_factory=PrivacyConfig,
         description="Labelled sensitive-category sentences about people (no PII shapes).",
+    )
+    ladder: LadderConfig = Field(
+        default_factory=LadderConfig,
+        description="The size ladder this world is a rung of (labels only; not in the digest).",
     )
     isolation: IsolationConfig = Field(
         default_factory=IsolationConfig,
