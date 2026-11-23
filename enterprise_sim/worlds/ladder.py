@@ -14,11 +14,16 @@ and ``cross_team`` is 0 (see ``examples/worlds/ladder/``).
 * the base departments, and the **invariant facts**: every fact version of a base
   project, present with the same value and valid time at every rung;
 * the **invariant assertions**: every (document, fact, stance, value) of a base
-  project, the same at every rung, so a test set's evidence is where it expects it.
+  project, the same at every rung, so a test set's evidence is where it expects it;
+* the **statements in the text**: of the base assertions that state a value (stance
+  current, hedged or update), how many carry the value's token in the exported text.
+  Which ones do must be the same at every rung. The prose around a fact may differ
+  between rungs (a document's wording is drawn from its whole prompt, and the
+  company profile in it grows), so the check is on the stated values, not on bytes.
 
-The check refuses a ladder whose rungs do not grow, whose base facts or base assertions
-differ between rungs, or whose exports carry a ``ladder`` label (``[ladder]``) other than
-this ladder id and the rung's size.
+The check refuses a ladder whose rungs do not grow, whose base facts, base assertions or
+statements in the text differ between rungs, or whose exports carry a ``ladder`` label
+(``[ladder]``) other than this ladder id and the rung's size.
 """
 
 from __future__ import annotations
@@ -32,6 +37,8 @@ from pathlib import Path
 from typing import Any
 
 __all__ = ["LadderError", "add_ladder_parser", "ladder_check"]
+
+_STATING = frozenset({"current", "hedged", "update"})
 
 
 class LadderError(ValueError):
@@ -66,6 +73,7 @@ def _rung(export_dir: Path, base: Sequence[str]) -> dict[str, Any]:
         }
     )
     project_of = {e["src"]: e["dst"] for e in edges if e["type"] == "expresses"}
+    stated = _stated_in_text(export_dir, manifest, nodes, edges, project_of, base_projects)
     assertions = sorted(
         {
             (
@@ -92,7 +100,38 @@ def _rung(export_dir: Path, base: Sequence[str]) -> dict[str, Any]:
         "_label": manifest.get("ladder"),
         "_facts": facts,
         "_assertions": assertions,
+        "_stated": stated,
     }
+
+
+def _stated_in_text(
+    export_dir: Path,
+    manifest: dict[str, Any],
+    nodes: dict[str, Any],
+    edges: list[dict[str, Any]],
+    project_of: dict[str, str],
+    base_projects: set[str],
+) -> dict[tuple[str, str, str], bool]:
+    """(document, fact, value) -> whether the value's token is in the exported text."""
+    from enterprise_sim.facts.catalog import value_token
+
+    export_of = {
+        str(f.get("rendered_from") or f.get("source_path") or f["path"]): str(f["path"])
+        for f in manifest["files"]
+    }
+    stated: dict[tuple[str, str, str], bool] = {}
+    for e in edges:
+        if e["type"] != "asserts" or project_of.get(e["src"]) not in base_projects:
+            continue
+        if e["props"].get("stance") not in _STATING:
+            continue
+        world_path = str(nodes[e["src"]]["props"]["path"])
+        value = str(e["props"]["value"])
+        token = value_token(value)
+        path = export_of.get(world_path)
+        text = (export_dir / path).read_text(encoding="utf-8") if path else ""
+        stated[(world_path, e["dst"], value)] = bool(token) and token in text
+    return stated
 
 
 def ladder_check(
@@ -122,6 +161,14 @@ def ladder_check(
             raise LadderError(f"rung {size}: the base facts differ from the smallest rung")
         if rung["_assertions"] != first["_assertions"]:
             raise LadderError(f"rung {size}: the base assertions differ from the smallest rung")
+        if rung["_stated"] != first["_stated"]:
+            changed = sorted(
+                k for k in first["_stated"] if rung["_stated"].get(k) != first["_stated"][k]
+            )
+            raise LadderError(
+                f"rung {size}: a base value is stated in the text at one rung and not the other "
+                f"({len(changed)} statements, first {changed[:1]})"
+            )
     return {
         "format": "simenterprise-ladder/1",
         "ladder_id": ladder_id,
@@ -135,6 +182,10 @@ def ladder_check(
             for f, v, value, at in first["_facts"]
         ],
         "invariant_assertions": len(first["_assertions"]),
+        "statements_in_text": {
+            "stating": len(first["_stated"]),
+            "value_in_text": sum(first["_stated"].values()),
+        },
     }
 
 
