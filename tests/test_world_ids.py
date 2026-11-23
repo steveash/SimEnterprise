@@ -32,6 +32,7 @@ PINNED = {
     "worlds/docs-only-professional-bonus-clean.toml": "harrow-vale-advisory-cba54c864d9b",
     "worlds/docs-only-professional-bonus-messy.toml": "harrow-vale-advisory-cba54c864d9b",
     "worlds/enterprise-service-latency.toml": "meridian-holdings-8ea3a90f92f0",
+    "worlds/enterprise-ap.toml": "meridian-holdings-8ea3a90f92f0",
     "worlds/dataeng-pipeline-runs.toml": "basalt-digital-0436d7b7368d",
     "worlds/ladder/ladder-s.toml": "corvid-analytics-c6b0e22966ae",
     "worlds/ladder/ladder-m.toml": "corvid-analytics-b37b855d7066",

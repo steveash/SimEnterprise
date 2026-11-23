@@ -168,3 +168,44 @@ def test_scripted_scenarios_are_deterministic_and_take_messiness(tmp_path: Path)
     )
     quirks = json.loads((messy / "data" / "pipeline_runs" / "quirks.json").read_text("utf-8"))
     assert quirks["counts"].get("duplicate_row", 0) > 0
+
+
+@pytest.fixture(scope="module")
+def payables(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    return _build(tmp_path_factory.mktemp("ap") / "a", "docs-only-professional.toml", "ap")
+
+
+def test_payables_are_dated_in_order_and_scoped_by_entity(payables: Path) -> None:
+    tables = payables / "data" / "ap" / "tables"
+    pos = {r["po_id"]: r for r in _rows(tables / "dim_po")}
+    receipts = {r["po_id"]: r for r in _rows(tables / "fact_po_receipt")}
+    invoices = _rows(tables / "fact_invoice")
+    truth = _truth(payables, "ap")
+    assert {r["entity"] for r in pos.values()} == set(truth["entities"])
+    for po_id, receipt in receipts.items():
+        assert pos[po_id]["ordered_on"] <= receipt["received_on"]
+        assert receipt["entity"] == pos[po_id]["entity"]
+    for invoice in invoices:
+        assert receipts[invoice["po_id"]]["received_on"] <= invoice["received_on"]
+        assert (
+            round(invoice["amount"] * 100) % 10 != 0
+            or invoice["invoice_id"] in truth["traps"]["partial"]["invoices"]
+        )
+    wrong = truth["traps"]["wrong_entity"]
+    (booked,) = [i for i in invoices if i["invoice_id"] == wrong["invoice_id"]]
+    assert booked["entity"] == wrong["invoice_entity"] != pos[wrong["po_id"]]["entity"]
+
+
+def test_month_end_accruals_answer_from_the_tables_and_keep_the_traps(payables: Path) -> None:
+    truth = _truth(payables, "ap")
+    questions = json.loads((payables / "data" / "ap" / "questions.json").read_text("utf-8"))
+    by_id = {q["id"]: q for q in questions["questions"]}
+    for month_end, expected in truth["accruals_by_month_end"].items():
+        answer = by_id[f"ap.accruals_{month_end}"]["answer"]
+        assert [(a["entity"], a["po_id"], a["accrual"]) for a in answer] == [
+            (e["entity"], e["po_id"], pytest.approx(e["accrual"])) for e in expected
+        ]
+    first = truth["accruals_by_month_end"][str(truth["traps"]["cross_month"]["month_end"])]
+    open_pos = {a["po_id"] for a in first}
+    for trap in ("cross_month", "partial", "wrong_entity"):
+        assert truth["traps"][trap]["po_id"] in open_pos, trap  # all three open at that month end
