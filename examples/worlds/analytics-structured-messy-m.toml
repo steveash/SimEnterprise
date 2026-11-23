@@ -1,0 +1,63 @@
+# Benchmark world: the corvid analytics shop at catalog tier M, MESSY data.
+#
+# The M twin of analytics-structured-messy.toml: the same seed and base departments, at the size of
+# ladder/tiered/ladder-m.toml (69 people; record 0052 tier M), with that file's
+# [data.messiness] and [messiness]. Its clean twin is ladder/tiered/ladder-m.toml
+# itself (same seed and org; only the messiness differs), so a set that grades
+# against the clean twin of analytics-structured-messy can do the same at M.
+#
+#   enterprise-sim world create examples/worlds/analytics-structured-messy-m.toml
+seed = 104
+
+[company]
+name = "Corvid Analytics"
+vertical = "analytics"
+size = "medium"
+description = "A marketplace company whose analytics team answers the business's questions."
+
+[simulation]
+period_start = 2026-01-05
+period_end = 2026-03-27
+
+[model]
+backend = "anthropic_api"
+name = "claude-haiku-4-5"
+offline_backend = "synth"
+
+[[departments]]
+archetype = "data_analytics"
+[[departments]]
+archetype = "marketing"
+[[departments]]
+archetype = "sales"
+[[departments]]
+archetype = "finance"
+[[departments]]
+archetype = "support"
+[[departments]]
+archetype = "engineering"
+[[departments]]
+archetype = "people_ops"
+
+[facts]
+cross_team = 0.0
+per_project = 8
+change_rate = 0.3
+
+[data]
+scenarios = ["product_growth", "sales_pipeline", "support_ops", "subscription_finance", "marketing_attribution"]
+scale_factor = 0.3
+iterations = 3
+
+[data.messiness]
+null_rate = 0.04
+duplicate_rate = 0.03
+label_drift_rate = 0.15
+outlier_rate = 0.01
+schema_drift = true
+
+[messiness]
+typo_rate = 0.015
+alias_rate = 0.3
+date_format_mix = 0.4
+duplicate_rate = 0.05

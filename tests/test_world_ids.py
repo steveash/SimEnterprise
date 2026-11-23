@@ -24,6 +24,8 @@ PINNED = {
     "worlds/analytics-structured-messy.toml": "corvid-analytics-251be658ee48",
     # [data] is not part of a world's id: a data-only variant shares its twin's id.
     "worlds/analytics-structured-messy-varied.toml": "corvid-analytics-251be658ee48",
+    "worlds/analytics-structured-messy-m.toml": "corvid-analytics-6956ae50b9a3",
+    "worlds/analytics-structured-messy-varied-m.toml": "corvid-analytics-6956ae50b9a3",
     "worlds/data-eng-platform-attributes.toml": "brightwater-data-4ce82a188ccf",
     "worlds/coding-team-sessions.toml": "larkspur-labs-6cea26b7e38b",
     "worlds/analytics-homonyms.toml": "corvid-analytics-c16b7775e533",
