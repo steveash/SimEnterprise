@@ -38,6 +38,8 @@ PINNED = {
     "worlds/ladder/ladder-s.toml": "corvid-analytics-c6b0e22966ae",
     "worlds/ladder/ladder-m.toml": "corvid-analytics-b37b855d7066",
     "worlds/ladder/ladder-l.toml": "corvid-analytics-1af9e07d410e",
+    "worlds/ladder/tiered/ladder-m.toml": "corvid-analytics-2b62b9268e09",
+    "worlds/ladder/tiered/ladder-l.toml": "corvid-analytics-95ccf3ed897c",
     "worlds/docs-only-professional.toml": "harrow-vale-advisory-cba54c864d9b",
     "worlds/retail-chain-ops.toml": "tallow-street-goods-7220fc0e985a",
     "worlds/enterprise-sprawl.toml": "meridian-holdings-8ea3a90f92f0",

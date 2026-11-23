@@ -457,10 +457,15 @@ class _WorldBuilder:
     def _squads(self, spec: DepartmentArchetypeSpec, shape: TeamShape, t: float) -> list[TeamShape]:
         """The squads one team shape staffs (``[org] squads_per_team``; default one).
 
+        A department's own ``squads_per_team`` overrides ``[org]``'s for it alone.
         The size band biases the pick toward the high end like head-counts do;
         a second and later squad is the same shape with a call-sign suffix.
         """
-        lo, hi = self._config.org.squads_range
+        own = next(
+            (d.squads_range for d in self._config.departments if d.archetype == spec.name),
+            None,
+        )
+        lo, hi = own or self._config.org.squads_range
         if hi <= 1:
             return [shape]
         rng = self._ctx.rng("squads", spec.name, shape.title)

@@ -16,8 +16,16 @@ from __future__ import annotations
 from datetime import date
 from enum import StrEnum
 from pathlib import Path
+from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    SerializerFunctionWrapHandler,
+    model_serializer,
+    model_validator,
+)
 
 from enterprise_sim.core.config.diversity import (
     ChatConfig,
@@ -29,6 +37,7 @@ from enterprise_sim.core.config.diversity import (
     OfflineBackend,
     OrgConfig,
     PrivacyConfig,
+    _range,
 )
 from enterprise_sim.core.config.isolation import IsolationConfig
 from enterprise_sim.core.config.ladder import LadderConfig
@@ -110,6 +119,36 @@ class DepartmentConfig(_Frozen):
     """
 
     archetype: str = Field(min_length=1, description="A registered department archetype name.")
+    squads_per_team: str | None = Field(
+        default=None,
+        description=(
+            "How many squads each of this department's team shapes staffs, 'lo..hi'; "
+            "overrides [org] squads_per_team here only. Unset: the [org] value."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _check_squads(self) -> DepartmentConfig:
+        if self.squads_range is not None and self.squads_range[0] < 1:
+            raise ValueError("squads_per_team must start at 1 or more")
+        return self
+
+    @model_serializer(mode="wrap")
+    def _dump(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        """Every dump (config.json, the digest, round trips) omits an unset knob.
+
+        So a department without it serializes as it did before the knob existed,
+        and no world id or stored config moves.
+        """
+        data: dict[str, Any] = handler(self)
+        if data.get("squads_per_team") is None:
+            data.pop("squads_per_team", None)
+        return data
+
+    @property
+    def squads_range(self) -> tuple[int, int] | None:
+        """The department's own squad range, or ``None`` to use ``[org]``'s."""
+        return None if self.squads_per_team is None else _range(self.squads_per_team)
 
 
 class SimulationConfig(_Frozen):

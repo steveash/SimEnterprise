@@ -1,0 +1,55 @@
+# Size ladder "simx-ladder-corvid", rung M, at the catalog's own size tiers (record 0052 bounds:
+# S at most 50 people, M at most 120, L at most 500).
+#
+# The rungs of ../ladder-{s,m,l}.toml come out S, S and M by those bounds. This set keeps their
+# seed, base departments (data analytics, marketing, sales) and S rung (../ladder-s.toml), and
+# reaches M and L with more extra departments. The base departments keep the [org] squad
+# count, so they keep the same people, and their projects the same facts and versions at every
+# rung. cross_team is 0, so no base document cites a department that only a larger rung has.
+#
+#   enterprise-sim world create examples/worlds/ladder/tiered/ladder-m.toml
+seed = 104
+
+[company]
+name = "Corvid Analytics"
+vertical = "analytics"
+size = "medium"
+description = "A marketplace company whose analytics team answers the business's questions."
+
+[simulation]
+period_start = 2026-01-05
+period_end = 2026-03-27
+
+[model]
+backend = "anthropic_api"
+name = "claude-haiku-4-5"
+offline_backend = "synth"
+
+[[departments]]
+archetype = "data_analytics"
+[[departments]]
+archetype = "marketing"
+[[departments]]
+archetype = "sales"
+[[departments]]
+archetype = "finance"
+[[departments]]
+archetype = "support"
+[[departments]]
+archetype = "engineering"
+[[departments]]
+archetype = "people_ops"
+
+[facts]
+cross_team = 0.0
+per_project = 8
+change_rate = 0.3
+
+[data]
+scenarios = ["product_growth", "sales_pipeline", "support_ops", "subscription_finance", "marketing_attribution"]
+scale_factor = 0.3
+iterations = 3
+
+[ladder]
+id = "simx-ladder-corvid"
+rung = "m"
