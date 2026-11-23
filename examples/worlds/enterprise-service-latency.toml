@@ -1,0 +1,71 @@
+# Data-only variant of examples/worlds/enterprise-sprawl.toml (P571048095, for sets3-cc fg1-15).
+#
+# Same seed, org, documents and world id; its [data] adds the scripted scenario service_latency:
+# hourly p95 latency per service, deploys with release ids and a commit trail; one release ships a regressing commit and a decoy, and a later release reverts only the regressing one. The gold data/service_latency/truth.json states the story.
+#
+#   enterprise-sim world create examples/worlds/enterprise-service-latency.toml
+seed = 107
+worlds_root = "worlds"
+
+[company]
+name = "Meridian Holdings"
+vertical = "software"
+size = "enterprise"
+description = "A diversified software and services group with a retail arm."
+
+[simulation]
+period_start = 2026-01-05
+period_end = 2026-06-26
+
+[model]
+backend = "anthropic_api"
+name = "claude-haiku-4-5"
+offline_backend = "synth"
+
+[[departments]]
+archetype = "engineering"
+[[departments]]
+archetype = "data_engineering"
+[[departments]]
+archetype = "data_analytics"
+[[departments]]
+archetype = "security"
+[[departments]]
+archetype = "finance"
+[[departments]]
+archetype = "people_ops"
+[[departments]]
+archetype = "support"
+[[departments]]
+archetype = "sales"
+[[departments]]
+archetype = "marketing"
+[[departments]]
+archetype = "legal"
+[[departments]]
+archetype = "retail"
+
+[org]
+squads_per_team = "1..3"
+turnover_rate = 0.12
+transfer_rate = 0.08
+
+[facts]
+per_project = 8
+change_rate = 0.4
+stale_rate = 0.15
+conflict_rate = 0.05
+cross_team = 0.9
+cross_team_stale_boost = 2.5
+
+[messiness]
+typo_rate = 0.008
+alias_rate = 0.2
+date_format_mix = 0.25
+duplicate_rate = 0.05
+filler_rate = 0.1
+
+[data]
+scenarios = ["sales_pipeline", "support_ops", "service_latency"]
+scale_factor = 1.0
+iterations = 2

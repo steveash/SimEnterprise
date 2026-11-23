@@ -236,6 +236,7 @@ class TestViews:
         from enterprise_sim.data_products.views import validate_view_sql
 
         spec = growth_run.scenarios[0].spec
+        assert spec is not None  # a DSL scenario
         assert validate_view_sql(spec) == []
         broken = spec.model_copy(
             update={
@@ -252,6 +253,7 @@ class TestViews:
 
     def test_bad_view_sql_raises(self, growth_run: DataRunResult) -> None:
         scenario = growth_run.scenarios[0]
+        assert scenario.spec is not None  # a DSL scenario
         spec = scenario.spec.model_copy(
             update={
                 "views": (

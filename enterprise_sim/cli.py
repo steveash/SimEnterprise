@@ -1566,6 +1566,11 @@ def _cmd_data_scenarios(args: argparse.Namespace) -> int:
     for name in registry.names():
         plugin = registry.get(name)
         print(f"{name}: {plugin.title}")
+    from enterprise_sim.data_products.scripted import SCRIPTED_SCENARIOS, load_builtin
+
+    load_builtin()
+    for name in SCRIPTED_SCENARIOS.names():
+        print(f"{name}: {SCRIPTED_SCENARIOS.get(name).title} (scripted)")
     return 0
 
 

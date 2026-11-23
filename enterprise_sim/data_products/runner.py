@@ -74,7 +74,7 @@ class ScenarioRunResult:
 
     scenario: str
     data_dir: Path
-    spec: ScenarioSpec
+    spec: ScenarioSpec | None  # None for a scripted scenario (data_products.scripted)
     iterations_run: int
     rows_by_table: dict[str, int]
     questions_total: int
@@ -343,6 +343,53 @@ def _run_scenario(
     return result, summary
 
 
+def _run_scripted_scenario(
+    name: str, config: DataRunConfig, world_dir: Path, world: World
+) -> tuple[ScenarioRunResult, dict[str, Any]]:
+    """Run one scripted scenario (``data_products.scripted``) into ``<world>/data/<name>/``."""
+    from enterprise_sim.data_products.scripted import SCRIPTED_SCENARIOS, run_scripted
+
+    plugin = SCRIPTED_SCENARIOS.get(name)
+    data_dir = scenario_dir(world_dir, name)
+    data_dir.mkdir(parents=True, exist_ok=True)
+    rows, total, answerable, _ = run_scripted(
+        plugin,
+        world,
+        data_dir,
+        seed=config.seed,
+        start=config.window.start,
+        end=config.window.end,
+        messiness=config.messiness,
+    )
+    summary = {
+        "schema_version": DATA_SCHEMA_VERSION,
+        "generator": {"name": "enterprise-sim", "version": __version__},
+        "created_at": datetime.now(UTC).isoformat(),
+        "scenario": name,
+        "title": plugin.title,
+        "scripted": True,
+        "seed": config.seed,
+        "window": {
+            "start": config.window.start.isoformat(),
+            "end": config.window.end.isoformat(),
+        },
+        "dir": f"{DATA_DIR}/{name}/",
+        "rows_by_table": dict(rows),
+        "questions": {"total": total, "answerable": answerable},
+        "llm_cost_usd": 0.0,
+    }
+    result = ScenarioRunResult(
+        scenario=name,
+        data_dir=data_dir,
+        spec=None,
+        iterations_run=1,
+        rows_by_table=dict(rows),
+        questions_total=total,
+        questions_answerable=answerable,
+    )
+    return result, summary
+
+
 def _carry_states(states: list[QuestionState], spec: ScenarioSpec) -> list[QuestionState]:
     """Re-anchor question states on the patched spec (ids are stable)."""
     by_id = {question.id: question for question in spec.questions}
@@ -384,7 +431,14 @@ def execute_data_run(
 
     discover_paths(plugin_paths())
     registry = discover_scenarios()
-    unknown = [name for name in config.scenarios if name not in set(registry.names())]
+    from enterprise_sim.data_products.scripted import SCRIPTED_SCENARIOS, load_builtin
+
+    load_builtin()
+    scripted = set(SCRIPTED_SCENARIOS.names())
+    both = sorted(scripted & set(registry.names()))
+    if both:
+        raise ValueError(f"data scenario names registered twice (DSL and scripted): {both}")
+    unknown = [name for name in config.scenarios if name not in set(registry.names()) | scripted]
     if unknown:
         # Fail before any world-build or sampling cost, with the registry's
         # clean known-names message.
@@ -398,7 +452,10 @@ def execute_data_run(
     for index, name in enumerate(config.scenarios):
         if on_scenario is not None:
             on_scenario(name, index, len(config.scenarios))
-        result, summary = _run_scenario(name, config, target, world, client)
+        if name in scripted:
+            result, summary = _run_scripted_scenario(name, config, target, world)
+        else:
+            result, summary = _run_scenario(name, config, target, world, client)
         results.append(result)
         summaries[name] = summary
 
