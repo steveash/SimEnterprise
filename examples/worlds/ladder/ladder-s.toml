@@ -1,0 +1,43 @@
+# Size ladder "simx-ladder-corvid", rung S (P571136233).
+#
+# One seed (that of analytics-structured-clean) at three sizes. The rungs differ only in extra
+# departments (each with its own people, projects, documents and facts) and the data scale_factor.
+# The squad count is the same at every rung, so the base departments (data analytics,
+# marketing, sales) keep the same people, and their projects keep the same facts and versions
+# at every size. cross_team is 0, so no base document cites a department that only a larger
+# rung has.
+#
+#   enterprise-sim world create examples/worlds/ladder/ladder-s.toml
+seed = 104
+
+[company]
+name = "Corvid Analytics"
+vertical = "analytics"
+size = "medium"
+description = "A marketplace company whose analytics team answers the business's questions."
+
+[simulation]
+period_start = 2026-01-05
+period_end = 2026-03-27
+
+[model]
+backend = "anthropic_api"
+name = "claude-haiku-4-5"
+offline_backend = "synth"
+
+[[departments]]
+archetype = "data_analytics"
+[[departments]]
+archetype = "marketing"
+[[departments]]
+archetype = "sales"
+
+[facts]
+cross_team = 0.0
+per_project = 8
+change_rate = 0.3
+
+[data]
+scenarios = ["product_growth", "sales_pipeline", "support_ops", "subscription_finance", "marketing_attribution"]
+scale_factor = 0.1
+iterations = 3

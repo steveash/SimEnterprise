@@ -990,3 +990,7 @@ def add_world_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentPar
     from enterprise_sim.worlds.retrieval_fixture import add_retrieval_fixture_parser
 
     add_retrieval_fixture_parser(world_subparsers)
+
+    from enterprise_sim.worlds.ladder import add_ladder_parser
+
+    add_ladder_parser(world_subparsers)
