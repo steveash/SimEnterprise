@@ -209,3 +209,81 @@ def test_month_end_accruals_answer_from_the_tables_and_keep_the_traps(payables: 
     open_pos = {a["po_id"] for a in first}
     for trap in ("cross_month", "partial", "wrong_entity"):
         assert truth["traps"][trap]["po_id"] in open_pos, trap  # all three open at that month end
+
+
+@pytest.fixture(scope="module")
+def month_end_payables(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    return _build(
+        tmp_path_factory.mktemp("apme") / "a", "docs-only-professional.toml", "ap_month_end"
+    )
+
+
+def test_every_month_end_has_every_trap_for_both_entities(month_end_payables: Path) -> None:
+    from enterprise_sim.data_products.scripted_scenarios.ap_month_end import KINDS
+
+    truth = _truth(month_end_payables, "ap_month_end")
+    tables = month_end_payables / "data" / "ap_month_end" / "tables"
+    pos = {r["po_id"]: r for r in _rows(tables / "dim_po")}
+    receipts = {r["po_id"]: r for r in _rows(tables / "fact_po_receipt")}
+    invoices = {r["invoice_id"]: r for r in _rows(tables / "fact_invoice")}
+    month_ends = list(truth["accruals_by_month_end"])
+    assert len(month_ends) >= 4
+    planted = {(str(t["month_end"]), t["entity"], t["kind"]) for t in truth["traps"]}
+    assert planted == {(me, e, k) for me in month_ends for e in truth["entities"] for k in KINDS}
+    for receipt in receipts.values():
+        assert pos[receipt["po_id"]]["ordered_on"] <= receipt["received_on"]
+    for invoice in invoices.values():
+        assert receipts[invoice["po_id"]]["received_on"] <= invoice["received_on"]
+    for trap in truth["traps"]:
+        me, entity, po_id = str(trap["month_end"]), trap["entity"], trap["po_id"]
+        accrued = {
+            a["po_id"]: a["accrual"]
+            for a in truth["accruals_by_month_end"][me]
+            if a["entity"] == entity
+        }
+        over = {o["po_id"]: o["excess"] for o in truth["over_invoiced_by_month_end"][me]}
+        booked = [invoices[i] for i in trap["invoices"]]
+        if trap["kind"] == "cross_month":
+            assert accrued[po_id] == pytest.approx(receipts[po_id]["amount"])
+            assert all(str(i["received_on"]) > me for i in booked)
+        elif trap["kind"] == "partial":
+            assert accrued[po_id] == pytest.approx(trap["accrued"])
+        elif trap["kind"] == "over_invoiced":
+            assert po_id not in accrued and trap["excess"] > 0
+            assert over[po_id] == pytest.approx(trap["excess"])
+        else:
+            assert accrued[po_id] == pytest.approx(receipts[po_id]["amount"])
+            assert [i["entity"] for i in booked] == [trap["invoice_entity"]]
+            assert trap["invoice_entity"] != entity and str(booked[0]["received_on"]) <= me
+
+
+def test_month_end_questions_answer_the_gold(month_end_payables: Path) -> None:
+    truth = _truth(month_end_payables, "ap_month_end")
+    questions = json.loads(
+        (month_end_payables / "data" / "ap_month_end" / "questions.json").read_text("utf-8")
+    )
+    by_id = {q["id"]: q["answer"] for q in questions["questions"]}
+    for me, expected in truth["accruals_by_month_end"].items():
+        assert [(a["entity"], a["po_id"], a["accrual"]) for a in by_id[f"ap.accruals_{me}"]] == [
+            (e["entity"], e["po_id"], pytest.approx(e["accrual"])) for e in expected
+        ]
+    for me, expected in truth["over_invoiced_by_month_end"].items():
+        answer = by_id[f"ap.over_invoiced_{me}"]
+        assert [(a["entity"], a["po_id"], a["excess"]) for a in answer] == [
+            (e["entity"], e["po_id"], pytest.approx(e["excess"])) for e in expected
+        ]
+    wrong = sorted(i for t in truth["traps"] if t["kind"] == "wrong_entity" for i in t["invoices"])
+    assert [a["invoice_id"] for a in by_id["ap.wrong_entity"]] == wrong
+
+
+def test_the_month_end_book_keeps_the_ap_base_rows(
+    payables: Path, month_end_payables: Path
+) -> None:
+    def base(world: Path, scenario: str, moved: set[str]) -> list[dict[str, Any]]:
+        rows = _rows(world / "data" / scenario / "tables" / "dim_po")
+        return [r for r in rows if r["po_id"] not in moved]
+
+    ap_traps = {t["po_id"] for t in _truth(payables, "ap")["traps"].values()}
+    planted = {t["po_id"] for t in _truth(month_end_payables, "ap_month_end")["traps"]}
+    kept = base(payables, "ap", ap_traps)
+    assert kept and base(month_end_payables, "ap_month_end", planted | ap_traps) == kept
