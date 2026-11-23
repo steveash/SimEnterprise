@@ -1,5 +1,5 @@
 # Benchmark world (M): a mid-sized software company whose sales team works four walled
-# key accounts (P570624023, decision record 0036).
+# key accounts (decision record 0036).
 #
 # Sales runs four account engagements with one topic stem and one playbook. Accounts 1
 # and 2 share a side (one client group, groups = [[1, 2], [3], [4]]): they are not

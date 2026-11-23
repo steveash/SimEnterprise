@@ -1,5 +1,5 @@
 # Benchmark world: analytics-structured-messy with a per-table quirk recipe and recoverable nulls
-# (P570529989, asked by sets2-cc for fin sets on day-varying measures).
+# (asked for finance test sets on day-varying measures).
 #
 # Same seed, org, documents and world id as analytics-structured-messy (the [data] plan is not part of a
 # world's id): only [data.messiness] adds recipe = "varied" (each table draws its drift day, renamed
@@ -39,7 +39,7 @@ change_rate = 0.3
 
 [data]
 scenarios = ["product_growth", "sales_pipeline", "support_ops", "subscription_finance", "marketing_attribution"]
-scale_factor = 0.1  # catalog size (datasets-cc: wave 2 at 0.1); `world data ... --scale 10` for full scale
+scale_factor = 0.1  # catalog size (the dataset catalog's wave 2 uses 0.1); `world data ... --scale 10` for full scale
 iterations = 3
 
 [data.messiness]

@@ -1,6 +1,6 @@
 """``world retrieval-fixture EXPORT_DIR --out DIR``: a judged retrieval corpus from an export.
 
-For Spindle's retrieval regression suite (decision record 0042, P571010356): a
+For Spindle's retrieval regression suite (decision record 0042): a
 committable bundle that loads offline and is pinned by digest.
 
 * ``corpus.jsonl``: one line per document,

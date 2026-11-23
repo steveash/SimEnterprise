@@ -1,5 +1,5 @@
 # Benchmark world: Harrow & Vale Advisory with a people-ops compensation table, messy
-# (P571023243, for sets2-cc fg1-09 fin-bonus-pool-private).
+# (for the test set fin-bonus-pool-private).
 #
 # Same seed, org and documents as docs-only-professional (the [data] plan is not part of a world id, so this is
 # a data-only variant of simx/harrow-vale-advisory). people_comp adds a Q4 bonus per real person (department,

@@ -1,6 +1,6 @@
 """``pipeline_runs``: a pipeline run history with opaque failure codes, plus ops logs.
 
-For sets3-cc's ops forge fg1-11 (P571047411, ops-failure-code-incidental). A few
+For the test set ops-failure-code-incidental. A few
 pipelines, owned by the world's real data-engineering teams, run on schedules over the
 window. Most failures are ordinary: a code, an honest message, a rerun that succeeds.
 Two incidents are not:

@@ -1,5 +1,5 @@
 # Benchmark world: a coding team whose engineering projects carry coding-agent session
-# transcripts (P570787443, diversity axis 16).
+# transcripts (diversity axis 16).
 #
 # Same seed and org as coding-team-clean, with facts that change often ([facts] change_rate 0.8), plus
 # repository artifacts and 8 agent sessions per

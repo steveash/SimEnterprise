@@ -1,4 +1,4 @@
-# Benchmark world: an analytics shop with four deliberate homonyms (P570787448, diversity axis 15).
+# Benchmark world: an analytics shop with four deliberate homonyms (diversity axis 15).
 #
 # Same seed and departments as analytics-structured-clean. Four pairs of people in different
 # departments share one full name, each labelled homonym_of in the gold KG. A document names
@@ -37,7 +37,7 @@ change_rate = 0.3
 
 [data]
 scenarios = ["product_growth", "sales_pipeline", "support_ops", "subscription_finance", "marketing_attribution"]
-scale_factor = 0.1  # catalog size (datasets-cc: wave 2 at 0.1); `world data ... --scale 10` for full scale
+scale_factor = 0.1  # catalog size (the dataset catalog's wave 2 uses 0.1); `world data ... --scale 10` for full scale
 iterations = 3
 
 [org]

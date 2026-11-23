@@ -1,6 +1,6 @@
 """People compensation: per-person Q4 bonuses, a retention payment, and the pools.
 
-A people-ops and finance scenario (P571023243, for sets2-cc's fg1-09
+A people-ops and finance scenario (for the test set
 fin-bonus-pool-private). Every row of the bonus table is one of the company's real
 people, with their real department, team (the cost centre) and seniority. A Q4 bonus
 follows from base salary, a seniority-driven target and a performance multiplier,

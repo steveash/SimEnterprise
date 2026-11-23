@@ -1,4 +1,4 @@
-# Data-only variant of examples/worlds/matrix/dataeng-messy-data-large-high.toml (P571047411, for sets3-cc fg1-11).
+# Data-only variant of examples/worlds/matrix/dataeng-messy-data-large-high.toml.
 #
 # Same seed, org, documents and world id; its [data] adds the scripted scenario pipeline_runs:
 # a pipeline run history (timestamps, opaque failure codes, misleading messages, reruns), a vault audit log and a backfill log, with two incidents whose fix only a log records. The gold data/pipeline_runs/truth.json states the story.

@@ -1,6 +1,6 @@
 """``world ladder-check``: one seed at several sizes, with the facts a test set needs held constant.
 
-A size ladder (P571136233) lets a sweep measure the size effect with nothing else
+A size ladder lets a sweep measure the size effect with nothing else
 changing. Its rungs are worlds built from one seed that differ only by extra
 departments (each with its own people, projects, documents and facts) and the data
 scale factor. The base departments keep the same people, and their projects keep the

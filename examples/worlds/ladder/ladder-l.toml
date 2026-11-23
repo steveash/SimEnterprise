@@ -1,4 +1,4 @@
-# Size ladder "simx-ladder-corvid", rung L (P571136233).
+# Size ladder "simx-ladder-corvid", rung L.
 #
 # One seed (that of analytics-structured-clean) at three sizes. The rungs differ only in extra
 # departments (each with its own people, projects, documents and facts) and the data scale_factor.

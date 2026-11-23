@@ -1,4 +1,4 @@
-"""Generate the XL tier: four enterprise-sprawl variants with live prose (simx-cc).
+"""Generate the XL tier: four enterprise-sprawl variants with live prose.
 
 Each is a three-year world (2024-01-08 to 2026-12-25) of an enterprise with 6..8
 squads per team shape (1,000+ people), facts and turnover drawn over the whole

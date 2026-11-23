@@ -12,7 +12,7 @@ a linked worktree's file), or is itself a git directory (a bare or common git
 directory: ``HEAD``, ``objects/`` and ``refs/``). The check runs before anything is read
 or written.
 
-The seed file is the held-out secret of decision record 0015 (datasets-cc): exactly one
+The seed file is the held-out secret of decision record 0015: exactly one
 line ``spindle-heldout-seed/1 <64 lowercase hex digits>`` with at least eight distinct
 digits, written from the OS random source by ``new-heldout-seed``. One seed file thus
 serves both the dataset builder and this generator; the derivations are separated by

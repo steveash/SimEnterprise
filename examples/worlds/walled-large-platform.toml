@@ -1,5 +1,5 @@
 # Benchmark world (L): a large software platform company whose engineering department
-# runs five walled client engagements (P570624023, decision record 0036).
+# runs five walled client engagements (decision record 0036).
 #
 # Engineering builds the same product for five clients: one topic stem, one playbook,
 # the same fact attributes (API version, datastore, latency target, budget), values

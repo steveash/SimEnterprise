@@ -2,7 +2,7 @@
 
 A Spindle gym test set's ``environment/`` comes from the catalogued package, never
 from a world directory, so the set stays pinned to the shared catalog
-(datasets-cc, decision 0022): ``spindle-datasets materialize simx/<co>@<v>#<slice>``
+(decision record 0022): ``spindle-datasets materialize simx/<co>@<v>#<slice>``
 writes the files. Two things here make that work:
 
 * :func:`project_slices` — the slices a world's export declares
@@ -99,7 +99,7 @@ def _occurrences(token: str, texts: dict[str, list[str]]) -> list[dict[str, Any]
 
 
 #: Common words and short tokens a prompt could hold by chance: a value equal
-#: to one is a substring hazard under the gym's leak rule (sets-cc).
+#: to one is a substring hazard under the gym's leak rule.
 _COMMON_TOKENS = frozenset(
     {
         "weekly",
@@ -801,7 +801,7 @@ def project_registry(world_dir: Path | str, project: str) -> list[dict[str, str]
 
 
 #: Words of the gym's tool and prompt vocabulary; names holding one as a whole
-#: token get rewritten by test-set generators (sets-cc: ``search`` once rewrote
+#: token get rewritten by test-set generators (``search`` once rewrote
 #: ``text_search``).
 TOOL_VOCABULARY: frozenset[str] = frozenset(
     {"search", "files", "shell", "publish", "sql", "python", "note", "session"}
@@ -844,7 +844,7 @@ def project_observations(world_dir: Path | str, project: str) -> list[dict[str, 
     changed: an observed value drawn (seeded by fact and day) across the span of
     the fact's values, so "days over the target" depends on which version of the
     target one applies: a stale target gives a different count, not only a
-    different token (sets2-cc).
+    different token.
     """
     from datetime import date as _date
     from datetime import timedelta

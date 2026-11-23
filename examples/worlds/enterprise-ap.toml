@@ -1,4 +1,4 @@
-# Data-only variant of examples/worlds/enterprise-sprawl.toml (P571225593, for sets2-cc fg1-08).
+# Data-only variant of examples/worlds/enterprise-sprawl.toml.
 #
 # Same seed, org, documents and world id as simx/meridian-holdings; its [data] adds the scripted
 # scenario ap: purchase orders for two legal entities (approved by real finance people), goods

@@ -1,5 +1,5 @@
 # Benchmark world (S): a small law-and-advisory firm with three walled client matters
-# (P570624023, decision record 0036).
+# (decision record 0036).
 #
 # Legal runs three client matters that look alike on purpose: one topic stem, one
 # playbook, the same fact attributes. Each matter has its own staff, and its values

@@ -1,4 +1,4 @@
-# Data-only variant of examples/worlds/enterprise-sprawl.toml (P571048095, for sets3-cc fg1-15).
+# Data-only variant of examples/worlds/enterprise-sprawl.toml.
 #
 # Same seed, org, documents and world id; its [data] adds the scripted scenario service_latency:
 # hourly p95 latency per service, deploys with release ids and a commit trail; one release ships a regressing commit and a decoy, and a later release reverts only the regressing one. The gold data/service_latency/truth.json states the story.

@@ -1,4 +1,4 @@
-"""``[ladder]``: which size ladder a world is a rung of (P571136233).
+"""``[ladder]``: which size ladder a world is a rung of.
 
 A size ladder is one seed built at several sizes, its base facts constant
 (:mod:`enterprise_sim.worlds.ladder`). The section only labels the world: ``world

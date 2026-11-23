@@ -1,6 +1,6 @@
 """``service_latency``: hourly p95 latency per service, deploys with release ids, commits.
 
-For sets3-cc's ops forge fg1-15 (P571048095, ops-verified-vs-guess). Three services,
+For the test set ops-verified-vs-guess. Three services,
 owned by the world's real engineering teams, each have an hourly p95 latency series, a
 commit trail (sha, time, author, summary) and deploys that ship the commits made since
 the last one.

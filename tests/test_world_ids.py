@@ -1,6 +1,6 @@
 """Example world ids are pinned: a new config field at its default must not move them.
 
-The ids below are the ones datasets-cc's catalog pins (and the golden world's).
+The ids below are the ones the dataset catalog pins (and the golden world's).
 If a change moves one, either it changes the world (bump the example on purpose
 and tell the catalog) or a new field is missing from runner._LATE_FIELDS.
 """

@@ -48,7 +48,7 @@ date_format_mix = 0.2
 
 [data]
 scenarios = ["product_growth", "support_ops"]
-scale_factor = 0.1  # catalog size (datasets-cc: wave 2 at 0.1); `world data ... --scale 10` for full scale
+scale_factor = 0.1  # catalog size (the dataset catalog's wave 2 uses 0.1); `world data ... --scale 10` for full scale
 iterations = 2
 
 [data.messiness]

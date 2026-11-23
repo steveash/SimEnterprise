@@ -1,6 +1,6 @@
 """``ap``: accounts-payable rows (purchase orders, goods receipts, invoices) for two entities.
 
-For sets2-cc's fg1-08 (P571225593, fin-accrual-cascade). The finance department buys
+For the test set fin-accrual-cascade. The finance department buys
 for two legal entities of the company (``<company> US`` and ``<company> UK``). Each
 purchase order is approved by a real finance person, received on a date, and invoiced
 by its vendor some days later. Month-end accruals are the receipts not yet invoiced at

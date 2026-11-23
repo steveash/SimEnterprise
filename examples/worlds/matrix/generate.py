@@ -1,4 +1,4 @@
-"""Generate the benchmark world matrix: one config per cell (simx-cc).
+"""Generate the benchmark world matrix: one config per cell.
 
 Full factorial over the priority families' axes (docs/../ diversity matrix):
 
