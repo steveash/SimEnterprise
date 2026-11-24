@@ -36,6 +36,7 @@ PINNED = {
     "worlds/enterprise-service-latency.toml": "meridian-holdings-8ea3a90f92f0",
     "worlds/enterprise-ap.toml": "meridian-holdings-8ea3a90f92f0",
     "worlds/enterprise-ap-month-end.toml": "meridian-holdings-8ea3a90f92f0",
+    "worlds/ops-sre.toml": "tessellate-cloud-2866bc14c03c",
     "worlds/dataeng-pipeline-runs.toml": "basalt-digital-0436d7b7368d",
     "worlds/ladder/ladder-s.toml": "corvid-analytics-c6b0e22966ae",
     "worlds/ladder/ladder-m.toml": "corvid-analytics-b37b855d7066",

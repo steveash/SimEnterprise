@@ -525,6 +525,111 @@ OPERATIONS: tuple[Attribute, ...] = (
 )
 
 #: Department archetype → its domain attributes (generic ones always apply).
+_escalation = _choice(
+    ("platform-infra", "data-platform", "payments-infra", "core-services", "edge-networking")
+)
+_window = _choice(
+    (
+        "weekdays 09:00-15:00 UTC",
+        "weekdays 09:00-17:00 UTC",
+        "Tue-Thu 10:00-16:00 UTC",
+        "weekdays 13:00-18:00 UTC",
+    )
+)
+_failover = _choice(("eu-west-1", "eu-central-1", "us-east-2", "us-west-2", "ap-southeast-1"))
+_threshold = _number((250, 400, 600, 900, 1500), " ms p99")
+_slo = _choice(("99.5%", "99.9%", "99.95%", "99.99%"))
+_log_retention = _number((14, 30, 90, 180, 400), " days")
+
+SRE: tuple[Attribute, ...] = (
+    Attribute(
+        name="oncall_primary",
+        kind="decision",
+        label="on-call primary",
+        draw=_person_draw,
+        mutate=_person_mutate,
+        current=("{value} carries the pager for {subject} this rotation.",),
+        update="The on-call primary for {subject} swapped from {old} to {value}.",
+        question="Who is the on-call primary for {subject}?",
+        volatile=1.4,
+    ),
+    Attribute(
+        name="escalation_owner",
+        kind="decision",
+        label="escalation owner",
+        draw=_escalation[0],
+        mutate=_escalation[1],
+        current=("Escalations for {subject} go to {value}.",),
+        update="Escalations for {subject} moved from {old} to {value}.",
+        question="Which team takes escalations for {subject}?",
+        volatile=0.6,
+    ),
+    Attribute(
+        name="deploy_window",
+        kind="policy",
+        label="deploy window",
+        draw=_window[0],
+        mutate=_window[1],
+        current=("{subject} deploys only inside its window, {value}.",),
+        update="The deploy window for {subject} changed from {old} to {value}.",
+        question="When may {subject} deploy?",
+    ),
+    Attribute(
+        name="change_freeze_end",
+        kind="policy",
+        label="change freeze end date",
+        draw=_date_draw,
+        mutate=_date_mutate,
+        current=("The change freeze on {subject} lasts through {value}.",),
+        update="The change freeze on {subject} now ends on {value} instead of {old}.",
+        question="When does the change freeze on {subject} end?",
+        volatile=0.8,
+    ),
+    Attribute(
+        name="failover_region",
+        kind="decision",
+        label="failover region",
+        draw=_failover[0],
+        mutate=_failover[1],
+        current=("{subject} fails over to {value}.",),
+        update="{subject} now fails over to {value} instead of {old}.",
+        question="Which region does {subject} fail over to?",
+        volatile=0.5,
+    ),
+    Attribute(
+        name="alert_threshold",
+        kind="policy",
+        label="paging alert threshold",
+        draw=_threshold[0],
+        mutate=_threshold[1],
+        current=("{subject} pages when latency passes {value}.",),
+        update="The paging threshold for {subject} moved from {old} to {value}.",
+        question="At what latency does {subject} page the on-call?",
+    ),
+    Attribute(
+        name="slo_target",
+        kind="target",
+        label="availability objective",
+        draw=_slo[0],
+        mutate=_slo[1],
+        current=("{subject} holds a {value} availability objective.",),
+        update="The availability objective for {subject} changed from {old} to {value}.",
+        question="What availability objective does {subject} hold?",
+        volatile=0.5,
+    ),
+    Attribute(
+        name="log_retention",
+        kind="policy",
+        label="log retention",
+        draw=_log_retention[0],
+        mutate=_log_retention[1],
+        current=("{subject} keeps its logs for {value}.",),
+        update="Log retention for {subject} changed from {old} to {value}.",
+        question="How long does {subject} keep its logs?",
+        volatile=0.4,
+    ),
+)
+
 _BY_ARCHETYPE: dict[str, tuple[Attribute, ...]] = {
     "engineering": ENGINEERING,
     "platform": ENGINEERING,
@@ -539,6 +644,7 @@ _BY_ARCHETYPE: dict[str, tuple[Attribute, ...]] = {
     "legal": OPERATIONS,
     "support": OPERATIONS,
     "sales": OPERATIONS,
+    "site_reliability": SRE,
 }
 
 

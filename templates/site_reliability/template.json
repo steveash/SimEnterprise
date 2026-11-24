@@ -1,0 +1,32 @@
+{
+  "created_at": "2026-11-24T00:00:00+00:00",
+  "description": "A site-reliability org unit: on-call operations, release engineering and observability.",
+  "kind": "department",
+  "name": "Site Reliability",
+  "provides": {
+    "archetypes": [
+      "site_reliability"
+    ],
+    "data_scenarios": [],
+    "playbooks": [
+      "run_site_reliability"
+    ],
+    "processes": [
+      "site_reliability__kickoff",
+      "site_reliability__incident",
+      "site_reliability__postmortem",
+      "site_reliability__handoff",
+      "site_reliability__change",
+      "site_reliability__runbook",
+      "site_reliability__slo",
+      "site_reliability__status"
+    ]
+  },
+  "slug": "site_reliability",
+  "updated_at": "2026-11-24T00:00:00+00:00",
+  "validation": {
+    "checked_at": "2026-11-24T00:00:00+00:00",
+    "status": "unvalidated",
+    "summary": "not validated yet"
+  }
+}

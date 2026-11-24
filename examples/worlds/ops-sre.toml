@@ -1,0 +1,54 @@
+# Benchmark world: an ops / SRE enterprise for the ops test sets.
+#
+# A cloud hosting company led by its site-reliability department (on-call operations,
+# release engineering, observability), with engineering, security, support and data
+# engineering beside it. The SRE documents are incident reports, postmortems, on-call
+# handoffs, change requests, runbooks and SLO reviews; the fact ledger gives its projects
+# on-call primaries, escalation owners, deploy windows, freeze end dates, failover regions,
+# paging thresholds, availability objectives and log retention, each a dated chain with
+# stale and conflicting statements, and some of their holders leave mid-window.
+# The scripted scenario sre_ops adds twenty services' rota with swaps and a cancelled
+# swap, postmortem action items with a quarterly review, and a change freeze with
+# exceptions; gold data/sre_ops/truth.json. Export with --with-knowledge for the layer.
+#
+#   enterprise-sim world create examples/worlds/ops-sre.toml
+seed = 211
+worlds_root = "worlds"
+
+[company]
+name = "Tessellate Cloud"
+vertical = "site reliability"
+size = "large"
+description = "A cloud hosting company whose reliability team keeps the customer platform up."
+
+[simulation]
+period_start = 2026-01-05
+period_end = 2026-04-24
+
+[model]
+backend = "bedrock"
+name = "us.anthropic.claude-haiku-5-5"
+offline_backend = "synth"
+
+[[departments]]
+archetype = "site_reliability"
+[[departments]]
+archetype = "engineering"
+[[departments]]
+archetype = "security"
+[[departments]]
+archetype = "support"
+[[departments]]
+archetype = "data_engineering"
+
+[facts]
+per_project = 8
+change_rate = 0.4
+
+[org]
+turnover_rate = 0.1
+
+[data]
+scenarios = ["sre_ops"]
+scale_factor = 1.0
+iterations = 1

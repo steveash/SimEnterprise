@@ -217,5 +217,5 @@ def load_builtin() -> None:
     """Import the built-in scripted scenarios so they register (idempotent)."""
     import importlib
 
-    for module in ("ap", "ap_month_end", "pipeline_runs", "service_latency"):
+    for module in ("ap", "ap_month_end", "pipeline_runs", "service_latency", "sre_ops"):
         importlib.import_module(f"enterprise_sim.data_products.scripted_scenarios.{module}")
