@@ -19,6 +19,14 @@ passes; both commands exit 1 on a problem and print each one.
 The layer is **gold**: it names which documents are wrong and who knows what. It
 belongs beside the controller, never in an agent's workspace.
 
+An export can carry its own layer: `enterprise-sim world export WORLD_DIR --out DIR
+--with-knowledge` writes it as `knowledge/knowledge.json`, listed in `export.json` with
+role `gold` (the catalog importer files gold under controller-only `meta/`). That copy
+has `export_digest: null`, because `export.json` lists it and so binds it: the check
+then requires the file `export.json` lists to be this layer, byte for byte. The export
+refuses to finish if its layer does not hold. A sidecar layer of an export made without
+the flag names that export's digest instead.
+
 ## Where it comes from
 
 The fact ledger (`enterprise_sim/facts/ledger.py`) gives each project a few facts
@@ -44,7 +52,7 @@ Top level:
 | Key | Content |
 |---|---|
 | `format` | `"simenterprise-knowledge/1"` |
-| `world_id`, `export_digest` | the world, and the sha256 of the export's `export.json` the layer was read from |
+| `world_id`, `export_digest` | the world, and the sha256 of the export's `export.json` the layer was read from (null inside the export) |
 | `window` | `{start, end}`: the simulated period |
 | `counts` | items, facts, supersessions, carriers, misleading, holders |
 | `items` | one per fact version, ordered by fact id and version |
@@ -83,7 +91,8 @@ Paths are export paths (as listed in `export.json`); people are KG person ids.
 
 `check_layer` (and `--check`) refuses a layer when:
 
-* its format, world id or export digest is not this export's;
+* its format, world id or export digest is not this export's (inside an export: it is
+  not the `knowledge/knowledge.json` that `export.json` lists);
 * an item id repeats;
 * a carrier, retraction, announcement or misleading path is not a file of the export;
 * a carrier's `verbatim` flag disagrees with the document's text;

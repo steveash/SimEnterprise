@@ -80,7 +80,7 @@ _SKIP_TOP: frozenset[str] = frozenset({".world", ".jobs", ".cache", ".control", 
 _SKIP_PREFIXES: tuple[str, ...] = ("kg/neo4j/",)
 
 #: Paths (relative, POSIX) that are the answer key and must stay controller-only.
-_GOLD_PREFIXES: tuple[str, ...] = ("kg/", "evals/", "validation/")
+_GOLD_PREFIXES: tuple[str, ...] = ("kg/", "evals/", "validation/", "knowledge/")
 
 _W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 
@@ -767,7 +767,11 @@ class NameGuard:
 
 
 def export_world(
-    world_dir: Path | str, out_root: Path | str, *, with_replay: bool | None = None
+    world_dir: Path | str,
+    out_root: Path | str,
+    *,
+    with_replay: bool | None = None,
+    with_knowledge: bool = False,
 ) -> ExportResult:
     """Export ``world_dir`` as ``<out_root>/<world id>/`` (``simenterprise-export/1``).
 
@@ -777,6 +781,9 @@ def export_world(
     ``with_replay`` (default: on for live worlds) adds ``replay/llm-cache.jsonl``
     (gold): every recorded model response, keyed by request, so
     ``enterprise-sim world replay`` rebuilds the world with no model call.
+
+    ``with_knowledge`` adds ``knowledge/knowledge.json`` (gold): the world's knowledge
+    layer (:mod:`enterprise_sim.worlds.knowledge`), checked against the finished export.
     """
     world_dir = Path(world_dir)
     world = read_world(world_dir)
@@ -995,6 +1002,15 @@ def export_world(
         body = json.dumps(isolation, sort_keys=True, indent=1, ensure_ascii=False) + "\n"
         writer.write(ISOLATION_FILE, body.encode("utf-8"), "application/json")
 
+    knowledge: dict[str, Any] | None = None
+    if with_knowledge:
+        from enterprise_sim.worlds.knowledge import KNOWLEDGE_FILE, build_layer, layer_bytes
+
+        knowledge = build_layer(
+            target, manifest={"world_id": world.world_id, "files": writer.files}
+        )
+        writer.write(KNOWLEDGE_FILE, layer_bytes(knowledge), "application/json")
+
     commit, dirty = _git_commit(Path(__file__).resolve().parents[2])
     manifest = {
         "format": EXPORT_FORMAT,
@@ -1029,4 +1045,10 @@ def export_world(
         manifest["heldout"] = json.loads(marker.read_text(encoding="utf-8"))
     body = json.dumps(manifest, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     (target / "export.json").write_bytes(body.encode("utf-8"))
+    if knowledge is not None:
+        from enterprise_sim.worlds.knowledge import check_layer
+
+        problems = check_layer(target, knowledge)
+        if problems:
+            raise ExportError(f"the knowledge layer does not hold: {problems[:3]}")
     return ExportResult(target, _sha256(body.encode("utf-8")), len(writer.files))

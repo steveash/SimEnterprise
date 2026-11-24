@@ -38,9 +38,19 @@ import sys
 from pathlib import Path
 from typing import Any
 
-__all__ = ["FORMAT", "KnowledgeError", "add_knowledge_parser", "build_layer", "check_layer"]
+__all__ = [
+    "FORMAT",
+    "KNOWLEDGE_FILE",
+    "KnowledgeError",
+    "add_knowledge_parser",
+    "build_layer",
+    "check_layer",
+    "layer_bytes",
+]
 
 FORMAT = "simenterprise-knowledge/1"
+#: Where an export carries its own layer (``world export --with-knowledge``), as gold.
+KNOWLEDGE_FILE = "knowledge/knowledge.json"
 _TRUE = ("current", "update", "hedged")
 _MISLEADING = ("stale", "conflicting")
 
@@ -60,9 +70,11 @@ def _item_id(fact: str, version: int) -> str:
 class _Export:
     """The parts of an export the layer reads."""
 
-    def __init__(self, export_dir: Path) -> None:
+    def __init__(self, export_dir: Path, manifest: dict[str, Any] | None = None) -> None:
         try:
-            self.manifest = json.loads((export_dir / "export.json").read_text(encoding="utf-8"))
+            self.manifest = manifest or json.loads(
+                (export_dir / "export.json").read_text(encoding="utf-8")
+            )
             self.nodes = {n["id"]: n for n in _jsonl(export_dir / "kg" / "nodes.jsonl")}
             self.edges = _jsonl(export_dir / "kg" / "edges.jsonl")
             config = json.loads((export_dir / "config.json").read_text(encoding="utf-8"))
@@ -109,11 +121,16 @@ def _person(node: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def build_layer(export_dir: Path) -> dict[str, Any]:
-    """The knowledge layer of ``export_dir`` (see the module docstring)."""
+def build_layer(export_dir: Path, *, manifest: dict[str, Any] | None = None) -> dict[str, Any]:
+    """The knowledge layer of ``export_dir`` (see the module docstring).
+
+    With ``manifest`` (``world_id`` and ``files``, as the exporter holds them before it
+    writes ``export.json``), the layer is built to go inside that export: its
+    ``export_digest`` is null, since ``export.json`` lists the layer and so binds it.
+    """
     from enterprise_sim.facts.catalog import kind_of, value_token
 
-    ex = _Export(export_dir)
+    ex = _Export(export_dir, manifest)
     authors: dict[str, list[str]] = {}
     for edge in ex.by_type("authored"):
         authors.setdefault(edge["dst"], []).append(edge["src"])
@@ -272,7 +289,9 @@ def build_layer(export_dir: Path) -> dict[str, Any]:
     return {
         "format": FORMAT,
         "world_id": ex.manifest["world_id"],
-        "export_digest": hashlib.sha256((export_dir / "export.json").read_bytes()).hexdigest(),
+        "export_digest": None
+        if manifest is not None
+        else hashlib.sha256((export_dir / "export.json").read_bytes()).hexdigest(),
         "window": ex.window,
         "counts": counts,
         "items": items,
@@ -293,7 +312,11 @@ def check_layer(export_dir: Path, layer: dict[str, Any]) -> list[str]:
     if layer.get("world_id") != ex.manifest["world_id"]:
         problems.append("the layer is of another world")
     digest = hashlib.sha256((export_dir / "export.json").read_bytes()).hexdigest()
-    if layer.get("export_digest") != digest:
+    if layer.get("export_digest") is None:  # inside the export: export.json lists it
+        listed = [f for f in ex.manifest["files"] if f["path"] == KNOWLEDGE_FILE]
+        if not listed or listed[0]["sha256"] != hashlib.sha256(layer_bytes(layer)).hexdigest():
+            problems.append(f"the layer is not the {KNOWLEDGE_FILE} this export lists")
+    elif layer.get("export_digest") != digest:
         problems.append("the layer is of another export of this world")
     people = {n for n, node in ex.nodes.items() if node["type"] == "Person"}
     items = {i["id"]: i for i in layer.get("items", ())}
@@ -338,7 +361,8 @@ def check_layer(export_dir: Path, layer: dict[str, Any]) -> list[str]:
     return problems
 
 
-def _dumps(layer: dict[str, Any]) -> bytes:
+def layer_bytes(layer: dict[str, Any]) -> bytes:
+    """The layer as written: sorted keys, one-space indent, a final newline."""
     return (json.dumps(layer, sort_keys=True, indent=1, ensure_ascii=False) + "\n").encode()
 
 
@@ -352,7 +376,7 @@ def _cmd_world_knowledge_layer(args: argparse.Namespace) -> int:
             problems = check_layer(args.export_dir, layer)
             if not problems and args.out is not None:
                 args.out.parent.mkdir(parents=True, exist_ok=True)
-                args.out.write_bytes(_dumps(layer))
+                args.out.write_bytes(layer_bytes(layer))
     except (KnowledgeError, OSError, ValueError) as exc:
         print(f"enterprise-sim world knowledge-layer: {exc}", file=sys.stderr)
         return 2

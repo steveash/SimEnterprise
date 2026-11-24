@@ -17,7 +17,12 @@ __all__ = ["add_export_parser"]
 
 def _cmd_world_export(args: argparse.Namespace) -> int:
     try:
-        result = export_world(args.world_dir, args.out, with_replay=args.with_replay)
+        result = export_world(
+            args.world_dir,
+            args.out,
+            with_replay=args.with_replay,
+            with_knowledge=args.with_knowledge,
+        )
     except ExportError as exc:
         print(f"enterprise-sim world export: {exc}", file=sys.stderr)
         return 2
@@ -59,6 +64,12 @@ def add_export_parser(
         action="store_true",
         default=None,
         help="include replay/llm-cache.jsonl (default: on for live worlds)",
+    )
+    parser.add_argument(
+        "--with-knowledge",
+        dest="with_knowledge",
+        action="store_true",
+        help="include knowledge/knowledge.json (gold): the world's knowledge layer",
     )
     parser.set_defaults(func=_cmd_world_export)
 

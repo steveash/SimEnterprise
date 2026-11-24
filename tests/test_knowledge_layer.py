@@ -30,6 +30,11 @@ def export(tmp_path_factory: pytest.TempPathFactory) -> Path:
     return export_world(world, root / "out").directory
 
 
+def _world_of(export: Path) -> Path:
+    (world,) = list((export.parents[1] / "w").iterdir())
+    return world
+
+
 @pytest.fixture(scope="module")
 def layer(export: Path) -> dict[str, Any]:
     return build_layer(export)
@@ -163,3 +168,22 @@ def test_every_catalog_attribute_has_a_knowledge_kind() -> None:
     assert attributes
     assert {a.kind for a in attributes} == {"decision", "policy", "target", "status"}
     assert all(catalog.kind_of(a.name) == a.kind for a in attributes)
+
+
+def test_an_export_can_carry_its_own_layer_as_gold(
+    export: Path, layer: dict[str, Any], tmp_path: Path
+) -> None:
+    from enterprise_sim.worlds.knowledge import KNOWLEDGE_FILE
+
+    assert not (export / KNOWLEDGE_FILE).exists()  # off by default
+    inside = export_world(_world_of(export), tmp_path / "out", with_knowledge=True).directory
+    manifest = json.loads((inside / "export.json").read_text(encoding="utf-8"))
+    (entry,) = [f for f in manifest["files"] if f["path"] == KNOWLEDGE_FILE]
+    assert entry["role"] == "gold"
+    carried = json.loads((inside / KNOWLEDGE_FILE).read_text(encoding="utf-8"))
+    assert carried["export_digest"] is None and check_layer(inside, carried) == []
+    assert {k: v for k, v in carried.items() if k != "export_digest"} == {
+        k: v for k, v in layer.items() if k != "export_digest"
+    }
+    carried["items"][0]["value"] = "changed"
+    assert any(KNOWLEDGE_FILE in p for p in check_layer(inside, carried))
