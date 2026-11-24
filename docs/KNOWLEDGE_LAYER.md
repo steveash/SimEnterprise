@@ -87,6 +87,12 @@ A **misleading** entry: `{kind, path, at, ...}`. `stale` and `conflicting` add `
 
 Paths are export paths (as listed in `export.json`); people are KG person ids.
 
+**Times.** A world runs on one clock with no time zone. The layer writes its times as
+`YYYY-MM-DDTHH:MM:SS` with no offset, and dates (a document's `at`) as `YYYY-MM-DD`. A
+reader that needs instants takes them as UTC: append `Z`, and refuse any value of
+another shape. Ids are `<type>:<slug>` (`person:ada-diaz`, `project:run-sales-sales`);
+the part after the colon is a lowercase slug a reader can use as its own identifier.
+
 ## The check
 
 `check_layer` (and `--check`) refuses a layer when:
