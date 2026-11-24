@@ -1,0 +1,101 @@
+# The knowledge layer (`simenterprise-knowledge/1`)
+
+A test set plants knowledge in a team's documents and asks whether an agent finds the
+current version, its owner, and the documents that mislead. Writing that by hand for
+every world is the cost that keeps most exported worlds unused. The knowledge layer is
+the same information read out of a world's gold graph, in one file a set engine can
+consume:
+
+```
+enterprise-sim world knowledge-layer EXPORT_DIR --out knowledge.json   # build, check, write
+enterprise-sim world knowledge-layer EXPORT_DIR --check knowledge.json # check an existing one
+```
+
+It reads the export only (`export.json`, `config.json`, `kg/`, and the documents' text),
+so it works for every exported world, live-prose ones included, with no model call. The
+same export gives the same bytes. Building writes nothing unless the check below
+passes; both commands exit 1 on a problem and print each one.
+
+The layer is **gold**: it names which documents are wrong and who knows what. It
+belongs beside the controller, never in an agent's workspace.
+
+## Where it comes from
+
+The fact ledger (`enterprise_sim/facts/ledger.py`) gives each project a few facts
+(its owner, budget, review cadence, vendor and so on), each a chain of dated versions.
+Each document that mentions a fact carries a gold `asserts` edge with a *stance*:
+
+| Stance | Meaning | In the layer |
+|---|---|---|
+| `current` | states the version true at the document's date | a carrier of that item |
+| `update` | announces a change to it | a carrier; its authors are the item's `announcer`s |
+| `hedged` | states the true version with a hedge ("I believe ...") | a carrier |
+| `retraction` | says a version was an error | the item's `retracted_in` |
+| `stale` | states a superseded version as if it were current | `misleading`, kind `stale` |
+| `conflicting` | states a value that was never true | `misleading`, kind `conflicting` |
+
+`duplicate_of` edges (a document's near-copy, such as a `-v2-final` file) become
+`misleading` entries of kind `near_duplicate`.
+
+## The file
+
+Top level:
+
+| Key | Content |
+|---|---|
+| `format` | `"simenterprise-knowledge/1"` |
+| `world_id`, `export_digest` | the world, and the sha256 of the export's `export.json` the layer was read from |
+| `window` | `{start, end}`: the simulated period |
+| `counts` | items, facts, supersessions, carriers, misleading, holders |
+| `items` | one per fact version, ordered by fact id and version |
+| `supersessions` | one per change of a fact |
+| `misleading` | the misleading documents, ordered by date and path |
+| `people` | every person who holds an item: id, name, department, team, title, `joined_at`, `left_at`, `replaces` (the person they succeeded) |
+
+An **item**:
+
+| Key | Content |
+|---|---|
+| `id` | `<fact id>@v<n>`, unique in the file |
+| `fact`, `version` | the fact and the version number (1 is the first) |
+| `kind` | `decision` (a choice made: owner, vendor, datastore, metric definition), `policy` (a standing rule or cadence: review cadence, freshness SLA, retention), `target` (a planned number or date: budget, launch date, open roles) or `status` (status, priority). From the attribute catalog (`Attribute.kind`). |
+| `attribute`, `label`, `question` | the attribute name, its noun phrase, and the question the fact answers |
+| `subject` | the project: `{id, name, department}` |
+| `value`, `canonical` | the value as stated, and its whitespace-free token (what a grader matches) |
+| `statement` | one plain sentence: "The `label` of `subject` is `value`." |
+| `valid_from`, `valid_to` | valid time (`valid_to` is null for the last version) |
+| `retracted_at`, `retracted_in` | when the version was found to be an error, and the documents saying so |
+| `supersedes`, `superseded_by` | the item before and after it in the chain (null at either end) |
+| `holders` | `[{person, as}]`: `announcer` (wrote a document announcing it), `author` (wrote a document stating it), `owner` (owns the initiative the project is under). A person is listed once, with the strongest role in that order. |
+| `carriers` | `[{path, stance, at, verbatim}]`: every document stating the item as true; `verbatim` says whether its exported text contains `canonical` (a typo or a live model's paraphrase can drop it) |
+
+A **supersession**: `{fact, old, new, effective, announced_in}`: the item replaced, the
+item replacing it, the new item's `valid_from`, and the documents announcing the change.
+
+A **misleading** entry: `{kind, path, at, ...}`. `stale` and `conflicting` add `fact`,
+`stated_value`, `misleads_about` (the item true at the document's date) and
+`stated_item` (for `stale`, the superseded item it states; null for `conflicting`).
+`near_duplicate` adds `duplicate_of` (the original document's path).
+
+Paths are export paths (as listed in `export.json`); people are KG person ids.
+
+## The check
+
+`check_layer` (and `--check`) refuses a layer when:
+
+* its format, world id or export digest is not this export's;
+* an item id repeats;
+* a carrier, retraction, announcement or misleading path is not a file of the export;
+* a carrier's `verbatim` flag disagrees with the document's text;
+* a holder is not a person of the world's roster;
+* a `supersedes`/`superseded_by` link names a missing item, or the chain is not
+  symmetric, or a supersession or misleading entry names a missing item.
+
+## Mapping onto a set engine
+
+For the gym's casebook model (`Knowledge`, `Gold`): an item is a knowledge item
+(`gold.kind` = `kind`, `gold.text` = `statement`, `gold.valid_from`/`valid_to`), one of
+its holders is the persona that owns it, its carriers are the documents (`trace.files`)
+a no-memory run must search, and a `stale` entry is an item with
+`misleads_about` set. A holder whose `left_at` falls before the set's epoch is the
+classic "only the person who left knew" case.

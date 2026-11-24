@@ -18,7 +18,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 
-__all__ = ["Attribute", "Context", "attributes_for", "value_token"]
+__all__ = ["Attribute", "Context", "attributes_for", "kind_of", "value_token"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,6 +47,10 @@ class Attribute:
     question: str  # "What is the launch date of {subject}?"
     volatile: float = 1.0  # multiplier on the change rate
     hedges: tuple[str, ...] = field(default=("I believe", "Last I heard,", "Tentatively,"))
+    #: What kind of knowledge the fact is, for the knowledge layer: ``decision`` (a choice
+    #: made: an owner, a vendor, a datastore), ``policy`` (a standing rule or cadence),
+    #: ``target`` (a planned number or date) or ``status``. Not used in rendering.
+    kind: str = "decision"
 
     def state(self, template: str, *, subject: str, value: str, old: str = "") -> str:
         return template.format(subject=subject, value=value, old=old)
@@ -128,6 +132,7 @@ _cadence_draw, _cadence_mutate = _choice(("weekly", "every two weeks", "monthly"
 GENERIC: tuple[Attribute, ...] = (
     Attribute(
         name="target_date",
+        kind="target",
         label="launch date",
         draw=_date_draw,
         mutate=_date_mutate,
@@ -141,6 +146,7 @@ GENERIC: tuple[Attribute, ...] = (
     ),
     Attribute(
         name="budget",
+        kind="target",
         label="approved budget",
         draw=_money_draw,
         mutate=_money_mutate,
@@ -154,6 +160,7 @@ GENERIC: tuple[Attribute, ...] = (
     ),
     Attribute(
         name="owner",
+        kind="decision",
         label="day-to-day owner",
         draw=_person_draw,
         mutate=_person_mutate,
@@ -167,6 +174,7 @@ GENERIC: tuple[Attribute, ...] = (
     ),
     Attribute(
         name="status",
+        kind="status",
         label="delivery status",
         draw=_status_draw,
         mutate=_status_mutate,
@@ -177,6 +185,7 @@ GENERIC: tuple[Attribute, ...] = (
     ),
     Attribute(
         name="priority",
+        kind="status",
         label="roadmap priority",
         draw=_priority_draw,
         mutate=_priority_mutate,
@@ -187,6 +196,7 @@ GENERIC: tuple[Attribute, ...] = (
     ),
     Attribute(
         name="review_cadence",
+        kind="policy",
         label="steering review cadence",
         draw=_cadence_draw,
         mutate=_cadence_mutate,
@@ -208,6 +218,7 @@ _flag = _choice(("checkout_v2", "new_onboarding", "fast_search", "bulk_export", 
 ENGINEERING: tuple[Attribute, ...] = (
     Attribute(
         name="datastore",
+        kind="decision",
         label="primary datastore",
         draw=_store[0],
         mutate=_store[1],
@@ -218,6 +229,7 @@ ENGINEERING: tuple[Attribute, ...] = (
     ),
     Attribute(
         name="latency_target",
+        kind="policy",
         label="p99 latency target",
         draw=_latency[0],
         mutate=_latency[1],
@@ -227,6 +239,7 @@ ENGINEERING: tuple[Attribute, ...] = (
     ),
     Attribute(
         name="api_version",
+        kind="decision",
         label="public API version",
         draw=_api[0],
         mutate=_api[1],
@@ -237,6 +250,7 @@ ENGINEERING: tuple[Attribute, ...] = (
     ),
     Attribute(
         name="deploy_cadence",
+        kind="policy",
         label="deploy cadence",
         draw=_deploy[0],
         mutate=_deploy[1],
@@ -246,6 +260,7 @@ ENGINEERING: tuple[Attribute, ...] = (
     ),
     Attribute(
         name="feature_flag",
+        kind="decision",
         label="launch feature flag",
         draw=_flag[0],
         mutate=_flag[1],
@@ -264,6 +279,7 @@ _region = _choice(("the northern region", "the coastal region", "metro stores", 
 RETAIL: tuple[Attribute, ...] = (
     Attribute(
         name="supplier",
+        kind="decision",
         label="primary supplier",
         draw=_supplier[0],
         mutate=_supplier[1],
@@ -273,6 +289,7 @@ RETAIL: tuple[Attribute, ...] = (
     ),
     Attribute(
         name="reorder_point",
+        kind="policy",
         label="reorder point",
         draw=_reorder[0],
         mutate=_reorder[1],
@@ -282,6 +299,7 @@ RETAIL: tuple[Attribute, ...] = (
     ),
     Attribute(
         name="margin_target",
+        kind="target",
         label="gross margin target",
         draw=_margin[0],
         mutate=_margin[1],
@@ -292,6 +310,7 @@ RETAIL: tuple[Attribute, ...] = (
     ),
     Attribute(
         name="launch_region",
+        kind="decision",
         label="launch region",
         draw=_region[0],
         mutate=_region[1],
@@ -331,6 +350,7 @@ _retention = _choice(("90 days", "13 months", "two years", "seven years"))
 DATA_ENGINEERING: tuple[Attribute, ...] = (
     Attribute(
         name="pipeline_schedule",
+        kind="policy",
         label="pipeline schedule",
         draw=_schedule[0],
         mutate=_schedule[1],
@@ -341,6 +361,7 @@ DATA_ENGINEERING: tuple[Attribute, ...] = (
     ),
     Attribute(
         name="source_system",
+        kind="decision",
         label="source system",
         draw=_source[0],
         mutate=_source[1],
@@ -351,6 +372,7 @@ DATA_ENGINEERING: tuple[Attribute, ...] = (
     ),
     Attribute(
         name="target_table",
+        kind="decision",
         label="output table",
         draw=_table[0],
         mutate=_table[1],
@@ -361,6 +383,7 @@ DATA_ENGINEERING: tuple[Attribute, ...] = (
     ),
     Attribute(
         name="freshness_sla",
+        kind="policy",
         label="freshness SLA",
         draw=_sla[0],
         mutate=_sla[1],
@@ -370,6 +393,7 @@ DATA_ENGINEERING: tuple[Attribute, ...] = (
     ),
     Attribute(
         name="schema_version",
+        kind="decision",
         label="schema version",
         draw=_schema[0],
         mutate=_schema[1],
@@ -380,6 +404,7 @@ DATA_ENGINEERING: tuple[Attribute, ...] = (
     ),
     Attribute(
         name="retention",
+        kind="policy",
         label="retention period",
         draw=_retention[0],
         mutate=_retention[1],
@@ -406,6 +431,7 @@ _attribution = _choice(("last-touch", "first-touch", "linear multi-touch", "time
 DATA_ANALYTICS: tuple[Attribute, ...] = (
     Attribute(
         name="metric_definition",
+        kind="decision",
         label="weekly active users definition",
         draw=_wau[0],
         mutate=_wau[1],
@@ -416,6 +442,7 @@ DATA_ANALYTICS: tuple[Attribute, ...] = (
     ),
     Attribute(
         name="dashboard_tool",
+        kind="decision",
         label="dashboard tool",
         draw=_tool[0],
         mutate=_tool[1],
@@ -426,6 +453,7 @@ DATA_ANALYTICS: tuple[Attribute, ...] = (
     ),
     Attribute(
         name="refresh_cadence",
+        kind="policy",
         label="dashboard refresh cadence",
         draw=_refresh[0],
         mutate=_refresh[1],
@@ -435,6 +463,7 @@ DATA_ANALYTICS: tuple[Attribute, ...] = (
     ),
     Attribute(
         name="north_star",
+        kind="decision",
         label="latest north-star reading",
         draw=_kpi[0],
         mutate=_kpi[1],
@@ -445,6 +474,7 @@ DATA_ANALYTICS: tuple[Attribute, ...] = (
     ),
     Attribute(
         name="attribution_model",
+        kind="decision",
         label="attribution model",
         draw=_attribution[0],
         mutate=_attribution[1],
@@ -462,6 +492,7 @@ _headcount = _number((2, 3, 4, 6, 8), " open roles")
 OPERATIONS: tuple[Attribute, ...] = (
     Attribute(
         name="review_window",
+        kind="policy",
         label="control review frequency",
         draw=_control[0],
         mutate=_control[1],
@@ -472,6 +503,7 @@ OPERATIONS: tuple[Attribute, ...] = (
     ),
     Attribute(
         name="vendor",
+        kind="decision",
         label="main vendor",
         draw=_vendor[0],
         mutate=_vendor[1],
@@ -481,6 +513,7 @@ OPERATIONS: tuple[Attribute, ...] = (
     ),
     Attribute(
         name="open_roles",
+        kind="target",
         label="open headcount",
         draw=_headcount[0],
         mutate=_headcount[1],
@@ -512,6 +545,15 @@ _BY_ARCHETYPE: dict[str, tuple[Attribute, ...]] = {
 def attributes_for(archetype: str) -> tuple[Attribute, ...]:
     """The attributes a project of ``archetype`` carries: domain ones first."""
     return _BY_ARCHETYPE.get(archetype, OPERATIONS) + GENERIC
+
+
+def kind_of(attribute: str) -> str | None:
+    """The knowledge kind of the attribute named ``attribute`` (``None`` if none has it)."""
+    for group in (GENERIC, *_BY_ARCHETYPE.values()):
+        for attr in group:
+            if attr.name == attribute:
+                return attr.kind
+    return None
 
 
 def value_token(value: str) -> str:
