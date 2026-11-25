@@ -129,3 +129,40 @@ def test_a_value_missing_from_one_rungs_text_is_refused(
     doc.write_text(doc.read_text(encoding="utf-8").replace(value_token(value), ""), "utf-8")
     with pytest.raises(LadderError, match="stated in the text"):
         ladder_check("simx-ladder-corvid", [rungs[0], rungs[1], ("L", edited)], _BASE)
+
+
+def test_the_base_knowledge_layer_is_the_same_at_every_rung(
+    rungs: list[tuple[str, Path]],
+) -> None:
+    record = ladder_check("simx-ladder-corvid", rungs, _BASE)
+    knowledge = record["invariant_knowledge"]
+    assert knowledge["items"] > 0 and knowledge["supersessions"] > 0
+    assert len(knowledge["sha256"]) == 64
+
+
+def test_a_rung_whose_base_holders_differ_is_refused(
+    rungs: list[tuple[str, Path]], tmp_path: Path
+) -> None:
+    import json
+    import shutil
+
+    from enterprise_sim.worlds.knowledge import build_layer
+
+    edited = tmp_path / "l"
+    shutil.copytree(rungs[2][1], edited)
+    layer = build_layer(edited)
+    base_item = next(
+        i
+        for i in layer["items"]
+        if i["subject"]["department"] in _BASE and any(h["as"] == "author" for h in i["holders"])
+    )
+    holder = next(h["person"] for h in base_item["holders"] if h["as"] == "author")
+    others = [p["id"] for p in layer["people"] if p["id"] != holder]
+    edges_path = edited / "kg" / "edges.jsonl"
+    edges = [json.loads(line) for line in edges_path.read_text(encoding="utf-8").splitlines()]
+    for edge in edges:  # the holder's documents are now another person's
+        if edge["type"] == "authored" and edge["src"] == holder:
+            edge["src"] = others[0]
+    edges_path.write_text("".join(json.dumps(e) + "\n" for e in edges), encoding="utf-8")
+    with pytest.raises(LadderError, match="knowledge layer differs"):
+        ladder_check("simx-ladder-corvid", [rungs[0], rungs[1], ("L", edited)], _BASE)

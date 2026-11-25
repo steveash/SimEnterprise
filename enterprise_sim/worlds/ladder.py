@@ -15,15 +15,20 @@ and ``cross_team`` is 0 (see ``examples/worlds/ladder/``).
   project, present with the same value and valid time at every rung;
 * the **invariant assertions**: every (document, fact, stance, value) of a base
   project, the same at every rung, so a test set's evidence is where it expects it;
+* the **invariant knowledge**: the base departments' part of each rung's knowledge
+  layer (:mod:`enterprise_sim.worlds.knowledge`: their items with values, valid
+  times, holders and carriers, their supersessions and misleading documents), which
+  must be identical at every rung, so the K items a test set mints are the same at
+  every size; the record gives their counts and one digest;
 * the **statements in the text**: of the base assertions that state a value (stance
   current, hedged or update), how many carry the value's token in the exported text.
   Which ones do must be the same at every rung. The prose around a fact may differ
   between rungs (a document's wording is drawn from its whole prompt, and the
   company profile in it grows), so the check is on the stated values, not on bytes.
 
-The check refuses a ladder whose rungs do not grow, whose base facts, base assertions or
-statements in the text differ between rungs, or whose exports carry a ``ladder`` label
-(``[ladder]``) other than this ladder id and the rung's size.
+The check refuses a ladder whose rungs do not grow, whose base facts, base assertions,
+base knowledge or statements in the text differ between rungs, or whose exports carry a
+``ladder`` label (``[ladder]``) other than this ladder id and the rung's size.
 """
 
 from __future__ import annotations
@@ -101,6 +106,33 @@ def _rung(export_dir: Path, base: Sequence[str]) -> dict[str, Any]:
         "_facts": facts,
         "_assertions": assertions,
         "_stated": stated,
+        "_knowledge": _base_knowledge(export_dir, base_projects),
+    }
+
+
+def _base_knowledge(export_dir: Path, base_projects: set[str]) -> dict[str, Any]:
+    """The base departments' part of the rung's knowledge layer (``worlds.knowledge``).
+
+    Every item of a base project (value, valid time, retraction, supersession links,
+    holders and carriers), every supersession of their facts and every misleading
+    document about them. A size ladder holds this part identical at every rung, so a
+    test set minted from one rung's layer finds the same K items at every size.
+    """
+    from enterprise_sim.worlds.knowledge import build_layer
+
+    layer = build_layer(export_dir)
+    items = [i for i in layer["items"] if i["subject"]["id"] in base_projects]
+    facts = {i["fact"] for i in items}
+    paths = {c["path"] for i in items for c in i["carriers"]}
+    return {
+        "items": items,
+        "supersessions": [s for s in layer["supersessions"] if s["fact"] in facts],
+        "misleading": [
+            m
+            for m in layer["misleading"]
+            if m.get("fact") in facts
+            or (m["kind"] == "near_duplicate" and m["duplicate_of"] in paths)
+        ],
     }
 
 
@@ -169,6 +201,18 @@ def ladder_check(
                 f"rung {size}: a base value is stated in the text at one rung and not the other "
                 f"({len(changed)} statements, first {changed[:1]})"
             )
+    for size, rung in found[1:]:
+        if rung["_knowledge"] != first["_knowledge"]:
+            differing = [
+                key
+                for key in ("items", "supersessions", "misleading")
+                if rung["_knowledge"][key] != first["_knowledge"][key]
+            ]
+            raise LadderError(
+                f"rung {size}: the base departments' knowledge layer differs from the "
+                f"smallest rung ({', '.join(differing)})"
+            )
+    knowledge = first["_knowledge"]
     return {
         "format": "simenterprise-ladder/1",
         "ladder_id": ladder_id,
@@ -182,6 +226,14 @@ def ladder_check(
             for f, v, value, at in first["_facts"]
         ],
         "invariant_assertions": len(first["_assertions"]),
+        "invariant_knowledge": {
+            "items": len(knowledge["items"]),
+            "supersessions": len(knowledge["supersessions"]),
+            "misleading": len(knowledge["misleading"]),
+            "sha256": hashlib.sha256(
+                json.dumps(knowledge, sort_keys=True, ensure_ascii=False).encode()
+            ).hexdigest(),
+        },
         "statements_in_text": {
             "stating": len(first["_stated"]),
             "value_in_text": sum(first["_stated"].values()),
