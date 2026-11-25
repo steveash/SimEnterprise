@@ -107,6 +107,11 @@ class _Export:
         return [e for e in self.edges if e["type"] == edge_type]
 
 
+def _verbatim(value: str, text: str) -> bool:
+    """Whether ``text`` holds ``value`` byte for byte (a typo or a paraphrase does not)."""
+    return bool(value) and value in text
+
+
 def _person(node: dict[str, Any]) -> dict[str, Any]:
     props = node["props"]
     return {
@@ -144,6 +149,9 @@ def build_layer(export_dir: Path, *, manifest: dict[str, Any] | None = None) -> 
     statements: dict[str, list[dict[str, Any]]] = {}
     for edge in ex.by_type("asserts"):
         statements.setdefault(edge["dst"], []).append(edge)
+    # A planted near-copy of a document repeats its statements; it misleads (listed
+    # as a near_duplicate below) and never carries, announces or retracts an item.
+    copies = {e["src"] for e in ex.by_type("duplicate_of")}
 
     items: list[dict[str, Any]] = []
     supersessions: list[dict[str, Any]] = []
@@ -164,6 +172,7 @@ def build_layer(export_dir: Path, *, manifest: dict[str, Any] | None = None) -> 
         holders: dict[int, dict[str, str]] = {}
         announced: dict[int, list[str]] = {}
         retracted_in: dict[int, list[str]] = {}
+        value_of = {int(v["version"]): str(v["value"]) for v in history}
         for edge in sorted(statements.get(fact_id, ()), key=lambda e: str(e["id"])):
             path = ex.path_of(edge["src"])
             if path is None:
@@ -172,15 +181,15 @@ def build_layer(export_dir: Path, *, manifest: dict[str, Any] | None = None) -> 
             sp = edge["props"]
             stance = sp.get("stance")
             value = str(sp.get("value", ""))
-            if stance in _TRUE and sp.get("stated_version") is not None:
+            is_copy = edge["src"] in copies
+            if stance in _TRUE and sp.get("stated_version") is not None and not is_copy:
                 number = int(sp["stated_version"])
-                token = value_token(value)
                 carriers.setdefault(number, []).append(
                     {
                         "path": path,
                         "stance": stance,
                         "at": at,
-                        "verbatim": bool(token) and token in ex.text(path),
+                        "verbatim": _verbatim(value_of.get(number, value), ex.text(path)),
                     }
                 )
                 role = "announcer" if stance == "update" else "author"
@@ -190,6 +199,8 @@ def build_layer(export_dir: Path, *, manifest: dict[str, Any] | None = None) -> 
                         mine[person] = role
                 if stance == "update":
                     announced.setdefault(number, []).append(path)
+            elif stance in _TRUE or (stance == "retraction" and is_copy):
+                continue  # a near-copy's restatement: listed as a near_duplicate only
             elif stance == "retraction" and sp.get("true_version") is not None:
                 retracted_in.setdefault(int(sp["true_version"]), []).append(path)
             elif stance in _MISLEADING:
@@ -303,10 +314,9 @@ def build_layer(export_dir: Path, *, manifest: dict[str, Any] | None = None) -> 
 
 def check_layer(export_dir: Path, layer: dict[str, Any]) -> list[str]:
     """Problems of ``layer`` against ``export_dir`` (empty: it holds)."""
-    from enterprise_sim.facts.catalog import value_token
-
     ex = _Export(export_dir)
     problems: list[str] = []
+    copies = {ex.path_of(e["src"]) for e in ex.by_type("duplicate_of")} - {None}
     if layer.get("format") != FORMAT:
         problems.append(f"format is {layer.get('format')!r}, not {FORMAT}")
     if layer.get("world_id") != ex.manifest["world_id"]:
@@ -327,9 +337,10 @@ def check_layer(export_dir: Path, layer: dict[str, Any]) -> list[str]:
             if carrier["path"] not in ex.files:
                 problems.append(f"{item['id']}: carrier {carrier['path']} is not in the export")
                 continue
-            token = value_token(str(item["value"]))
-            if carrier["verbatim"] != (bool(token) and token in ex.text(carrier["path"])):
+            if carrier["verbatim"] != _verbatim(str(item["value"]), ex.text(carrier["path"])):
                 problems.append(f"{item['id']}: carrier {carrier['path']} verbatim flag is wrong")
+            if carrier["path"] in copies:
+                problems.append(f"{item['id']}: carrier {carrier['path']} is a near-duplicate")
         for path in item["retracted_in"]:
             if path not in ex.files:
                 problems.append(f"{item['id']}: retraction {path} is not in the export")

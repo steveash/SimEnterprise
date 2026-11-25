@@ -43,7 +43,10 @@ Each document that mentions a fact carries a gold `asserts` edge with a *stance*
 | `conflicting` | states a value that was never true | `misleading`, kind `conflicting` |
 
 `duplicate_of` edges (a document's near-copy, such as a `-v2-final` file) become
-`misleading` entries of kind `near_duplicate`.
+`misleading` entries of kind `near_duplicate`. A near-copy repeats its original's
+statements, but it is never a carrier, an announcement or a retraction, and its authors
+are not holders through it: it only misleads. (A stale or conflicting statement in a
+near-copy is still listed as such.)
 
 ## The file
 
@@ -75,7 +78,7 @@ An **item**:
 | `retracted_at`, `retracted_in` | when the version was found to be an error, and the documents saying so |
 | `supersedes`, `superseded_by` | the item before and after it in the chain (null at either end) |
 | `holders` | `[{person, as}]`: `announcer` (wrote a document announcing it), `author` (wrote a document stating it), `owner` (owns the initiative the project is under). A person is listed once, with the strongest role in that order. |
-| `carriers` | `[{path, stance, at, verbatim}]`: every document stating the item as true; `verbatim` says whether its exported text contains `canonical` (a typo or a live model's paraphrase can drop it) |
+| `carriers` | `[{path, stance, at, verbatim}]`: every document (other than a near-copy) stating the item as true; `verbatim` says whether its exported text holds the item's `value` byte for byte (a planted typo or a live model's paraphrase can drop it, and then `verbatim` is false) |
 
 A **supersession**: `{fact, old, new, effective, announced_in}`: the item replaced, the
 item replacing it, the new item's `valid_from`, and the documents announcing the change.
@@ -101,7 +104,8 @@ the part after the colon is a lowercase slug a reader can use as its own identif
   not the `knowledge/knowledge.json` that `export.json` lists);
 * an item id repeats;
 * a carrier, retraction, announcement or misleading path is not a file of the export;
-* a carrier's `verbatim` flag disagrees with the document's text;
+* a carrier's `verbatim` flag disagrees with the document's text (the value byte for byte);
+* a carrier is a near-copy (the source of a `duplicate_of` edge);
 * a holder is not a person of the world's roster;
 * a `supersedes`/`superseded_by` link names a missing item, or the chain is not
   symmetric, or a supersession or misleading entry names a missing item.

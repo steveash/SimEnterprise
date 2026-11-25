@@ -187,3 +187,65 @@ def test_an_export_can_carry_its_own_layer_as_gold(
     }
     carried["items"][0]["value"] = "changed"
     assert any(KNOWLEDGE_FILE in p for p in check_layer(inside, carried))
+
+
+@pytest.fixture(scope="module")
+def messy(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """The same world with document typos and planted near-duplicates."""
+    root = tmp_path_factory.mktemp("knowledge-messy")
+    text = (_EXAMPLES / "ladder" / "ladder-s.toml").read_text(encoding="utf-8")
+    text = re.sub(r"(?ms)^\[data\]\n(?:(?!^\[).)*", "", text)
+    text = re.sub(r"(?m)^worlds_root = .*$", "", text)
+    text += "\n[messiness]\ntypo_rate = 0.05\nduplicate_rate = 0.15\n"
+    (root / "cfg.toml").write_text(text, encoding="utf-8")
+    assert main(["world", "create", str(root / "cfg.toml"), "--worlds-root", str(root / "w")]) == 0
+    (world,) = list((root / "w").iterdir())
+    return export_world(world, root / "out").directory
+
+
+def test_near_duplicates_carry_nothing_and_verbatim_is_byte_for_byte(messy: Path) -> None:
+    layer = build_layer(messy)
+    assert check_layer(messy, layer) == []
+    nodes, edges = _gold(messy)
+    manifest = json.loads((messy / "export.json").read_text(encoding="utf-8"))
+    export_of = {
+        str(f.get("rendered_from") or f.get("source_path") or f["path"]): f["path"]
+        for f in manifest["files"]
+    }
+    copies = {e["src"] for e in edges if e["type"] == "duplicate_of"}
+    copy_paths = {export_of[str(nodes[c]["props"]["path"])] for c in copies}
+    assert copy_paths, "the messy world plants near-duplicates"
+    carriers = [(i, c) for i in layer["items"] for c in i["carriers"]]
+    assert not {c["path"] for _, c in carriers} & copy_paths
+    for item, carrier in carriers:
+        text = (messy / carrier["path"]).read_text(encoding="utf-8")
+        assert carrier["verbatim"] == (str(item["value"]) in text)
+    assert any(not c["verbatim"] for _, c in carriers), "a typo drops a value somewhere"
+    true = sum(
+        1
+        for e in edges
+        if e["type"] == "asserts"
+        and e["props"]["stance"] in ("current", "update", "hedged")
+        and e["src"] not in copies
+        and e["props"].get("stated_version") is not None
+    )
+    assert len(carriers) == true
+    near = {m["path"] for m in layer["misleading"] if m["kind"] == "near_duplicate"}
+    assert near == copy_paths
+
+
+def test_the_check_refuses_a_near_duplicate_carrier(messy: Path) -> None:
+    layer = build_layer(messy)
+    dup = next(m for m in layer["misleading"] if m["kind"] == "near_duplicate")
+    edited = copy.deepcopy(layer)
+    item = next(i for i in edited["items"] if i["carriers"])
+    text = (messy / dup["path"]).read_text(encoding="utf-8")
+    item["carriers"].append(
+        {
+            "path": dup["path"],
+            "stance": "current",
+            "at": dup["at"],
+            "verbatim": str(item["value"]) in text,
+        }
+    )
+    assert any("near-duplicate" in p for p in check_layer(messy, edited))
