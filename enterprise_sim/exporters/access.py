@@ -1,26 +1,33 @@
 """Per-document reader lists (decision record 0130): who may read a restricted document.
 
-:func:`access_lists` is the one place that decides it, from an export's gold graph
-and config. The export's ``access.json`` (``world export --with-access``) and the
-knowledge layer's carrier ``readers`` both read it. The lists are controller-only:
-they are gold, never in a file a persona reads.
+The direction that must never fail is **too wide**: a list must never let anyone read
+a fact it says they cannot. Every rule below makes the uncertain case narrower.
 
-A document is restricted when one of these holds; its readers are the intersection
-of what each rule allows, plus its authors (so a rule never widens another and the
-list is never empty):
+:func:`access_lists` is the one place that decides it, from an export's gold graph,
+its file list and its config. The export's ``access.json`` (``world export
+--with-access``) and the knowledge layer's access fields both read it. The lists are
+controller-only gold.
 
-* it mentions a person's sensitive category (a ``mentions_sensitive`` edge):
-  readable by its authors, its reviewers and the people it is about; the reason is
-  the category;
-* it expresses a walled project (decision record 0036): readable by that project's
-  staff; the reason is ``walled``;
-* ``[access] team_restricted_rate`` picks it (a hash of the artifact id below the
-  rate, among documents no other rule restricts): readable by the members of its
-  authors' teams; the reason is ``team``.
+* **The unit is a family:** the artifacts that share an ``event`` (a document with its
+  twins, drafts, renderings, near-copies and following chat thread). A family is
+  restricted as a whole and every member gets the family's list, so no public twin of
+  a restricted document exists.
+* **Rules are kinds; across kinds the readers intersect, and the family's authors are
+  always readers:**
 
-:func:`check_access` fails closed: a restricted document with no readers, a reader
-outside the roster, an author who is not a reader, or a walled document readable by
-anyone off its project's staff is a finding.
+  * ``sensitive`` (some member mentions a person's sensitive category): the family's
+    authors, reviewers and every person it is about; the reasons are the categories;
+  * ``walled`` (decision record 0036): the family's project staff;
+  * ``team`` (``[access] team_restricted_rate`` picks the family by a hash of its event
+    id; only families no other rule restricts and that have an ``authored`` edge):
+    everyone ever a member of the authors' teams.
+
+* **Authors** are the ``authored`` edges; a **person of the world** is every Person
+  node, leavers included.
+* ``paths`` lists every exported data file of an artifact, through ``source_path`` and
+  ``rendered_from``.
+
+:func:`check_access` fails closed (see its docstring).
 """
 
 from __future__ import annotations
@@ -37,6 +44,7 @@ __all__ = [
     "access_lists",
     "add_access_parser",
     "check_access",
+    "data_files_of",
 ]
 
 FORMAT = "simenterprise-access/1"
@@ -48,16 +56,30 @@ def _jsonl(path: Path) -> list[dict[str, Any]]:
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line]
 
 
-def _picked(artifact_id: str, rate: float) -> bool:
-    """Whether the hash of ``artifact_id`` falls below ``rate`` (order-free, seedless)."""
-    digest = hashlib.sha256(f"access\x00{artifact_id}".encode()).hexdigest()
+def _picked(key: str, rate: float) -> bool:
+    """Whether the hash of ``key`` falls below ``rate`` (order-free, seedless)."""
+    digest = hashlib.sha256(f"access\x00{key}".encode()).hexdigest()
     return int(digest[:12], 16) / float(16**12) < rate
 
 
+def data_files_of(files: list[dict[str, Any]]) -> dict[str, list[str]]:
+    """World path -> every exported data file rendered or copied from it."""
+    out: dict[str, list[str]] = {}
+    for f in files:
+        if f.get("role") != "data":
+            continue
+        source = str(f.get("rendered_from") or f.get("source_path") or f["path"])
+        out.setdefault(source, []).append(str(f["path"]))
+    return {k: sorted(v) for k, v in out.items()}
+
+
 def access_lists(
-    nodes: dict[str, dict[str, Any]], edges: list[dict[str, Any]], config: dict[str, Any]
+    nodes: dict[str, dict[str, Any]],
+    edges: list[dict[str, Any]],
+    config: dict[str, Any],
+    files: list[dict[str, Any]],
 ) -> dict[str, dict[str, Any]]:
-    """Artifact id -> ``{readers, teams, reasons}`` for every restricted document."""
+    """Artifact id -> ``{family, paths, readers, teams, reasons}`` for every restricted one."""
     rate = float((config.get("access") or {}).get("team_restricted_rate", 0.0))
     authors: dict[str, set[str]] = {}
     reviewers: dict[str, set[str]] = {}
@@ -88,32 +110,47 @@ def access_lists(
     walled = {
         pid for pid, n in nodes.items() if n["type"] == "Project" and n["props"].get("walled")
     }
+    paths_of = data_files_of(files)
+
+    families: dict[str, list[str]] = {}
+    for aid, n in nodes.items():
+        if n["type"] == "Artifact":
+            families.setdefault(str(n["props"].get("event") or aid), []).append(aid)
 
     lists: dict[str, dict[str, Any]] = {}
-    for aid in sorted(i for i, n in nodes.items() if n["type"] == "Artifact"):
-        own = authors.get(aid, set())
+    for family, ids in sorted(families.items()):
+        ids = sorted(ids)
+        own = set().union(*(authors.get(a, set()) for a in ids))
         allowed: list[set[str]] = []
         reasons: list[str] = []
         teams: set[str] = set()
-        if aid in subjects:
-            allowed.append(own | reviewers.get(aid, set()) | subjects[aid])
-            reasons.extend(sorted(categories[aid]))
-        project = project_of.get(aid)
-        if project in walled:
-            allowed.append(staff.get(project, set()))
+        mentioned = [a for a in ids if a in subjects]
+        if mentioned:
+            about = set().union(*(subjects[a] for a in mentioned))
+            seen = set().union(*(reviewers.get(a, set()) for a in ids))
+            allowed.append(own | seen | about)
+            reasons.extend(sorted(set().union(*(categories[a] for a in mentioned))))
+        projects = {p for p in (project_of.get(a) for a in ids) if p is not None}
+        if projects & walled:
+            # one family, one project; a family that spans projects keeps every staff's
+            # intersection, which only narrows
+            allowed.append(set.intersection(*(staff.get(p, set()) for p in projects & walled)))
             reasons.append("walled")
-        if not allowed and rate > 0 and _picked(aid, rate):
-            teams = set().union(*(teams_of.get(a, set()) for a in own)) if own else set()
+        if not allowed and own and rate > 0 and _picked(family, rate):
+            teams = set().union(*(teams_of.get(a, set()) for a in own))
             allowed.append(set().union(*(members.get(t, set()) for t in teams)) | own)
             reasons.append("team")
         if not allowed:
             continue
-        readers = set.intersection(*allowed) | own
-        lists[aid] = {
-            "readers": sorted(readers),
-            "teams": sorted(teams),
-            "reasons": reasons,
-        }
+        readers = sorted(set.intersection(*allowed) | own)
+        for aid in ids:
+            lists[aid] = {
+                "family": family,
+                "paths": paths_of.get(str(nodes[aid]["props"].get("path", "")), []),
+                "readers": readers,
+                "teams": sorted(teams),
+                "reasons": reasons,
+            }
     return lists
 
 
@@ -122,72 +159,80 @@ def access_document(
     nodes: dict[str, dict[str, Any]],
     edges: list[dict[str, Any]],
     config: dict[str, Any],
-    export_of: dict[str, str],
+    files: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    """The ``access.json`` body: one row per restricted document, by export path."""
-    rows = []
-    for aid, entry in access_lists(nodes, edges, config).items():
-        path = export_of.get(str(nodes[aid]["props"].get("path", "")))
-        if path is None:
-            continue
-        rows.append({"path": path, "artifact": aid, **entry})
-    return {
-        "format": FORMAT,
-        "world_id": world_id,
-        "documents": sorted(rows, key=lambda r: str(r["path"])),
-    }
+    """The ``access.json`` body: one row per restricted artifact, sorted by artifact."""
+    rows = [
+        {"artifact": aid, **entry}
+        for aid, entry in sorted(access_lists(nodes, edges, config, files).items())
+    ]
+    return {"format": FORMAT, "world_id": world_id, "documents": rows}
 
 
 def check_access(export_dir: Path) -> list[str]:
-    """Findings of an export's reader lists (empty: they hold). Fails closed."""
+    """Findings of an export's reader lists (empty: they hold). Fails closed.
+
+    Refused: a list that is not :func:`access_lists`' output; a row with no readers; a
+    reader who is not a person of the world; an author who is not a reader; a family
+    whose members' lists differ; a walled family read off its project's staff; a row
+    path that is not an exported data file; and an exported data file of a restricted
+    artifact that no row covers.
+    """
+    path = export_dir / ACCESS_FILE
+    if not path.is_file():
+        return [f"{ACCESS_FILE} is missing"]
     manifest = json.loads((export_dir / "export.json").read_text(encoding="utf-8"))
     nodes = {n["id"]: n for n in _jsonl(export_dir / "kg" / "nodes.jsonl")}
     edges = _jsonl(export_dir / "kg" / "edges.jsonl")
     config = json.loads((export_dir / "config.json").read_text(encoding="utf-8"))
-    export_of = {
-        str(f.get("rendered_from") or f.get("source_path") or f["path"]): str(f["path"])
-        for f in manifest["files"]
-    }
-    findings: list[str] = []
-    path = export_dir / ACCESS_FILE
-    if not path.is_file():
-        return [f"{ACCESS_FILE} is missing"]
+    files = [f for f in manifest["files"] if f["path"] != ACCESS_FILE]
     listed = json.loads(path.read_text(encoding="utf-8"))
-    expected = access_document(manifest["world_id"], nodes, edges, config, export_of)
-    if listed != expected:
-        findings.append(f"{ACCESS_FILE} is not the reader lists of this export's graph and config")
-    roster = {i for i, n in nodes.items() if n["type"] == "Person"}
+    findings: list[str] = []
+    if listed != access_document(manifest["world_id"], nodes, edges, config, files):
+        findings.append(f"{ACCESS_FILE} is not the reader lists of this export")
+    people = {i for i, n in nodes.items() if n["type"] == "Person"}
+    data = {str(f["path"]) for f in files if f.get("role") == "data"}
     authors: dict[str, set[str]] = {}
     for e in edges:
         if e["type"] == "authored":
             authors.setdefault(e["dst"], set()).add(e["src"])
-    files = {str(f["path"]) for f in manifest["files"]}
+    project_of = {e["src"]: e["dst"] for e in edges if e["type"] == "expresses"}
+    staff: dict[str, set[str]] = {}
+    for e in edges:
+        if e["type"] == "member_of" and nodes.get(e["dst"], {}).get("type") == "Project":
+            staff.setdefault(e["dst"], set()).add(e["src"])
+    by_family: dict[str, set[tuple[str, ...]]] = {}
+    covered: set[str] = set()
     for row in listed.get("documents", ()):
-        where = row.get("path", "?")
+        aid = str(row.get("artifact"))
         readers = set(row.get("readers") or ())
         if not readers:
-            findings.append(f"{where}: restricted with no readers")
-        if row.get("path") not in files:
-            findings.append(f"{where}: not a file of the export")
-        if not readers <= roster:
-            findings.append(f"{where}: readers outside the roster: {sorted(readers - roster)[:3]}")
-        own = authors.get(str(row.get("artifact")), set())
-        if not own <= readers:
-            findings.append(f"{where}: an author is not a reader")
-        if "walled" in row.get("reasons", ()):
-            project = next(
-                (
-                    e["dst"]
-                    for e in edges
-                    if e["type"] == "expresses" and e["src"] == row.get("artifact")
-                ),
-                None,
-            )
-            project_staff = {
-                e["src"] for e in edges if e["type"] == "member_of" and e["dst"] == project
-            }
-            if not readers <= project_staff:
-                findings.append(f"{where}: a walled document has readers off its project's staff")
+            findings.append(f"{aid}: restricted with no readers")
+        if not readers <= people:
+            findings.append(f"{aid}: readers who are not people of the world")
+        if not authors.get(aid, set()) <= readers:
+            findings.append(f"{aid}: an author is not a reader")
+        by_family.setdefault(str(row.get("family")), set()).add(tuple(sorted(readers)))
+        if "walled" in row.get("reasons", ()) and not readers <= staff.get(
+            project_of.get(aid, ""), set()
+        ):
+            findings.append(f"{aid}: a walled document has readers off its project's staff")
+        for p in row.get("paths", ()):
+            if p not in data:
+                findings.append(f"{aid}: {p} is not an exported data file")
+            covered.add(p)
+    for family, lists in by_family.items():
+        if len(lists) > 1:
+            findings.append(f"family {family}: its members' lists differ")
+    restricted_paths = {
+        str(nodes[str(r.get("artifact"))]["props"].get("path", ""))
+        for r in listed.get("documents", ())
+        if str(r.get("artifact")) in nodes
+    }
+    for f in files:
+        source = str(f.get("rendered_from") or f.get("source_path") or f["path"])
+        if f.get("role") == "data" and source in restricted_paths and f["path"] not in covered:
+            findings.append(f"{f['path']}: a file of a restricted artifact that no row covers")
     return findings
 
 
@@ -203,7 +248,16 @@ def _cmd_world_access_check(args: Any) -> int:
         print(f"enterprise-sim world access-check: {finding}", file=sys.stderr)
     if not findings:
         listed = json.loads((args.export_dir / ACCESS_FILE).read_text(encoding="utf-8"))
-        print(json.dumps({"world_id": listed["world_id"], "restricted": len(listed["documents"])}))
+        families = {r["family"] for r in listed["documents"]}
+        print(
+            json.dumps(
+                {
+                    "world_id": listed["world_id"],
+                    "restricted": len(listed["documents"]),
+                    "families": len(families),
+                }
+            )
+        )
     return 1 if findings else 0
 
 

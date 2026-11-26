@@ -1,44 +1,66 @@
 # Per-document reader lists (`simenterprise-access/1`, decision record 0130)
 
-A test set is informative only where the no-Spindle floor fails. When a set engine knows which documents only certain
-people may read, it can place a deciding fact where only its holder can read it. `access.json` says who may read
-each restricted document of an export.
+A test set is informative only where the no-Spindle floor fails. A set engine that knows who can read a fact anywhere in
+an export can place a deciding fact where only its holder can read it. `access.json` gives the reader list of each
+restricted document, and the knowledge layer gives each item's reach.
 
 ```
-enterprise-sim world export WORLD_DIR --out DIR --with-access   # writes access.json (gold), checked
-enterprise-sim world access-check EXPORT_DIR                    # the check over an export
+enterprise-sim world export WORLD_DIR --out DIR --with-access [--with-knowledge]   # access.json (gold), checked
+enterprise-sim world access-check EXPORT_DIR                                       # the check over an export
 ```
 
 The lists are **controller-only** gold: never in a file a persona reads. `access_plants` in the catalog is not this; it
 is the credential-plant flag of decision 0003.
 
+**The direction that must never fail is too wide**, so every rule makes the uncertain case narrower.
+
 ## Which documents are restricted
 
-`enterprise_sim.exporters.access.access_lists` is the one function that decides, from the export's `kg/` and
-`config.json`:
+`enterprise_sim.exporters.access.access_lists` is the one function that decides. It reads the export's `kg/`, its
+file list and its `config.json`.
+
+- **The unit is a family:** the artifacts that share an `event`, which are a document with its twins, drafts,
+  renderings, near-copies and following chat thread. A family is restricted as a whole, and every member gets the
+  family's list.
+- **The rules are kinds.** Across kinds the readers intersect, and the family's authors (its `authored` edges) are
+  always readers:
 
 | Rule | Readers | Reason |
 |---|---|---|
-| the document mentions a person's sensitive category (`mentions_sensitive`) | its authors, reviewers and the people it is about | the category (compensation, health, ...) |
-| it expresses a walled project (decision 0036) | that project's staff | `walled` |
-| `[access] team_restricted_rate` picks it (a hash of the artifact id, among documents no other rule restricts) | the members of its authors' teams | `team` |
+| some member mentions a person's sensitive category | the family's authors and reviewers, and every person it is about | the categories |
+| the family's project is walled (decision 0036) | that project's staff | `walled` |
+| `[access] team_restricted_rate` picks the family (a hash of its event id; only families no other rule restricts and that have an author) | everyone ever a member of the authors' teams | `team` |
 
-When several rules apply, the readers are the intersection, and the authors are always readers, so a list is never
-empty. `[access]` is export metadata: it is not part of the world id, and at its default (0) it is not in the stored
-config.
+A person of the world is any Person node, leavers included. `[access]` is export metadata: it is not part of the
+world id, and at its default (0) it is not in the stored config.
 
 ## The file
 
-`{format, world_id, documents: [{path, artifact, readers, teams, reasons}]}`, one row per restricted document,
-sorted by export path. `readers` are person ids, sorted and unique, and already include the members of `teams`.
+`{format, world_id, documents: [{artifact, family, paths, readers, teams, reasons}]}`, with one row per restricted
+artifact, sorted by artifact:
+- `paths` lists every exported data file of the artifact, mapped through `source_path` and `rendered_from`;
+- `readers` are person ids, sorted and unique, and already include the members of `teams`.
 
-## The check (fails closed)
+## In the knowledge layer
+
+Only when the export carries `access.json`:
+- each restricted carrier gets `readers`;
+- each item gets `reach: {everyone, readers}`. This is the union of the readers of every exported data file whose
+  text holds the item's canonical token, and `everyone` is true when any such file is unrestricted.
+
+A set engine places a deciding fact only on an item whose reach is not `everyone` and leaves out the publisher. It
+never relies on one carrier's `readers`. A layer of an export without `access.json` has no access fields.
+
+## The check (fails closed, with `--with-access`)
 
 `check_access` (`world access-check`, and the export itself before it finishes) refuses any of these:
-- a list that is not the function's output for this export;
-- a restricted document with no readers;
-- a reader outside the roster;
+- a list that is not the function's output;
+- a row with no readers;
+- a reader who is not a person of the world;
 - an author who is not a reader;
-- a walled document readable by anyone off its project's staff.
+- a family whose members' lists differ;
+- a walled family read off its project's staff;
+- a row path that is not an exported data file;
+- an exported data file of a restricted artifact that no row covers.
 
-The knowledge layer's restricted carriers carry the same `readers` (`docs/KNOWLEDGE_LAYER.md`).
+`world knowledge-layer --check` holds `readers` and `reach` to `access.json`.

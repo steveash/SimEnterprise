@@ -42,14 +42,18 @@ def export(world: Path, tmp_path_factory: pytest.TempPathFactory) -> Path:
     return export_world(world, out, with_access=True, with_knowledge=True).directory
 
 
-def _graph(export: Path) -> tuple[dict[str, Any], list[dict[str, Any]], dict[str, Any]]:
+def _graph(
+    export: Path,
+) -> tuple[dict[str, Any], list[dict[str, Any]], dict[str, Any], list[dict[str, Any]]]:
     nodes = {
         n["id"]: n
         for n in map(json.loads, (export / "kg" / "nodes.jsonl").read_text().splitlines())
     }
     edges = [json.loads(line) for line in (export / "kg" / "edges.jsonl").read_text().splitlines()]
     config = json.loads((export / "config.json").read_text(encoding="utf-8"))
-    return nodes, edges, config
+    manifest = json.loads((export / "export.json").read_text(encoding="utf-8"))
+    files = [f for f in manifest["files"] if f["path"] != ACCESS_FILE]
+    return nodes, edges, config, files
 
 
 def test_the_lists_are_gold_and_hold(export: Path) -> None:
@@ -66,8 +70,8 @@ def test_the_lists_are_gold_and_hold(export: Path) -> None:
 
 
 def test_every_rule_keeps_its_readers(export: Path) -> None:
-    nodes, edges, config = _graph(export)
-    lists = access_lists(nodes, edges, config)
+    nodes, edges, config, files = _graph(export)
+    lists = access_lists(nodes, edges, config, files)
     authors: dict[str, set[str]] = {}
     for e in edges:
         if e["type"] == "authored":
@@ -85,9 +89,32 @@ def test_every_rule_keeps_its_readers(export: Path) -> None:
             assert set(lists[aid]["readers"]) <= staff[project], aid
         if aid in lists:
             assert authors[aid] <= set(lists[aid]["readers"])
-    unwalled = [a for a in artifacts if project_of.get(a) not in walled]
-    teamed = [a for a in unwalled if "team" in lists.get(a, {}).get("reasons", ())]
-    assert 0.15 < len(teamed) / len(unwalled) < 0.45  # about the configured share
+    families: dict[str, set[str]] = {}
+    for aid in artifacts:
+        families.setdefault(nodes[aid]["props"]["event"], set()).add(aid)
+    for members in families.values():  # a family is restricted whole, with one list
+        restricted = [lists.get(a, {}).get("readers") for a in members]
+        assert all(r == restricted[0] for r in restricted)
+    # the team rule applies only where no other rule does: unwalled, non-sensitive families
+    sensitive = {e["src"] for e in edges if e["type"] == "mentions_sensitive"}
+    candidates = [
+        f
+        for f, ms in families.items()
+        if not {project_of.get(a) for a in ms} & walled and not ms & sensitive
+    ]
+    teamed = [
+        f for f in candidates if "team" in lists.get(next(iter(families[f])), {}).get("reasons", ())
+    ]
+    assert sensitive and candidates
+    assert 0.1 < len(teamed) / len(candidates) < 0.5  # about the configured share of families
+    exported: dict[str, list[str]] = {}
+    for f in files:
+        if f["role"] == "data":
+            exported.setdefault(
+                str(f.get("rendered_from") or f.get("source_path") or f["path"]), []
+            ).append(f["path"])
+    for aid, entry in lists.items():  # every exported file of a restricted artifact is listed
+        assert entry["paths"] == sorted(exported.get(nodes[aid]["props"]["path"], []))
 
 
 def test_the_knowledge_layer_carries_the_same_readers(export: Path) -> None:
@@ -96,13 +123,21 @@ def test_the_knowledge_layer_carries_the_same_readers(export: Path) -> None:
     layer = json.loads((export / KNOWLEDGE_FILE).read_text(encoding="utf-8"))
     assert check_layer(export, layer) == []
     listed = {
-        r["path"]: r["readers"]
+        p: r["readers"]
         for r in json.loads((export / ACCESS_FILE).read_text(encoding="utf-8"))["documents"]
+        for p in r["paths"]
     }
     carriers = [c for i in layer["items"] for c in i["carriers"]]
     assert any("readers" in c for c in carriers)
     for c in carriers:
         assert c.get("readers") == listed.get(c["path"])
+    for item in layer["items"]:  # reach: everyone as soon as any unrestricted carrier holds it
+        reach = item["reach"]
+        public = any("readers" not in c and c["verbatim"] for c in item["carriers"])
+        if public:
+            assert reach["everyone"] and reach["readers"] == []
+        if not reach["everyone"]:
+            assert reach["readers"] and all("readers" in c for c in item["carriers"])
 
 
 @pytest.mark.parametrize(
@@ -111,6 +146,8 @@ def test_the_knowledge_layer_carries_the_same_readers(export: Path) -> None:
         lambda d: d["documents"][0].update(readers=[]),
         lambda d: d["documents"][0]["readers"].append("person:nobody"),
         lambda d: d["documents"][0].update(readers=d["documents"][0]["readers"][1:]),
+        lambda d: d["documents"][0].update(paths=["artifacts/not-exported.md"]),
+        lambda d: d["documents"].pop(0),
     ],
 )
 def test_the_check_fails_closed(export: Path, tmp_path: Path, edit: Any) -> None:
@@ -153,3 +190,13 @@ def test_without_the_flag_and_at_rate_zero_nothing_changes(tmp_path: Path) -> No
     world = _world(tmp_path / "p", "")
     out = export_world(world, tmp_path / "out").directory
     assert not (out / ACCESS_FILE).exists()
+
+
+def test_a_layer_without_access_json_has_no_access_fields(world: Path, tmp_path: Path) -> None:
+    from enterprise_sim.worlds.knowledge import KNOWLEDGE_FILE, check_layer
+
+    plain = export_world(world, tmp_path / "out", with_knowledge=True).directory
+    layer = json.loads((plain / KNOWLEDGE_FILE).read_text(encoding="utf-8"))
+    assert all("reach" not in i for i in layer["items"])
+    assert all("readers" not in c for i in layer["items"] for c in i["carriers"])
+    assert check_layer(plain, layer) == []

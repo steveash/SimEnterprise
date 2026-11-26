@@ -127,6 +127,39 @@ def _person(node: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _access_rows(export_dir: Path) -> list[dict[str, Any]] | None:
+    """The export's access.json rows (record 0130), or ``None`` when it has none."""
+    from enterprise_sim.exporters.access import ACCESS_FILE
+
+    path = export_dir / ACCESS_FILE
+    if not path.is_file():
+        return None
+    rows: list[dict[str, Any]] = json.loads(path.read_text(encoding="utf-8"))["documents"]
+    return rows
+
+
+def _reach(ex: _Export, token: str, access: list[dict[str, Any]]) -> dict[str, Any]:
+    """Who can read a file holding ``token``: any unrestricted such data file means everyone.
+
+    Every exported data file is searched, not only the item's carriers, so a quoting or
+    copying document counts too; the match errs only toward wider (record 0130).
+    """
+    readers_of = {p: r["readers"] for r in access for p in r["paths"]}
+    readers: set[str] = set()
+    everyone = False
+    for f in ex.manifest["files"]:
+        if f.get("role") != "data" or not token:
+            continue
+        path = str(f["path"])
+        if token not in ex.text(path):
+            continue
+        if path in readers_of:
+            readers.update(readers_of[path])
+        else:
+            everyone = True
+    return {"everyone": everyone, "readers": [] if everyone else sorted(readers)}
+
+
 def build_layer(export_dir: Path, *, manifest: dict[str, Any] | None = None) -> dict[str, Any]:
     """The knowledge layer of ``export_dir`` (see the module docstring).
 
@@ -137,10 +170,10 @@ def build_layer(export_dir: Path, *, manifest: dict[str, Any] | None = None) -> 
     from enterprise_sim.facts.catalog import kind_of, value_token
 
     ex = _Export(export_dir, manifest)
-    from enterprise_sim.exporters.access import access_lists
-
     # Who may read each restricted document (decision record 0130; controller-only).
-    restricted = access_lists(ex.nodes, ex.edges, ex.config)
+    # Only an export that carries access.json gets access fields, so others keep their bytes.
+    access = _access_rows(export_dir)
+    restricted = {r["artifact"]: r for r in access} if access is not None else {}
     authors: dict[str, list[str]] = {}
     for edge in ex.by_type("authored"):
         authors.setdefault(edge["dst"], []).append(edge["src"])
@@ -266,6 +299,8 @@ def build_layer(export_dir: Path, *, manifest: dict[str, Any] | None = None) -> 
                     ),
                 }
             )
+            if access is not None:
+                items[-1]["reach"] = _reach(ex, str(items[-1]["canonical"]), access)
             if index:
                 supersessions.append(
                     {
@@ -335,12 +370,8 @@ def check_layer(export_dir: Path, layer: dict[str, Any]) -> list[str]:
     elif layer.get("export_digest") != digest:
         problems.append("the layer is of another export of this world")
     people = {n for n, node in ex.nodes.items() if node["type"] == "Person"}
-    from enterprise_sim.exporters.access import access_lists
-
-    restricted = access_lists(ex.nodes, ex.edges, ex.config)
-    readers_of = {
-        ex.path_of(aid): entry["readers"] for aid, entry in restricted.items() if ex.path_of(aid)
-    }
+    access = _access_rows(export_dir)
+    readers_of = {p: r["readers"] for r in access for p in r["paths"]} if access is not None else {}
     items = {i["id"]: i for i in layer.get("items", ())}
     if len(items) != len(layer.get("items", ())):
         problems.append("an item id repeats")
@@ -355,6 +386,9 @@ def check_layer(export_dir: Path, layer: dict[str, Any]) -> list[str]:
                 problems.append(f"{item['id']}: carrier {carrier['path']} is a near-duplicate")
             if carrier.get("readers") != readers_of.get(carrier["path"]):
                 problems.append(f"{item['id']}: carrier {carrier['path']} readers are wrong")
+        expected_reach = _reach(ex, str(item["canonical"]), access) if access is not None else None
+        if item.get("reach") != expected_reach:
+            problems.append(f"{item['id']}: reach is wrong")
         for path in item["retracted_in"]:
             if path not in ex.files:
                 problems.append(f"{item['id']}: retraction {path} is not in the export")

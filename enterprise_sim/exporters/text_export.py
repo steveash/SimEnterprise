@@ -1024,11 +1024,9 @@ def export_world(
             for line in (kg / "edges.jsonl").read_text(encoding="utf-8").splitlines()
             if line
         ]
-        export_of = {
-            str(f.get("rendered_from") or f.get("source_path") or f["path"]): str(f["path"])
-            for f in writer.files
-        }
-        access = access_document(world.world_id, graph_nodes, graph_edges, world.config, export_of)
+        access = access_document(
+            world.world_id, graph_nodes, graph_edges, world.config, writer.files
+        )
         body = json.dumps(access, sort_keys=True, indent=1, ensure_ascii=False) + "\n"
         writer.write(ACCESS_FILE, body.encode("utf-8"), "application/json")
 
