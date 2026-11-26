@@ -49,6 +49,7 @@ __all__ = [
     "add_access_parser",
     "check_access",
     "data_files_of",
+    "restricted_projects",
 ]
 
 FORMAT = "simenterprise-access/1"
@@ -79,6 +80,20 @@ def data_files_of(files: list[dict[str, Any]]) -> dict[str, list[str]]:
     return {k: sorted(v) for k, v in out.items()}
 
 
+def restricted_projects(nodes: dict[str, dict[str, Any]], config: dict[str, Any]) -> set[str]:
+    """The unwalled projects ``[access] restricted_projects`` picks (a hash of the id)."""
+    count = int((config.get("access") or {}).get("restricted_projects", 0))
+    open_projects = sorted(
+        (
+            pid
+            for pid, n in nodes.items()
+            if n["type"] == "Project" and not n["props"].get("walled")
+        ),
+        key=lambda pid: hashlib.sha256(f"access-project\x00{pid}".encode()).hexdigest(),
+    )
+    return set(open_projects[:count])
+
+
 def access_lists(
     nodes: dict[str, dict[str, Any]],
     edges: list[dict[str, Any]],
@@ -93,7 +108,6 @@ def access_lists(
     """
     knobs = config.get("access") or {}
     rate = float(knobs.get("team_restricted_rate", 0.0))
-    picked_projects = int(knobs.get("restricted_projects", 0))
     authors: dict[str, set[str]] = {}
     reviewers: dict[str, set[str]] = {}
     subjects: dict[str, set[str]] = {}
@@ -123,11 +137,7 @@ def access_lists(
     walled = {
         pid for pid, n in nodes.items() if n["type"] == "Project" and n["props"].get("walled")
     }
-    open_projects = sorted(
-        (pid for pid, n in nodes.items() if n["type"] == "Project" and pid not in walled),
-        key=lambda pid: hashlib.sha256(f"access-project\x00{pid}".encode()).hexdigest(),
-    )
-    restricted_projects = set(open_projects[:picked_projects])
+    picked = restricted_projects(nodes, config)
     paths_of = data_files_of(files)
 
     families: dict[str, list[str]] = {}
@@ -154,10 +164,8 @@ def access_lists(
             # intersection, which only narrows
             allowed.append(set.intersection(*(staff.get(p, set()) for p in projects & walled)))
             reasons.append("walled")
-        if projects & restricted_projects:
-            allowed.append(
-                set.intersection(*(staff.get(p, set()) for p in projects & restricted_projects))
-            )
+        if projects & picked:
+            allowed.append(set.intersection(*(staff.get(p, set()) for p in projects & picked)))
             reasons.append("project")
         if not allowed and own and rate > 0 and _picked(family, rate):
             teams = set().union(*(teams_of.get(a, set()) for a in own))
@@ -190,9 +198,7 @@ def access_lists(
         if len(owners) != 1:
             continue
         (owner,) = owners
-        reason = (
-            "walled" if owner in walled else "project" if owner in restricted_projects else None
-        )
+        reason = "walled" if owner in walled else "project" if owner in picked else None
         if owner is None or reason is None:
             continue
         for f in s.get("files", ()):
@@ -297,17 +303,26 @@ def check_access(export_dir: Path) -> list[str]:
     walled_projects = {
         p for p, n in nodes.items() if n["type"] == "Project" and n["props"].get("walled")
     }
-    for s in slices:  # a walled project's records are restricted (the too-wide direction)
+    # A walled or restricted project's records are restricted (the too-wide direction).
+    # The projects and each slice's owner come from the graph and the file map, not from
+    # the rows under check, so a row file that drops a project cannot hide its records.
+    restricted = walled_projects | restricted_projects(nodes, config)
+    files_of = data_files_of(files)
+    project_of_file = {
+        p: project_of.get(aid)
+        for aid, n in nodes.items()
+        if n["type"] == "Artifact"
+        for p in files_of.get(str(n["props"].get("path", "")), [])
+    }
+    for s in slices:
         docs = [f for f in s.get("files", ()) if str(f).startswith("artifacts/")]
-        owners = {
-            project_of.get(r["artifact"])
-            for r in listed.get("documents", ())
-            if r.get("artifact") and set(r.get("paths", ())) & set(docs)
-        }
-        if owners & walled_projects:
+        owners = {project_of_file.get(f) for f in docs}
+        if len(owners) == 1 and owners & restricted:
             for f in s.get("files", ()):
                 if str(f).split("/")[0] in _RECORD_DIRS and f not in covered:
-                    findings.append(f"{f}: a walled project's record that no row covers")
+                    findings.append(
+                        f"{f}: a walled or restricted project's record that no row covers"
+                    )
     return findings
 
 

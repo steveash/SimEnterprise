@@ -236,3 +236,21 @@ def test_a_restricted_project_gives_its_facts_a_restricted_reach(export: Path) -
     for item in narrow:
         assert item["reach"]["readers"]
         assert all("readers" in c for c in item["carriers"])
+
+
+@pytest.mark.parametrize("reason", ["walled", "project"])
+def test_an_uncovered_record_of_a_walled_or_restricted_project_is_refused(
+    export: Path, tmp_path: Path, reason: str
+) -> None:
+    edited = tmp_path / "e"
+    shutil.copytree(export, edited)
+    body = json.loads((edited / ACCESS_FILE).read_text(encoding="utf-8"))
+    (dropped,) = [r for r in body["documents"] if r["artifact"] is None and reason in r["reasons"]][
+        :1
+    ]
+    body["documents"].remove(dropped)
+    (edited / ACCESS_FILE).write_text(json.dumps(body), encoding="utf-8")
+    findings = check_access(edited)
+    assert any(dropped["paths"][0] in f and "record that no row covers" in f for f in findings), (
+        findings
+    )
