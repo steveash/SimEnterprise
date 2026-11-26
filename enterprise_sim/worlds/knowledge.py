@@ -32,7 +32,9 @@ export gives the same bytes.
 from __future__ import annotations
 
 import argparse
+import csv
 import hashlib
+import io
 import json
 import sys
 from pathlib import Path
@@ -175,6 +177,28 @@ def _stream_doc(
     }
 
 
+def _table_holds(ex: _Export, path: str, token: str) -> bool:
+    """Whether the table at ``path`` states ``token`` as typed evidence.
+
+    A value counts in a text cell (as prose), or as a whole cell of any other type; never
+    as a fragment of a timestamp, a number or a header (datasets-cc's integrity rule).
+    """
+    if not token:
+        return False
+    entry = next((t for t in ex.manifest.get("tables", ()) if t.get("path") == path), None)
+    if entry is None:
+        return False
+    types = [str(c.get("type", "text")) for c in entry.get("columns", ())]
+    rows = csv.reader(io.StringIO(ex.text(path)))
+    next(rows, None)  # the header is never evidence
+    for row in rows:
+        for i, cell in enumerate(row):
+            kind = types[i] if i < len(types) else "text"
+            if (kind == "text" and token in cell) or cell == token:
+                return True
+    return False
+
+
 def _costly_facts(
     ex: _Export,
     items: dict[str, dict[str, Any]],
@@ -196,7 +220,7 @@ def _costly_facts(
         ):
             continue
         token = str(item["canonical"])
-        paths = sorted(t for t in tables if token and token in ex.text(t))
+        paths = sorted(t for t in tables if _table_holds(ex, t, token))
         if paths:
             out.append(
                 {"item": item["id"], "value": item["value"], "canonical": token, "tables": paths}
@@ -231,11 +255,7 @@ def _workstreams(
         if e["type"] == "asserts":
             stated[(e["src"], e["dst"])] = e["props"].get("stated_version")
     readers_of = {p: r["readers"] for r in access for p in r["paths"]} if access is not None else {}
-    tables = [
-        str(f["path"])
-        for f in ex.manifest["files"]
-        if f.get("role") == "data" and str(f["path"]).endswith(".csv")
-    ]
+    tables = sorted(str(t["path"]) for t in ex.manifest.get("tables", ()) if t.get("path"))
     out: list[dict[str, Any]] = []
     for node in sorted(
         (n for n in ex.nodes.values() if n["type"] == N_CONCURRENT_DAY), key=lambda n: n["id"]
@@ -268,7 +288,7 @@ def _workstreams(
             "window": {"start": p["window_start"], "end": p["window_end"]},
             "answer": {"value": item["value"], "canonical": item["canonical"]},
             "carried_in_tables": sorted(
-                t for t in tables if item["canonical"] and str(item["canonical"]) in ex.text(t)
+                t for t in tables if _table_holds(ex, t, str(item["canonical"]))
             ),
             "costly_facts": _costly_facts(ex, items, tables, str(p["needer_project"]), p, fact),
         }

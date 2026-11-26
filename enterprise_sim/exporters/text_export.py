@@ -1035,7 +1035,12 @@ def export_world(
         from enterprise_sim.worlds.knowledge import KNOWLEDGE_FILE, build_layer, layer_bytes
 
         knowledge = build_layer(
-            target, manifest={"world_id": world.world_id, "files": writer.files}
+            target,
+            manifest={
+                "world_id": world.world_id,
+                "files": writer.files,
+                "tables": writer.tables,
+            },
         )
         writer.write(KNOWLEDGE_FILE, layer_bytes(knowledge), "application/json")
 

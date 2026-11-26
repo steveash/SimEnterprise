@@ -126,3 +126,29 @@ def test_without_concurrent_days_nothing_changes(tmp_path: Path) -> None:
     nodes, _ = _graph(out)
     assert not any(n["type"] == "ConcurrentDay" for n in nodes.values())
     assert "workstreams" not in build_layer(out)
+
+
+def _typed_holds(export: Path, path: str, token: str) -> bool:
+    import csv
+
+    manifest = json.loads((export / "export.json").read_text(encoding="utf-8"))
+    (entry,) = [t for t in manifest["tables"] if t["path"] == path]
+    types = [c["type"] for c in entry["columns"]]
+    rows = list(csv.reader((export / path).read_text(encoding="utf-8").splitlines()))[1:]
+    return any(
+        (types[i] == "text" and token in cell) or cell == token
+        for row in rows
+        for i, cell in enumerate(row)
+    )
+
+
+def test_a_table_counts_only_typed_evidence(export: Path) -> None:
+    from enterprise_sim.worlds.knowledge import KNOWLEDGE_FILE
+
+    layer = json.loads((export / KNOWLEDGE_FILE).read_text(encoding="utf-8"))
+    for s in layer["workstreams"]:
+        for path in s["carried_in_tables"]:
+            assert _typed_holds(export, path, s["answer"]["canonical"]), path
+        for extra in s["costly_facts"]:
+            for path in extra["tables"]:  # never a fragment of a timestamp or a number
+                assert _typed_holds(export, path, extra["canonical"]), (extra["item"], path)
