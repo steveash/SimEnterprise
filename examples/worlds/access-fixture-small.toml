@@ -1,0 +1,42 @@
+# Small fixture: the corvid ladder's S world with a few team-restricted documents (decision record 0130).
+#
+# For importer tests that need real bytes: export with --with-access. Same world id as
+# ladder/ladder-s.toml without its [ladder] label.
+#
+#   enterprise-sim world create examples/worlds/access-fixture-small.toml
+seed = 104
+
+[company]
+name = "Corvid Analytics"
+vertical = "analytics"
+size = "medium"
+description = "A marketplace company whose analytics team answers the business's questions."
+
+[simulation]
+period_start = 2026-01-05
+period_end = 2026-03-27
+
+[model]
+backend = "anthropic_api"
+name = "claude-haiku-4-5"
+offline_backend = "synth"
+
+[[departments]]
+archetype = "data_analytics"
+[[departments]]
+archetype = "marketing"
+[[departments]]
+archetype = "sales"
+
+[facts]
+cross_team = 0.0
+per_project = 8
+change_rate = 0.3
+
+[data]
+scenarios = ["product_growth", "sales_pipeline", "support_ops", "subscription_finance", "marketing_attribution"]
+scale_factor = 0.1
+iterations = 3
+
+[access]
+team_restricted_rate = 0.02

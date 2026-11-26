@@ -1,0 +1,52 @@
+# Benchmark world: the ops / SRE enterprise of ops-sre.toml, with per-document reader lists.
+#
+# Same seed, org, documents and world id as ops-sre.toml ([access] is export metadata, not part of
+# the world id). A quarter of the documents that no other rule restricts are readable only by their
+# authors' teams; documents that mention a person's sensitive category are readable by their
+# authors, reviewers and that person (decision record 0130). Export with --with-access (and
+# --with-knowledge) for access.json and the knowledge layer's carrier readers, both controller-only.
+#
+#   enterprise-sim world create examples/worlds/ops-sre-access.toml
+seed = 211
+worlds_root = "worlds"
+
+[company]
+name = "Tessellate Cloud"
+vertical = "site reliability"
+size = "large"
+description = "A cloud hosting company whose reliability team keeps the customer platform up."
+
+[simulation]
+period_start = 2026-01-05
+period_end = 2026-04-24
+
+[model]
+backend = "bedrock"
+name = "us.anthropic.claude-haiku-5-5"
+offline_backend = "synth"
+
+[[departments]]
+archetype = "site_reliability"
+[[departments]]
+archetype = "engineering"
+[[departments]]
+archetype = "security"
+[[departments]]
+archetype = "support"
+[[departments]]
+archetype = "data_engineering"
+
+[facts]
+per_project = 8
+change_rate = 0.4
+
+[org]
+turnover_rate = 0.1
+
+[data]
+scenarios = ["sre_ops"]
+scale_factor = 1.0
+iterations = 1
+
+[access]
+team_restricted_rate = 0.25
