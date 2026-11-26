@@ -27,6 +27,7 @@ from pydantic import (
     model_validator,
 )
 
+from enterprise_sim.core.config.access import AccessConfig
 from enterprise_sim.core.config.diversity import (
     ChatConfig,
     CodeConfig,
@@ -332,6 +333,10 @@ class WorldConfig(_Frozen):
     ladder: LadderConfig = Field(
         default_factory=LadderConfig,
         description="The size ladder this world is a rung of (labels only; not in the digest).",
+    )
+    access: AccessConfig = Field(
+        default_factory=AccessConfig,
+        description="Which documents only named people may read (export metadata; not digested).",
     )
     isolation: IsolationConfig = Field(
         default_factory=IsolationConfig,

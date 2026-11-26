@@ -22,6 +22,7 @@ def _cmd_world_export(args: argparse.Namespace) -> int:
             args.out,
             with_replay=args.with_replay,
             with_knowledge=args.with_knowledge,
+            with_access=args.with_access,
         )
     except ExportError as exc:
         print(f"enterprise-sim world export: {exc}", file=sys.stderr)
@@ -70,6 +71,12 @@ def add_export_parser(
         dest="with_knowledge",
         action="store_true",
         help="include knowledge/knowledge.json (gold): the world's knowledge layer",
+    )
+    parser.add_argument(
+        "--with-access",
+        dest="with_access",
+        action="store_true",
+        help="include access.json (gold): per-document reader lists (decision record 0130)",
     )
     parser.set_defaults(func=_cmd_world_export)
 

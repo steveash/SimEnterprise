@@ -998,3 +998,7 @@ def add_world_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentPar
     from enterprise_sim.worlds.knowledge import add_knowledge_parser
 
     add_knowledge_parser(world_subparsers)
+
+    from enterprise_sim.exporters.access import add_access_parser
+
+    add_access_parser(world_subparsers)

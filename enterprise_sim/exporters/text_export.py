@@ -132,7 +132,7 @@ def _role(rel: str) -> str:
     # questions with their SQL answers; only tables/ and views/ are data.
     if parts[0] == "data" and len(parts) == 3:
         return "gold"
-    if rel in ("config.json", "isolation.json") or rel.startswith("replay/"):
+    if rel in ("config.json", "isolation.json", "access.json") or rel.startswith("replay/"):
         return "gold"
     return "data"
 
@@ -772,6 +772,7 @@ def export_world(
     *,
     with_replay: bool | None = None,
     with_knowledge: bool = False,
+    with_access: bool = False,
 ) -> ExportResult:
     """Export ``world_dir`` as ``<out_root>/<world id>/`` (``simenterprise-export/1``).
 
@@ -784,6 +785,10 @@ def export_world(
 
     ``with_knowledge`` adds ``knowledge/knowledge.json`` (gold): the world's knowledge
     layer (:mod:`enterprise_sim.worlds.knowledge`), checked against the finished export.
+
+    ``with_access`` adds ``access.json`` (gold): the per-document reader lists of decision
+    record 0130 (:mod:`enterprise_sim.exporters.access`). The export fails closed: it
+    refuses to finish if any restricted document's list does not hold.
     """
     world_dir = Path(world_dir)
     world = read_world(world_dir)
@@ -1002,6 +1007,31 @@ def export_world(
         body = json.dumps(isolation, sort_keys=True, indent=1, ensure_ascii=False) + "\n"
         writer.write(ISOLATION_FILE, body.encode("utf-8"), "application/json")
 
+    if with_access:
+        from enterprise_sim.exporters.access import ACCESS_FILE, access_document
+
+        kg = target / "kg"
+        graph_nodes = {
+            n["id"]: n
+            for n in (
+                json.loads(line)
+                for line in (kg / "nodes.jsonl").read_text(encoding="utf-8").splitlines()
+                if line
+            )
+        }
+        graph_edges = [
+            json.loads(line)
+            for line in (kg / "edges.jsonl").read_text(encoding="utf-8").splitlines()
+            if line
+        ]
+        export_of = {
+            str(f.get("rendered_from") or f.get("source_path") or f["path"]): str(f["path"])
+            for f in writer.files
+        }
+        access = access_document(world.world_id, graph_nodes, graph_edges, world.config, export_of)
+        body = json.dumps(access, sort_keys=True, indent=1, ensure_ascii=False) + "\n"
+        writer.write(ACCESS_FILE, body.encode("utf-8"), "application/json")
+
     knowledge: dict[str, Any] | None = None
     if with_knowledge:
         from enterprise_sim.worlds.knowledge import KNOWLEDGE_FILE, build_layer, layer_bytes
@@ -1045,6 +1075,12 @@ def export_world(
         manifest["heldout"] = json.loads(marker.read_text(encoding="utf-8"))
     body = json.dumps(manifest, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     (target / "export.json").write_bytes(body.encode("utf-8"))
+    if with_access:
+        from enterprise_sim.exporters.access import check_access
+
+        findings = check_access(target)
+        if findings:
+            raise ExportError(f"the reader lists do not hold (record 0130): {findings[:3]}")
     if knowledge is not None:
         from enterprise_sim.worlds.knowledge import check_layer
 

@@ -78,6 +78,7 @@ class _Export:
             self.nodes = {n["id"]: n for n in _jsonl(export_dir / "kg" / "nodes.jsonl")}
             self.edges = _jsonl(export_dir / "kg" / "edges.jsonl")
             config = json.loads((export_dir / "config.json").read_text(encoding="utf-8"))
+            self.config: dict[str, Any] = config
         except (OSError, ValueError, KeyError) as exc:
             raise KnowledgeError(f"{export_dir} is not a SimEnterprise export: {exc}") from exc
         self.dir = export_dir
@@ -136,6 +137,10 @@ def build_layer(export_dir: Path, *, manifest: dict[str, Any] | None = None) -> 
     from enterprise_sim.facts.catalog import kind_of, value_token
 
     ex = _Export(export_dir, manifest)
+    from enterprise_sim.exporters.access import access_lists
+
+    # Who may read each restricted document (decision record 0130; controller-only).
+    restricted = access_lists(ex.nodes, ex.edges, ex.config)
     authors: dict[str, list[str]] = {}
     for edge in ex.by_type("authored"):
         authors.setdefault(edge["dst"], []).append(edge["src"])
@@ -184,14 +189,15 @@ def build_layer(export_dir: Path, *, manifest: dict[str, Any] | None = None) -> 
             is_copy = edge["src"] in copies
             if stance in _TRUE and sp.get("stated_version") is not None and not is_copy:
                 number = int(sp["stated_version"])
-                carriers.setdefault(number, []).append(
-                    {
-                        "path": path,
-                        "stance": stance,
-                        "at": at,
-                        "verbatim": _verbatim(value_of.get(number, value), ex.text(path)),
-                    }
-                )
+                carrier: dict[str, Any] = {
+                    "path": path,
+                    "stance": stance,
+                    "at": at,
+                    "verbatim": _verbatim(value_of.get(number, value), ex.text(path)),
+                }
+                if edge["src"] in restricted:
+                    carrier["readers"] = restricted[edge["src"]]["readers"]
+                carriers.setdefault(number, []).append(carrier)
                 role = "announcer" if stance == "update" else "author"
                 for person in authors.get(edge["src"], ()):
                     mine = holders.setdefault(number, {})
@@ -329,6 +335,12 @@ def check_layer(export_dir: Path, layer: dict[str, Any]) -> list[str]:
     elif layer.get("export_digest") != digest:
         problems.append("the layer is of another export of this world")
     people = {n for n, node in ex.nodes.items() if node["type"] == "Person"}
+    from enterprise_sim.exporters.access import access_lists
+
+    restricted = access_lists(ex.nodes, ex.edges, ex.config)
+    readers_of = {
+        ex.path_of(aid): entry["readers"] for aid, entry in restricted.items() if ex.path_of(aid)
+    }
     items = {i["id"]: i for i in layer.get("items", ())}
     if len(items) != len(layer.get("items", ())):
         problems.append("an item id repeats")
@@ -341,6 +353,8 @@ def check_layer(export_dir: Path, layer: dict[str, Any]) -> list[str]:
                 problems.append(f"{item['id']}: carrier {carrier['path']} verbatim flag is wrong")
             if carrier["path"] in copies:
                 problems.append(f"{item['id']}: carrier {carrier['path']} is a near-duplicate")
+            if carrier.get("readers") != readers_of.get(carrier["path"]):
+                problems.append(f"{item['id']}: carrier {carrier['path']} readers are wrong")
         for path in item["retracted_in"]:
             if path not in ex.files:
                 problems.append(f"{item['id']}: retraction {path} is not in the export")

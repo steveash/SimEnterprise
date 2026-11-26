@@ -179,6 +179,8 @@ def canonical_config(config: WorldConfig) -> dict[str, object]:
     payload.pop("worlds_root", None)
     if payload.get("ladder") == {"id": None, "rung": None}:
         payload.pop("ladder")  # unset: not even a key, so config.json is as before
+    if payload.get("access") == {"team_restricted_rate": 0.0}:
+        payload.pop("access")  # unset: not even a key, so config.json is as before
     return payload
 
 
@@ -214,6 +216,7 @@ def compute_config_digest(config: WorldConfig, *, backend: str | None = None) ->
     payload.pop("plugins", None)
     payload.pop("data", None)
     payload.pop("ladder", None)  # a label: which ladder rung, never what the world is
+    payload.pop("access", None)  # export metadata (record 0130): who may read, never what is
     _drop_default_sections(payload)
     if backend is not None and backend != _DEFAULT_BACKEND:
         payload["render_backend"] = backend

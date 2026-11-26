@@ -78,7 +78,7 @@ An **item**:
 | `retracted_at`, `retracted_in` | when the version was found to be an error, and the documents saying so |
 | `supersedes`, `superseded_by` | the item before and after it in the chain (null at either end) |
 | `holders` | `[{person, as}]`: `announcer` (wrote a document announcing it), `author` (wrote a document stating it), `owner` (owns the initiative the project is under). A person is listed once, with the strongest role in that order. |
-| `carriers` | `[{path, stance, at, verbatim}]`: every document (other than a near-copy) stating the item as true; `verbatim` says whether its exported text holds the item's `value` byte for byte (a planted typo or a live model's paraphrase can drop it, and then `verbatim` is false) |
+| `carriers` | `[{path, stance, at, verbatim, readers?}]`: every document (other than a near-copy) stating the item as true; `verbatim` says whether its exported text holds the item's `value` byte for byte (a planted typo or a live model's paraphrase can drop it, and then `verbatim` is false); `readers`, only on a restricted document, is its reader list (person ids) from `docs/ACCESS.md`'s one function (controller-only) |
 
 A **supersession**: `{fact, old, new, effective, announced_in}`: the item replaced, the
 item replacing it, the new item's `valid_from`, and the documents announcing the change.
@@ -106,6 +106,7 @@ the part after the colon is a lowercase slug a reader can use as its own identif
 * a carrier, retraction, announcement or misleading path is not a file of the export;
 * a carrier's `verbatim` flag disagrees with the document's text (the value byte for byte);
 * a carrier is a near-copy (the source of a `duplicate_of` edge);
+* a carrier's `readers` is not the reader list of its document (or is present on an unrestricted one);
 * a holder is not a person of the world's roster;
 * a `supersedes`/`superseded_by` link names a missing item, or the chain is not
   symmetric, or a supersession or misleading entry names a missing item.
