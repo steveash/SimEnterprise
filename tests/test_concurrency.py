@@ -135,8 +135,11 @@ def _typed_holds(export: Path, path: str, token: str) -> bool:
     (entry,) = [t for t in manifest["tables"] if t["path"] == path]
     types = [c["type"] for c in entry["columns"]]
     rows = list(csv.reader((export / path).read_text(encoding="utf-8").splitlines()))[1:]
+    import re
+
+    whole = re.compile(rf"(?<![A-Za-z0-9]){re.escape(token)}(?![A-Za-z0-9])")
     return any(
-        (types[i] == "text" and token in cell) or cell == token
+        (types[i] == "text" and whole.search(cell) is not None) or cell == token
         for row in rows
         for i, cell in enumerate(row)
     )

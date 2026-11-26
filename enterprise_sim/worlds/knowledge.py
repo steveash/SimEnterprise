@@ -36,6 +36,7 @@ import csv
 import hashlib
 import io
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -180,11 +181,13 @@ def _stream_doc(
 def _table_holds(ex: _Export, path: str, token: str) -> bool:
     """Whether the table at ``path`` states ``token`` as typed evidence.
 
-    A value counts in a text cell (as prose), or as a whole cell of any other type; never
-    as a fragment of a timestamp, a number or a header (datasets-cc's integrity rule).
+    A value counts in a text cell only as a whole token (no letter or digit next to it, so
+    ``900`` is not in ``$900k``), or as a whole cell of any other type; never as a fragment
+    of a timestamp, a number or a header (datasets-cc's integrity rule).
     """
     if not token:
         return False
+    whole = re.compile(rf"(?<![A-Za-z0-9]){re.escape(token)}(?![A-Za-z0-9])")
     entry = next((t for t in ex.manifest.get("tables", ()) if t.get("path") == path), None)
     if entry is None:
         return False
@@ -194,7 +197,7 @@ def _table_holds(ex: _Export, path: str, token: str) -> bool:
     for row in rows:
         for i, cell in enumerate(row):
             kind = types[i] if i < len(types) else "text"
-            if (kind == "text" and token in cell) or cell == token:
+            if (kind == "text" and whole.search(cell)) or cell == token:
                 return True
     return False
 
