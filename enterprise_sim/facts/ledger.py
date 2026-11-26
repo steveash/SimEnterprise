@@ -509,6 +509,10 @@ def assign_assertions(
             )
         ]
         count = min(len(pool), rng.randint(lo, hi))
+        # a planted concurrent event states its fact first (facts.concurrency)
+        required = [p for p in pool if p[0] in event.payload.get("required_facts", ())]
+        pending = required + [p for p in pending if p not in required]
+        count = max(count, len(required))
         chosen: list[tuple[str, bool]] = pending[:count]
         rest = [p for p in pool if p not in chosen]
         chosen += rng.sample(rest, k=min(len(rest), count - len(chosen)))
@@ -520,7 +524,8 @@ def assign_assertions(
                 end=at.date(),
                 people=(people_of or {}).get(record.department, ()),
             )
-            assertions.append(_assert(rng, record, cfg, at=at, cited=cited, ctx=ctx))
+            forced = (event.payload.get("forced_stances") or {}).get(fact_id)
+            assertions.append(_assert(rng, record, cfg, at=at, cited=cited, ctx=ctx, force=forced))
         if assertions:
             out[event.id] = assertions
     return out
@@ -534,6 +539,7 @@ def _assert(
     at: datetime,
     cited: bool,
     ctx: Context,
+    force: str | None = None,
 ) -> Assertion:
     attr = record.attribute
     true = record.version_at(at)
@@ -558,6 +564,19 @@ def _assert(
         old = record.versions[true.number - 2].value
         text = attr.state(attr.update, subject=subject, value=true.value, old=old)
         return made("update", true.value, text, true.number)
+    # a planted concurrent event (facts.concurrency) states what its moment calls for:
+    # the value true then ("current"), or the one before a change it has not heard of
+    if force == "stale" and true.number > 1:
+        old_version = record.versions[true.number - 2]
+        text = attr.state(template, subject=subject, value=old_version.value)
+        return made("stale", old_version.value, text, old_version.number)
+    if force == "current":
+        return made(
+            "current",
+            true.value,
+            attr.state(template, subject=subject, value=true.value),
+            true.number,
+        )
     roll = rng.random()
     stale_p = cfg.stale_rate * (cfg.cross_team_stale_boost if cited else 1.0)
     if true.number > 1 and roll < min(1.0, stale_p):

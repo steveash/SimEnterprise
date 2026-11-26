@@ -96,6 +96,24 @@ reader that needs instants takes them as UTC: append `Z`, and refuse any value o
 another shape. Ids are `<type>:<slug>` (`person:ada-diaz`, `project:run-sales-sales`);
 the part after the colon is a lowercase slug a reader can use as its own identifier.
 
+## Concurrent workstreams (`[concurrency] days`)
+
+A world with concurrent days (`enterprise_sim.facts.concurrency`) has a `workstreams` key. A world without them has
+no such key. On each concurrent day two teams work the same hours: project B cites a fact of project A, the fact
+changes at a mid-day time `T`, A's discoverer writes it down at `T`, and B's two workers write at `T - 2h` (the old
+value, then true) and `T + 2h` (the old value: they have not heard). One entry per day:
+
+| Key | Content |
+|---|---|
+| `day`, `fact`, `item` | the day, the fact and its new version (an item id) |
+| `discovered_at`, `discoverer` | `T`, and the person who found it |
+| `owner_team` | `{project, people}`: the project that owns the fact, with its staff |
+| `discovery` | `{path, at, stated_item}` of the discovery document, plus `readers` and `everyone` when the export has `access.json` |
+| `needed_by` | `{project, people, before, after}`: the citing team, its two workers, and its two documents (`{path, at, stated_item}`) |
+| `window` | `{start, end}`: `T - 2h` to `T + 2h` |
+| `answer` | `{value, canonical}`: the new value, which the citing team's work needs |
+| `carried_in_tables` | the exported table files that hold the new value's token (a costly path, or an empty list) |
+
 ## The check
 
 `check_layer` (and `--check`) refuses a layer when:
@@ -107,6 +125,7 @@ the part after the colon is a lowercase slug a reader can use as its own identif
 * a carrier's `verbatim` flag disagrees with the document's text (the value byte for byte);
 * a carrier is a near-copy (the source of a `duplicate_of` edge);
 * a carrier's `readers` is not the reader list of its document (or is present on an unrestricted one);
+* the `workstreams` are not the world's concurrent days as recomputed from the export;
 * a holder is not a person of the world's roster;
 * a `supersedes`/`superseded_by` link names a missing item, or the chain is not
   symmetric, or a supersession or misleading entry names a missing item.

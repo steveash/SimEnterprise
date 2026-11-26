@@ -160,6 +160,93 @@ def _reach(ex: _Export, token: str, access: list[dict[str, Any]]) -> dict[str, A
     return {"everyone": everyone, "readers": [] if everyone else sorted(readers)}
 
 
+def _stream_doc(
+    ex: _Export, aid: str | None, fact: str, stated: dict[tuple[str, str], int | None]
+) -> dict[str, Any] | None:
+    """A concurrent day's document: its export path, time and the item it states."""
+    if aid is None:
+        return None
+    number = stated.get((aid, fact))
+    return {
+        "path": ex.path_of(aid),
+        "at": ex.nodes[aid].get("created_at"),
+        "stated_item": None if number is None else _item_id(fact, int(number)),
+    }
+
+
+def _workstreams(
+    ex: _Export, items: dict[str, dict[str, Any]], access: list[dict[str, Any]] | None
+) -> list[dict[str, Any]]:
+    """The concurrent days of the world (``facts.concurrency``), one entry each.
+
+    Each names the fact found mid-day and its new item; the discoverer and the owner
+    team; the needing team with its morning and afternoon documents and the item each
+    states; the window; the answer (the new value); the table files that carry the new
+    value (a costly path, or none); and, when the export has ``access.json``, who can
+    read the discovery document.
+    """
+    from enterprise_sim.facts.concurrency import N_CONCURRENT_DAY
+
+    by_event = {
+        str(n["props"].get("event")): aid for aid, n in ex.nodes.items() if n["type"] == "Artifact"
+    }
+    staff: dict[str, list[str]] = {}
+    for e in ex.edges:
+        if e["type"] == "member_of" and ex.nodes.get(e["dst"], {}).get("type") == "Project":
+            staff.setdefault(e["dst"], []).append(e["src"])
+    stated: dict[tuple[str, str], int | None] = {}
+    for e in ex.edges:
+        if e["type"] == "asserts":
+            stated[(e["src"], e["dst"])] = e["props"].get("stated_version")
+    readers_of = {p: r["readers"] for r in access for p in r["paths"]} if access is not None else {}
+    tables = [
+        str(f["path"])
+        for f in ex.manifest["files"]
+        if f.get("role") == "data" and str(f["path"]).endswith(".csv")
+    ]
+    out: list[dict[str, Any]] = []
+    for node in sorted(
+        (n for n in ex.nodes.values() if n["type"] == N_CONCURRENT_DAY), key=lambda n: n["id"]
+    ):
+        p = node["props"]
+        fact = str(p["fact"])
+        item_id = _item_id(fact, int(p["version"]))
+        item = items.get(item_id)
+        if item is None:
+            continue
+
+        discovery = _stream_doc(ex, by_event.get(str(p["events"]["discovery"])), fact, stated)
+        entry: dict[str, Any] = {
+            "day": p["day"],
+            "fact": fact,
+            "item": item_id,
+            "discovered_at": p["discovered_at"],
+            "discoverer": p["discoverer"],
+            "owner_team": {
+                "project": p["owner_project"],
+                "people": sorted(staff.get(str(p["owner_project"]), [])),
+            },
+            "discovery": discovery,
+            "needed_by": {
+                "project": p["needer_project"],
+                "people": list(p["needer_people"]),
+                "before": _stream_doc(ex, by_event.get(str(p["events"]["before"])), fact, stated),
+                "after": _stream_doc(ex, by_event.get(str(p["events"]["after"])), fact, stated),
+            },
+            "window": {"start": p["window_start"], "end": p["window_end"]},
+            "answer": {"value": item["value"], "canonical": item["canonical"]},
+            "carried_in_tables": sorted(
+                t for t in tables if item["canonical"] and str(item["canonical"]) in ex.text(t)
+            ),
+        }
+        if access is not None and discovery is not None:
+            readers = readers_of.get(str(discovery["path"]))
+            entry["discovery"]["readers"] = readers
+            entry["discovery"]["everyone"] = readers is None
+        out.append(entry)
+    return out
+
+
 def build_layer(export_dir: Path, *, manifest: dict[str, Any] | None = None) -> dict[str, Any]:
     """The knowledge layer of ``export_dir`` (see the module docstring).
 
@@ -338,7 +425,8 @@ def build_layer(export_dir: Path, *, manifest: dict[str, Any] | None = None) -> 
         "misleading": len(misleading),
         "holders": len(roster),
     }
-    return {
+    workstreams = _workstreams(ex, {i["id"]: i for i in items}, access)
+    layer: dict[str, Any] = {
         "format": FORMAT,
         "world_id": ex.manifest["world_id"],
         "export_digest": None
@@ -351,6 +439,9 @@ def build_layer(export_dir: Path, *, manifest: dict[str, Any] | None = None) -> 
         "misleading": misleading,
         "people": roster,
     }
+    if workstreams:  # only a world with concurrent days has the key, so others keep bytes
+        layer["workstreams"] = workstreams
+    return layer
 
 
 def check_layer(export_dir: Path, layer: dict[str, Any]) -> list[str]:
@@ -402,6 +493,11 @@ def check_layer(export_dir: Path, layer: dict[str, Any]) -> list[str]:
         after = items.get(item["superseded_by"] or "")
         if after is not None and after["supersedes"] != item["id"]:
             problems.append(f"{item['id']}: the chain is not symmetric")
+    expected_streams = _workstreams(ex, items, access)
+    if layer.get("workstreams", []) != expected_streams or (
+        "workstreams" in layer and not expected_streams
+    ):
+        problems.append("the workstreams are not the concurrent days of this export")
     for entry in layer.get("supersessions", ()):
         if entry["old"] not in items or entry["new"] not in items:
             problems.append(f"supersession {entry['old']} -> {entry['new']} names a missing item")

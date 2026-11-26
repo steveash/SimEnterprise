@@ -289,6 +289,26 @@ def build_corpus(
         start=config.simulation.period_start,
         end=config.simulation.period_end,
     )
+    if ledger and config.concurrency.days > 0:
+        # concurrent days (facts.concurrency): a mid-day change found by its owner team,
+        # and the citing team's work before and after it, planted before the KG is written
+        from enterprise_sim.facts.concurrency import plan_concurrency
+
+        planted = plan_concurrency(
+            world,
+            ledger,
+            config.concurrency.days,
+            seed=config.seed,
+            start=datetime.combine(config.simulation.period_start, datetime.min.time()),
+            end=datetime.combine(config.simulation.period_end, datetime.max.time()),
+        )
+        by_initiative = {plan.initiative_id: plan for plan in plans}
+        for event in planted:
+            plan = by_initiative.get(event.initiative or "")
+            if plan is None:
+                continue
+            journal.append(event)
+            plan.journal.append(event)
     if ledger:
         ledger_graph(world, ledger)
         people_of = _people_by_department(world)

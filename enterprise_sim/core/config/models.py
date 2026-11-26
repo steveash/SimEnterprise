@@ -28,6 +28,7 @@ from pydantic import (
 )
 
 from enterprise_sim.core.config.access import AccessConfig
+from enterprise_sim.core.config.concurrency import ConcurrencyConfig
 from enterprise_sim.core.config.diversity import (
     ChatConfig,
     CodeConfig,
@@ -337,6 +338,10 @@ class WorldConfig(_Frozen):
     access: AccessConfig = Field(
         default_factory=AccessConfig,
         description="Which documents only named people may read (export metadata; not digested).",
+    )
+    concurrency: ConcurrencyConfig = Field(
+        default_factory=ConcurrencyConfig,
+        description="Concurrent days: two teams' same-hours work around a mid-day fact change.",
     )
     isolation: IsolationConfig = Field(
         default_factory=IsolationConfig,

@@ -1,0 +1,58 @@
+# Benchmark world: the ops / SRE enterprise with concurrent days and reader lists.
+#
+# ops-sre-access.toml with every project depending on another department's project ([facts]
+# cross_team 1.0) and [concurrency] days = 4: on four days a cited fact (a launch date or a status)
+# changes mid-day, its owner team finds it then, and the team that depends on it works the same
+# hours, stating the old value after the change. The knowledge layer exports these days as
+# workstreams, next to the K items; with --with-access the reader lists show who can read the
+# discovery. A new world id (concurrency changes the world).
+#
+#   enterprise-sim world create examples/worlds/ops-sre-concurrent.toml
+seed = 211
+worlds_root = "worlds"
+
+[company]
+name = "Tessellate Cloud"
+vertical = "site reliability"
+size = "large"
+description = "A cloud hosting company whose reliability team keeps the customer platform up."
+
+[simulation]
+period_start = 2026-01-05
+period_end = 2026-04-24
+
+[model]
+backend = "bedrock"
+name = "us.anthropic.claude-haiku-5-5"
+offline_backend = "synth"
+
+[[departments]]
+archetype = "site_reliability"
+[[departments]]
+archetype = "engineering"
+[[departments]]
+archetype = "security"
+[[departments]]
+archetype = "support"
+[[departments]]
+archetype = "data_engineering"
+
+[facts]
+per_project = 8
+change_rate = 0.4
+cross_team = 1.0
+
+[org]
+turnover_rate = 0.1
+
+[data]
+scenarios = ["sre_ops"]
+scale_factor = 1.0
+iterations = 1
+
+[access]
+team_restricted_rate = 0.25
+restricted_projects = 2
+
+[concurrency]
+days = 4

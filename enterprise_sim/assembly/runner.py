@@ -181,6 +181,8 @@ def canonical_config(config: WorldConfig) -> dict[str, object]:
         payload.pop("ladder")  # unset: not even a key, so config.json is as before
     if payload.get("access") == {"team_restricted_rate": 0.0, "restricted_projects": 0}:
         payload.pop("access")  # unset: not even a key, so config.json is as before
+    if payload.get("concurrency") == {"days": 0}:
+        payload.pop("concurrency")  # unset: not even a key, so config.json is as before
     return payload
 
 
