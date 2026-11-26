@@ -39,6 +39,7 @@ PINNED = {
     "worlds/ops-sre.toml": "tessellate-cloud-2866bc14c03c",
     "worlds/ops-sre-access.toml": "tessellate-cloud-2866bc14c03c",
     "worlds/access-fixture-small.toml": "corvid-analytics-c6b0e22966ae",
+    "worlds/access-fixture-tiny.toml": "fixture-tiny-b5f3436f1728",
     "worlds/dataeng-pipeline-runs.toml": "basalt-digital-0436d7b7368d",
     "worlds/ladder/ladder-s.toml": "corvid-analytics-c6b0e22966ae",
     "worlds/ladder/ladder-m.toml": "corvid-analytics-b37b855d7066",

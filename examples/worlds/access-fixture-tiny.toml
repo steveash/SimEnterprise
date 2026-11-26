@@ -1,0 +1,40 @@
+# Tiny fixture for importer tests (decision record 0130): datasets-cc's fixture-tiny world (seed 5, one
+# day, support_ops at scale 0.01) with one people_ops department so its sensitive planter runs at its
+# full rate, [privacy] sensitive_rate 0.15 for one sensitive-category document and [access]
+# team_restricted_rate 0.9 for two team-restricted families. About 200 kB exported.
+#
+#   enterprise-sim world create examples/worlds/access-fixture-tiny.toml
+seed = 5
+
+[company]
+name = "Fixture Tiny"
+vertical = "software"
+size = "startup"
+
+[simulation]
+period_start = 2026-01-05
+period_end = 2026-01-06
+
+[model]
+backend = "anthropic_api"
+name = "claude-opus-4-8"
+offline_backend = "synth"
+
+[[departments]]
+archetype = "people_ops"
+
+[formats]
+decks = false
+email = false
+invites = false
+
+[privacy]
+sensitive_rate = 0.15
+
+[data]
+scenarios = ["support_ops"]
+scale_factor = 0.01
+iterations = 1
+
+[access]
+team_restricted_rate = 0.9
