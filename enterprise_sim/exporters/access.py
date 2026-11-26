@@ -18,6 +18,9 @@ controller-only gold.
   * ``sensitive`` (some member mentions a person's sensitive category): the family's
     authors, reviewers and every person it is about; the reasons are the categories;
   * ``walled`` (decision record 0036): the family's project staff;
+  * ``project`` (``[access] restricted_projects`` picks that many unwalled projects by a
+    hash of the project id): every family of the project, readable by its staff, so the
+    project's facts can have a restricted reach;
   * ``team`` (``[access] team_restricted_rate`` picks the family by a hash of its event
     id; only families no other rule restricts and that have an ``authored`` edge):
     everyone ever a member of the authors' teams.
@@ -34,6 +37,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -48,6 +52,8 @@ __all__ = [
 ]
 
 FORMAT = "simenterprise-access/1"
+#: The directories of a project's derived records (one file per project slice).
+_RECORD_DIRS = frozenset({"trails", "registry", "observations"})
 #: Where an export carries its reader lists (``world export --with-access``), as gold.
 ACCESS_FILE = "access.json"
 
@@ -78,9 +84,16 @@ def access_lists(
     edges: list[dict[str, Any]],
     config: dict[str, Any],
     files: list[dict[str, Any]],
+    slices: Sequence[dict[str, Any]] = (),
 ) -> dict[str, dict[str, Any]]:
-    """Artifact id -> ``{family, paths, readers, teams, reasons}`` for every restricted one."""
-    rate = float((config.get("access") or {}).get("team_restricted_rate", 0.0))
+    """Key -> ``{family, paths, readers, teams, reasons}`` for every restricted document.
+
+    A key is an artifact id, or ``record:<path>`` for a project's derived record (its
+    trail, registry or observations table) when the project is walled or restricted.
+    """
+    knobs = config.get("access") or {}
+    rate = float(knobs.get("team_restricted_rate", 0.0))
+    picked_projects = int(knobs.get("restricted_projects", 0))
     authors: dict[str, set[str]] = {}
     reviewers: dict[str, set[str]] = {}
     subjects: dict[str, set[str]] = {}
@@ -110,6 +123,11 @@ def access_lists(
     walled = {
         pid for pid, n in nodes.items() if n["type"] == "Project" and n["props"].get("walled")
     }
+    open_projects = sorted(
+        (pid for pid, n in nodes.items() if n["type"] == "Project" and pid not in walled),
+        key=lambda pid: hashlib.sha256(f"access-project\x00{pid}".encode()).hexdigest(),
+    )
+    restricted_projects = set(open_projects[:picked_projects])
     paths_of = data_files_of(files)
 
     families: dict[str, list[str]] = {}
@@ -136,6 +154,11 @@ def access_lists(
             # intersection, which only narrows
             allowed.append(set.intersection(*(staff.get(p, set()) for p in projects & walled)))
             reasons.append("walled")
+        if projects & restricted_projects:
+            allowed.append(
+                set.intersection(*(staff.get(p, set()) for p in projects & restricted_projects))
+            )
+            reasons.append("project")
         if not allowed and own and rate > 0 and _picked(family, rate):
             teams = set().union(*(teams_of.get(a, set()) for a in own))
             allowed.append(set().union(*(members.get(t, set()) for t in teams)) | own)
@@ -151,6 +174,36 @@ def access_lists(
                 "teams": sorted(teams),
                 "reasons": reasons,
             }
+    # A walled or restricted project's derived records (trails/, registry/, observations/
+    # <slice>.csv) state its facts too: they get the project's staff, or the reach of
+    # those facts would be everyone (too wide). A slice belongs to a project when its
+    # documents are of that project only.
+    project_of_path = {
+        p: project_of.get(aid)
+        for aid, n in nodes.items()
+        if n["type"] == "Artifact"
+        for p in paths_of.get(str(n["props"].get("path", "")), [])
+    }
+    for s in slices:
+        documents = [f for f in s.get("files", ()) if str(f).startswith("artifacts/")]
+        owners = {project_of_path.get(f) for f in documents}
+        if len(owners) != 1:
+            continue
+        (owner,) = owners
+        reason = (
+            "walled" if owner in walled else "project" if owner in restricted_projects else None
+        )
+        if owner is None or reason is None:
+            continue
+        for f in s.get("files", ()):
+            if str(f).split("/")[0] in _RECORD_DIRS:
+                lists[f"record:{f}"] = {
+                    "family": f"project:{owner}",
+                    "paths": [str(f)],
+                    "readers": sorted(staff.get(owner, set())),
+                    "teams": [],
+                    "reasons": [reason],
+                }
     return lists
 
 
@@ -160,11 +213,15 @@ def access_document(
     edges: list[dict[str, Any]],
     config: dict[str, Any],
     files: list[dict[str, Any]],
+    slices: Sequence[dict[str, Any]] = (),
 ) -> dict[str, Any]:
-    """The ``access.json`` body: one row per restricted artifact, sorted by artifact."""
+    """The ``access.json`` body: one row per restricted document, sorted by key.
+
+    A derived record's row has ``artifact: null``.
+    """
     rows = [
-        {"artifact": aid, **entry}
-        for aid, entry in sorted(access_lists(nodes, edges, config, files).items())
+        {"artifact": None if key.startswith("record:") else key, **entry}
+        for key, entry in sorted(access_lists(nodes, edges, config, files, slices).items())
     ]
     return {"format": FORMAT, "world_id": world_id, "documents": rows}
 
@@ -188,7 +245,8 @@ def check_access(export_dir: Path) -> list[str]:
     files = [f for f in manifest["files"] if f["path"] != ACCESS_FILE]
     listed = json.loads(path.read_text(encoding="utf-8"))
     findings: list[str] = []
-    if listed != access_document(manifest["world_id"], nodes, edges, config, files):
+    slices = manifest.get("slices", [])
+    if listed != access_document(manifest["world_id"], nodes, edges, config, files, slices):
         findings.append(f"{ACCESS_FILE} is not the reader lists of this export")
     people = {i for i, n in nodes.items() if n["type"] == "Person"}
     data = {str(f["path"]) for f in files if f.get("role") == "data"}
@@ -213,9 +271,12 @@ def check_access(export_dir: Path) -> list[str]:
         if not authors.get(aid, set()) <= readers:
             findings.append(f"{aid}: an author is not a reader")
         by_family.setdefault(str(row.get("family")), set()).add(tuple(sorted(readers)))
-        if "walled" in row.get("reasons", ()) and not readers <= staff.get(
-            project_of.get(aid, ""), set()
-        ):
+        project = (
+            str(row.get("family", "")).removeprefix("project:")
+            if row.get("artifact") is None
+            else project_of.get(aid, "")
+        )
+        if "walled" in row.get("reasons", ()) and not readers <= staff.get(project, set()):
             findings.append(f"{aid}: a walled document has readers off its project's staff")
         for p in row.get("paths", ()):
             if p not in data:
@@ -233,6 +294,20 @@ def check_access(export_dir: Path) -> list[str]:
         source = str(f.get("rendered_from") or f.get("source_path") or f["path"])
         if f.get("role") == "data" and source in restricted_paths and f["path"] not in covered:
             findings.append(f"{f['path']}: a file of a restricted artifact that no row covers")
+    walled_projects = {
+        p for p, n in nodes.items() if n["type"] == "Project" and n["props"].get("walled")
+    }
+    for s in slices:  # a walled project's records are restricted (the too-wide direction)
+        docs = [f for f in s.get("files", ()) if str(f).startswith("artifacts/")]
+        owners = {
+            project_of.get(r["artifact"])
+            for r in listed.get("documents", ())
+            if r.get("artifact") and set(r.get("paths", ())) & set(docs)
+        }
+        if owners & walled_projects:
+            for f in s.get("files", ()):
+                if str(f).split("/")[0] in _RECORD_DIRS and f not in covered:
+                    findings.append(f"{f}: a walled project's record that no row covers")
     return findings
 
 

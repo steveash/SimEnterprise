@@ -1,9 +1,10 @@
 # Benchmark world: the ops / SRE enterprise of ops-sre.toml, with per-document reader lists.
 #
 # Same seed, org, documents and world id as ops-sre.toml ([access] is export metadata, not part of
-# the world id). A quarter of the documents that no other rule restricts are readable only by their
-# authors' teams; documents that mention a person's sensitive category are readable by their
-# authors, reviewers and that person (decision record 0130). Export with --with-access (and
+# the world id). Two projects are readable only by their staff, with their records, so their facts
+# have a restricted reach; a quarter of the other document families only by their authors' teams;
+# and documents mentioning a person's sensitive category by their authors, reviewers and that person
+# (decision record 0130). Export with --with-access (and
 # --with-knowledge) for access.json and the knowledge layer's carrier readers, both controller-only.
 #
 #   enterprise-sim world create examples/worlds/ops-sre-access.toml
@@ -50,3 +51,4 @@ iterations = 1
 
 [access]
 team_restricted_rate = 0.25
+restricted_projects = 2

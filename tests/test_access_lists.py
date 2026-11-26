@@ -32,7 +32,7 @@ def _world(root: Path, extra: str) -> Path:
 def world(tmp_path_factory: pytest.TempPathFactory) -> Path:
     return _world(
         tmp_path_factory.mktemp("access") / "a",
-        f"\n[access]\nteam_restricted_rate = {_RATE}\n",
+        f"\n[access]\nteam_restricted_rate = {_RATE}\nrestricted_projects = 1\n",
     )
 
 
@@ -100,7 +100,9 @@ def test_every_rule_keeps_its_readers(export: Path) -> None:
     candidates = [
         f
         for f, ms in families.items()
-        if not {project_of.get(a) for a in ms} & walled and not ms & sensitive
+        if not {project_of.get(a) for a in ms} & walled
+        and not ms & sensitive
+        and "project" not in lists.get(next(iter(ms)), {}).get("reasons", ())
     ]
     teamed = [
         f for f in candidates if "team" in lists.get(next(iter(families[f])), {}).get("reasons", ())
@@ -200,3 +202,37 @@ def test_a_layer_without_access_json_has_no_access_fields(world: Path, tmp_path:
     assert all("reach" not in i for i in layer["items"])
     assert all("readers" not in c for i in layer["items"] for c in i["carriers"])
     assert check_layer(plain, layer) == []
+
+
+def test_a_walled_or_restricted_projects_records_are_restricted_to_its_staff(export: Path) -> None:
+    nodes, edges, _, _ = _graph(export)
+    manifest = json.loads((export / "export.json").read_text(encoding="utf-8"))
+    staff: dict[str, set[str]] = {}
+    for e in edges:
+        if e["type"] == "member_of" and nodes[e["dst"]]["type"] == "Project":
+            staff.setdefault(e["dst"], set()).add(e["src"])
+    rows = json.loads((export / ACCESS_FILE).read_text(encoding="utf-8"))["documents"]
+    records = [r for r in rows if r["artifact"] is None]
+    reasons = {x for r in records for x in r["reasons"]}
+    assert {"walled", "project"} <= reasons  # both kinds of project restrict their records
+    record_dirs = ("trails/", "registry/", "observations/")
+    for r in records:
+        project = r["family"].removeprefix("project:")
+        assert r["readers"] == sorted(staff[project])
+        assert all(p.startswith(record_dirs) for p in r["paths"])
+    covered = {p for r in rows for p in r["paths"]}
+    for s in manifest["slices"]:  # every record of a restricted project's slice is covered
+        docs = [f for f in s["files"] if f.startswith("artifacts/")]
+        if docs and all(f in covered for f in docs):
+            assert all(f in covered for f in s["files"] if f.startswith(record_dirs))
+
+
+def test_a_restricted_project_gives_its_facts_a_restricted_reach(export: Path) -> None:
+    from enterprise_sim.worlds.knowledge import KNOWLEDGE_FILE
+
+    layer = json.loads((export / KNOWLEDGE_FILE).read_text(encoding="utf-8"))
+    narrow = [i for i in layer["items"] if not i["reach"]["everyone"]]
+    assert narrow
+    for item in narrow:
+        assert item["reach"]["readers"]
+        assert all("readers" in c for c in item["carriers"])

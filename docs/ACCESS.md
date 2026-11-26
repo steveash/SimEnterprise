@@ -29,7 +29,12 @@ file list and its `config.json`.
 |---|---|---|
 | some member mentions a person's sensitive category | the family's authors and reviewers, and every person it is about | the categories |
 | the family's project is walled (decision 0036) | that project's staff | `walled` |
+| `[access] restricted_projects` picks the family's project (that many unwalled projects, by a hash of the project id) | that project's staff | `project` |
 | `[access] team_restricted_rate` picks the family (a hash of its event id; only families no other rule restricts and that have an author) | everyone ever a member of the authors' teams | `team` |
+
+**A project's derived records** state its facts too: its slice's `trails/`, `registry/` and `observations/`
+files. For a walled or restricted project they get the project's staff as readers (rows with `artifact: null` and
+`family: project:<id>`); otherwise the reach of those facts would be everyone.
 
 A person of the world is any Person node, leavers included. `[access]` is export metadata: it is not part of the
 world id, and at its default (0) it is not in the stored config.
@@ -61,6 +66,7 @@ never relies on one carrier's `readers`. A layer of an export without `access.js
 - a family whose members' lists differ;
 - a walled family read off its project's staff;
 - a row path that is not an exported data file;
-- an exported data file of a restricted artifact that no row covers.
+- an exported data file of a restricted artifact that no row covers;
+- a walled project's record that no row covers.
 
 `world knowledge-layer --check` holds `readers` and `reach` to `access.json`.

@@ -21,7 +21,15 @@ class AccessConfig(BaseModel):
         ge=0.0,
         le=1.0,
         description=(
-            "Share of the documents no other rule restricts that only their authors' teams may "
-            "read (picked by a hash of the artifact id)."
+            "Share of the document families no other rule restricts that only their authors' "
+            "teams may read (picked by a hash of the family's event id)."
+        ),
+    )
+    restricted_projects: int = Field(
+        default=0,
+        ge=0,
+        description=(
+            "How many unwalled projects only their own staff may read, every document of them "
+            "(picked by a hash of the project id)."
         ),
     )

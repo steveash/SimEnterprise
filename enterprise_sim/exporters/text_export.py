@@ -1025,7 +1025,7 @@ def export_world(
             if line
         ]
         access = access_document(
-            world.world_id, graph_nodes, graph_edges, world.config, writer.files
+            world.world_id, graph_nodes, graph_edges, world.config, writer.files, slices
         )
         body = json.dumps(access, sort_keys=True, indent=1, ensure_ascii=False) + "\n"
         writer.write(ACCESS_FILE, body.encode("utf-8"), "application/json")
