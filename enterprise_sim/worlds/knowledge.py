@@ -168,10 +168,42 @@ def _stream_doc(
         return None
     number = stated.get((aid, fact))
     return {
+        "artifact": aid,
         "path": ex.path_of(aid),
         "at": ex.nodes[aid].get("created_at"),
         "stated_item": None if number is None else _item_id(fact, int(number)),
     }
+
+
+def _costly_facts(
+    ex: _Export,
+    items: dict[str, dict[str, Any]],
+    tables: list[str],
+    project: str,
+    props: dict[str, Any],
+    found: str,
+) -> list[dict[str, Any]]:
+    """Up to two more facts for a concurrent day: the needing project's own items in force at
+    the window's end whose value an exported table holds (a costly path for the publisher)."""
+    end = str(props["window_end"])
+    out: list[dict[str, Any]] = []
+    for item in sorted(items.values(), key=lambda i: i["id"]):
+        if item["subject"]["id"] != project or item["fact"] == found:
+            continue
+        if not (
+            str(item["valid_from"]) <= end
+            and (item["valid_to"] is None or end < str(item["valid_to"]))
+        ):
+            continue
+        token = str(item["canonical"])
+        paths = sorted(t for t in tables if token and token in ex.text(t))
+        if paths:
+            out.append(
+                {"item": item["id"], "value": item["value"], "canonical": token, "tables": paths}
+            )
+        if len(out) == 2:
+            break
+    return out
 
 
 def _workstreams(
@@ -238,6 +270,7 @@ def _workstreams(
             "carried_in_tables": sorted(
                 t for t in tables if item["canonical"] and str(item["canonical"]) in ex.text(t)
             ),
+            "costly_facts": _costly_facts(ex, items, tables, str(p["needer_project"]), p, fact),
         }
         if access is not None and discovery is not None:
             readers = readers_of.get(str(discovery["path"]))

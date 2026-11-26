@@ -99,6 +99,15 @@ def test_the_knowledge_layer_exports_the_workstreams(export: Path) -> None:
         assert "everyone" in s["discovery"]  # the export carries access.json
         assert s["owner_team"]["project"] != s["needed_by"]["project"]
         assert set(s["needed_by"]["people"]) and s["discoverer"] in s["owner_team"]["people"]
+        for kind in ("before", "after"):
+            assert s["needed_by"][kind]["artifact"] in nodes
+        for extra in s["costly_facts"]:  # a second fact, held in a table the publisher reads
+            other = items[extra["item"]]
+            assert other["subject"]["id"] == s["needed_by"]["project"]
+            assert extra["tables"] and all(
+                extra["canonical"] in (export / t).read_text(encoding="utf-8")
+                for t in extra["tables"]
+            )
     edited = json.loads(json.dumps(layer))
     edited["workstreams"][0]["discovered_at"] = "2026-01-01T00:00:00"
     assert any("workstreams" in p for p in check_layer(export, edited))
