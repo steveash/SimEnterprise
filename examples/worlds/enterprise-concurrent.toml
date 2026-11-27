@@ -1,0 +1,84 @@
+# Benchmark world: the Meridian Holdings enterprise with twelve concurrent days and reader lists.
+#
+# enterprise-sprawl.toml with every project depending on another department's project ([facts]
+# cross_team 1.0) and [concurrency] days = 12 on launch dates only: on each of twelve days a
+# project's launch date changes mid-day, its owner team finds it then, and the team that depends
+# on it works the same hours, stating the old date after the change. One answer kind (a date)
+# across all twelve, so a set can draw among them. Three projects are restricted to their staff
+# ([access]); export with --with-access --with-knowledge. A new world id (concurrency changes the
+# world).
+#
+#   enterprise-sim world create examples/worlds/enterprise-concurrent.toml
+seed = 107
+worlds_root = "worlds"
+
+[company]
+name = "Meridian Holdings"
+vertical = "software"
+size = "enterprise"
+description = "A diversified software and services group with a retail arm."
+
+[simulation]
+period_start = 2026-01-05
+period_end = 2026-06-26
+
+[model]
+backend = "anthropic_api"
+name = "claude-haiku-4-5"
+offline_backend = "synth"
+
+[[departments]]
+archetype = "engineering"
+[[departments]]
+archetype = "data_engineering"
+[[departments]]
+archetype = "data_analytics"
+[[departments]]
+archetype = "security"
+[[departments]]
+archetype = "finance"
+[[departments]]
+archetype = "people_ops"
+[[departments]]
+archetype = "support"
+[[departments]]
+archetype = "sales"
+[[departments]]
+archetype = "marketing"
+[[departments]]
+archetype = "legal"
+[[departments]]
+archetype = "retail"
+
+[org]
+squads_per_team = "1..3"
+turnover_rate = 0.12
+transfer_rate = 0.08
+
+[facts]
+per_project = 8
+change_rate = 0.9
+max_versions = 5
+stale_rate = 0.15
+conflict_rate = 0.05
+cross_team = 1.0
+cross_team_stale_boost = 2.5
+
+[messiness]
+typo_rate = 0.008
+alias_rate = 0.2
+date_format_mix = 0.25
+duplicate_rate = 0.05
+filler_rate = 0.1
+
+[data]
+scenarios = ["sales_pipeline", "support_ops"]
+scale_factor = 1.0
+iterations = 2
+
+[concurrency]
+days = 12
+attributes = ["target_date"]
+
+[access]
+restricted_projects = 3

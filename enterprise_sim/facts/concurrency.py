@@ -48,7 +48,14 @@ def _initiative(world: World, project: str) -> str | None:
 
 
 def plan_concurrency(
-    world: World, ledger: Ledger, days: int, *, seed: int, start: datetime, end: datetime
+    world: World,
+    ledger: Ledger,
+    days: int,
+    *,
+    seed: int,
+    start: datetime,
+    end: datetime,
+    attributes: tuple[str, ...] = _CITED,
 ) -> list[Event]:
     """Plant ``days`` concurrent days; return the planted events (to add to the journal)."""
     if days <= 0 or not ledger:
@@ -59,7 +66,7 @@ def plan_concurrency(
         for owner in deps:
             for fact_id in ledger.by_project.get(owner, []):
                 record = ledger.facts[fact_id]
-                if record.attribute.name not in _CITED:
+                if record.attribute.name not in attributes:
                     continue
                 for v in record.versions[1:]:
                     moment = v.valid_from
@@ -68,7 +75,7 @@ def plan_concurrency(
     rng.shuffle(candidates)
     planted: list[Event] = []
     used_days: set[Any] = set()
-    used_facts: set[str] = set()
+    used_versions: set[tuple[str, int]] = set()
     for needer, owner, fact_id, number in candidates:
         if len(used_days) >= days:
             break
@@ -77,7 +84,7 @@ def plan_concurrency(
         day = version.valid_from.date()
         workers = _staff(world, needer)
         owners = _staff(world, owner)
-        if day in used_days or fact_id in used_facts or len(workers) < 2 or not owners:
+        if day in used_days or (fact_id, number) in used_versions or len(workers) < 2 or not owners:
             continue
         found = datetime.combine(day, time(rng.randint(11, 14), rng.choice((0, 15, 30, 45))))
         # the change now happens at `found`; the version before it ends there
@@ -153,5 +160,5 @@ def plan_concurrency(
             )
         )
         used_days.add(day)
-        used_facts.add(fact_id)
+        used_versions.add((fact_id, number))
     return planted

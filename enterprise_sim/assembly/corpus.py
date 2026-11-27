@@ -301,6 +301,7 @@ def build_corpus(
             seed=config.seed,
             start=datetime.combine(config.simulation.period_start, datetime.min.time()),
             end=datetime.combine(config.simulation.period_end, datetime.max.time()),
+            attributes=config.concurrency.attributes,
         )
         by_initiative = {plan.initiative_id: plan for plan in plans}
         for event in planted:
