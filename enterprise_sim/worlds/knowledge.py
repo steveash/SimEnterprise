@@ -178,12 +178,14 @@ def _stream_doc(
     }
 
 
-def _table_holds(ex: _Export, path: str, token: str) -> bool:
-    """Whether the table at ``path`` states ``token`` as typed evidence.
+def _table_holds(ex: _Export, path: str, token: str, until: str | None = None) -> bool:
+    """Whether the table at ``path`` states ``token`` as typed evidence (by ``until``).
 
     A value counts in a text cell only as a whole token (no letter or digit next to it, so
     ``900`` is not in ``$900k``), or as a whole cell of any other type; never as a fragment
-    of a timestamp, a number or a header (datasets-cc's integrity rule).
+    of a timestamp, a number or a header (datasets-cc's integrity rule). With ``until`` (an
+    ISO time), a row counts only when every date or timestamp cell in it is on or before
+    it: a row written later is not evidence at that time. An undated row always counts.
     """
     if not token:
         return False
@@ -194,7 +196,12 @@ def _table_holds(ex: _Export, path: str, token: str) -> bool:
     types = [str(c.get("type", "text")) for c in entry.get("columns", ())]
     rows = csv.reader(io.StringIO(ex.text(path)))
     next(rows, None)  # the header is never evidence
+    dated = [i for i, kind in enumerate(types) if kind in ("date", "timestamp")]
     for row in rows:
+        if until is not None and any(
+            i < len(row) and row[i] and row[i][: len(until)] > until[: len(row[i])] for i in dated
+        ):
+            continue
         for i, cell in enumerate(row):
             kind = types[i] if i < len(types) else "text"
             if (kind == "text" and whole.search(cell)) or cell == token:
@@ -223,7 +230,7 @@ def _costly_facts(
         ):
             continue
         token = str(item["canonical"])
-        paths = sorted(t for t in tables if _table_holds(ex, t, token))
+        paths = sorted(t for t in tables if _table_holds(ex, t, token, end))
         if paths:
             out.append(
                 {"item": item["id"], "value": item["value"], "canonical": token, "tables": paths}
@@ -292,6 +299,11 @@ def _workstreams(
             "answer": {"value": item["value"], "canonical": item["canonical"]},
             "carried_in_tables": sorted(
                 t for t in tables if _table_holds(ex, t, str(item["canonical"]))
+            ),
+            "carried_by_window_end": sorted(
+                t
+                for t in tables
+                if _table_holds(ex, t, str(item["canonical"]), str(p["window_end"]))
             ),
             "costly_facts": _costly_facts(ex, items, tables, str(p["needer_project"]), p, fact),
         }

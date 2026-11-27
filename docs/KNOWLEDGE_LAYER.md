@@ -112,8 +112,9 @@ value, then true) and `T + 2h` (the old value: they have not heard). One entry p
 | `needed_by` | `{project, people, before, after}`: the citing team, its two workers, and its two documents (`{artifact, path, at, stated_item}`) |
 | `window` | `{start, end}`: `T - 2h` to `T + 2h` |
 | `answer` | `{value, canonical}`: the new value, which the citing team's work needs |
-| `carried_in_tables` | the exported table files that hold the new value's token (a costly path, or an empty list) |
-| `costly_facts` | up to two more items of the needing project, in force at the window's end, each with the table files that hold its token: a fact a publisher reaches through a costly path |
+| `carried_in_tables` | the exported table files that hold the new value's token in any row, as typed evidence: a table a set renders whole gives the answer away, so leave it out of the environment |
+| `carried_by_window_end` | the same, counting only rows dated on or before the window's end (undated rows always count): the tables that hold the value at the day itself |
+| `costly_facts` | up to two more items of the needing project, in force at the window's end, each with the table files that hold its token in a row dated on or before the window's end: a fact a publisher reaches through a costly path |
 
 ## The check
 

@@ -128,13 +128,17 @@ def test_without_concurrent_days_nothing_changes(tmp_path: Path) -> None:
     assert "workstreams" not in build_layer(out)
 
 
-def _typed_holds(export: Path, path: str, token: str) -> bool:
+def _typed_holds(export: Path, path: str, token: str, until: str) -> bool:
     import csv
 
     manifest = json.loads((export / "export.json").read_text(encoding="utf-8"))
     (entry,) = [t for t in manifest["tables"] if t["path"] == path]
     types = [c["type"] for c in entry["columns"]]
     rows = list(csv.reader((export / path).read_text(encoding="utf-8").splitlines()))[1:]
+    dated = [i for i, k in enumerate(types) if k in ("date", "timestamp")]
+    rows = [  # a row written after the window is not evidence at the window
+        r for r in rows if not any(r[i] and r[i][: len(until)] > until[: len(r[i])] for i in dated)
+    ]
     import re
 
     whole = re.compile(rf"(?<![A-Za-z0-9]){re.escape(token)}(?![A-Za-z0-9])")
@@ -150,8 +154,12 @@ def test_a_table_counts_only_typed_evidence(export: Path) -> None:
 
     layer = json.loads((export / KNOWLEDGE_FILE).read_text(encoding="utf-8"))
     for s in layer["workstreams"]:
-        for path in s["carried_in_tables"]:
-            assert _typed_holds(export, path, s["answer"]["canonical"]), path
+        for path in s["carried_by_window_end"]:
+            assert _typed_holds(export, path, s["answer"]["canonical"], s["window"]["end"]), path
+        assert set(s["carried_by_window_end"]) <= set(s["carried_in_tables"])  # any row
         for extra in s["costly_facts"]:
             for path in extra["tables"]:  # never a fragment of a timestamp or a number
-                assert _typed_holds(export, path, extra["canonical"]), (extra["item"], path)
+                assert _typed_holds(export, path, extra["canonical"], s["window"]["end"]), (
+                    extra["item"],
+                    path,
+                )
