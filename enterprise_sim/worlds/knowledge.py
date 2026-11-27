@@ -194,8 +194,10 @@ def _table_holds(ex: _Export, path: str, token: str, until: str | None = None) -
     """Whether the table at ``path`` states ``token`` as typed evidence (by ``until``).
 
     A value counts in a text cell only as a whole token (no letter or digit next to it, so
-    ``900`` is not in ``$900k``), or as a whole cell of any other type; never as a fragment
-    of a timestamp, a number or a header (a set engine's integrity rule). With ``until`` (an
+    ``900`` is not in ``$900k``), or as a whole cell of a number or other non-date type;
+    never as a fragment of a timestamp, a number or a header (a set engine's integrity
+    rule). A date or timestamp cell is never evidence: it dates its row (a daily table's
+    ``2026-03-27`` row does not state a target date of 2026-03-27). With ``until`` (an
     ISO time), a row counts only when every date or timestamp cell in it is on or before
     it: a row written later is not evidence at that time. An undated row always counts.
     """
@@ -216,7 +218,9 @@ def _table_holds(ex: _Export, path: str, token: str, until: str | None = None) -
             continue
         for i, cell in enumerate(row):
             kind = types[i] if i < len(types) else "text"
-            if (kind == "text" and whole.search(cell)) or cell == token:
+            if kind == "text" and whole.search(cell):
+                return True
+            if kind not in ("text", "date", "timestamp") and cell == token:
                 return True
     return False
 

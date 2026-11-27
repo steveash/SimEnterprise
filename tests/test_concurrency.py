@@ -168,7 +168,8 @@ def _typed_holds(export: Path, path: str, token: str, until: str) -> bool:
 
     whole = re.compile(rf"(?<![A-Za-z0-9]){re.escape(token)}(?![A-Za-z0-9])")
     return any(
-        (types[i] == "text" and whole.search(cell) is not None) or cell == token
+        (types[i] == "text" and whole.search(cell) is not None)
+        or (types[i] not in ("text", "date", "timestamp") and cell == token)
         for row in rows
         for i, cell in enumerate(row)
     )
@@ -188,3 +189,25 @@ def test_a_table_counts_only_typed_evidence(export: Path) -> None:
                     extra["item"],
                     path,
                 )
+
+
+def test_a_row_date_is_never_evidence_of_a_date_value(export: Path) -> None:
+    """A daily table has a row for every day: its date column does not state a target date."""
+    import csv
+
+    from enterprise_sim.worlds.knowledge import _Export, _table_holds
+
+    ex = _Export(export)
+    manifest = json.loads((export / "export.json").read_text(encoding="utf-8"))
+    probed = 0
+    for entry in manifest["tables"]:
+        types = [c["type"] for c in entry["columns"]]
+        dated = {i for i, k in enumerate(types) if k in ("date", "timestamp")}
+        rows = list(csv.reader((export / entry["path"]).read_text(encoding="utf-8").splitlines()))
+        other = " ".join(c for r in rows[1:] for j, c in enumerate(r) if j not in dated)
+        for i in sorted(dated):
+            value = rows[1][i] if len(rows) > 1 else ""
+            if value and value not in other:  # held only as the row's own date
+                probed += 1
+                assert not _table_holds(ex, entry["path"], value), (entry["path"], value)
+    assert probed  # the export has dated rows to probe

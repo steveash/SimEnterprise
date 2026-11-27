@@ -125,7 +125,9 @@ can still drop it, and then `verbatim` is false; a set engine uses only document
 column types in `export.json`'s `tables`) is later than the window's end. Cell and window end are compared as
 strings, cut to the shorter, so a date compares by day. An empty cell is ignored, and a row with no dated cell
 (every row of a table with no such column) always counts. The value must be a whole token of a text cell (no
-letter or digit next to it) or a whole cell of any other type; a header never counts.
+letter or digit next to it) or a whole cell of a number or other non-date type. A date or timestamp cell is never
+evidence of a value: it dates its row (a daily table's `2026-03-27` row does not state a target date of 2026-03-27).
+A header never counts.
 
 ## The check
 
