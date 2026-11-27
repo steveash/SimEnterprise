@@ -44,6 +44,7 @@ from enterprise_sim.core.llm import LLMClient, Prompt, assemble_prompt
 from enterprise_sim.core.llm.brief import facts_block_for
 from enterprise_sim.core.registry import PRODUCERS
 from enterprise_sim.core.world import Edge, Node, WorldView
+from enterprise_sim.facts.ledger import required_values
 from enterprise_sim.producers.artifact import (
     Mention,
     ProducedArtifact,
@@ -145,7 +146,9 @@ class PptxProducer:
             ctx=ctx,
             path=path,
         )
-        overview = ctx.messy(overview, key=artifact_id, roster=roster)
+        overview = ctx.messy(
+            overview, key=artifact_id, roster=roster, keep=required_values(event.payload)
+        )
 
         slides = _build_slides(
             title=title,

@@ -13,6 +13,9 @@ or initials, write dates five different ways, and paste chatter into documents.
   ``05/14/26`` or ``14 May``;
 * ``filler_rate`` — per text: an off-topic paragraph (chatter, boilerplate).
 
+A value the document must state as written (``apply(keep=...)``: an event's required
+facts, which a set grades on) is never rewritten by any of these rules.
+
 Each change is recorded as a **quirk** (``{"kind", "original", "surface"}``,
 plus ``"entity"`` for an alias) under the key the producer passed — the
 artifact id — and the corpus writes them to the artifact's gold node
@@ -135,12 +138,35 @@ class ProseNoise:
                 out.extend(self._quirks[k])
         return out
 
-    def apply(self, text: str, *, key: str, people: Sequence[tuple[str, str]] = ()) -> str:
+    def apply(
+        self,
+        text: str,
+        *,
+        key: str,
+        people: Sequence[tuple[str, str]] = (),
+        keep: Sequence[str] = (),
+    ) -> str:
         """Noise ``text`` and record its quirks under ``key``.
 
         ``people`` is ``(entity id, canonical name)`` of the persons the text
-        may mention (the producer's roster).
+        may mention (the producer's roster). Every occurrence of a ``keep`` value
+        stays byte for byte: no rule rewrites inside it (a value the document must
+        state as written, such as a planted fact a set grades on).
         """
+        kept = sorted({v for v in keep if v}, key=lambda v: (-len(v), v))
+        if not kept:
+            return self._apply(text, key=key, people=people)
+        held: list[str] = []
+
+        def hold(match: re.Match[str]) -> str:
+            held.append(match.group(0))
+            return f"\x00{len(held) - 1}\x00"
+
+        masked = re.sub("|".join(map(re.escape, kept)), hold, text)
+        noised = self._apply(masked, key=key, people=people)
+        return re.sub("\x00(\\d+)\x00", lambda m: held[int(m.group(1))], noised)
+
+    def _apply(self, text: str, *, key: str, people: Sequence[tuple[str, str]]) -> str:
         cfg = self._cfg
         rng = self._rng(key)
         quirks = self._quirks.setdefault(key, [])

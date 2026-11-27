@@ -32,6 +32,7 @@ from enterprise_sim.core.events import Event
 from enterprise_sim.core.llm import LLMClient, Prompt, assemble_prompt
 from enterprise_sim.core.llm.brief import facts_block_for
 from enterprise_sim.core.world import Edge, Node, WorldView
+from enterprise_sim.facts.ledger import required_values
 from enterprise_sim.producers.artifact import Mention, ProducedArtifact, ValidationIssue
 from enterprise_sim.producers.calendar_ics import Attendee, Calendar, Meeting, render_calendar
 from enterprise_sim.producers.email_eml import (
@@ -166,7 +167,9 @@ class OutlookProducer:
             path=path,
             as_calendar=as_calendar,
         )
-        prose = ctx.messy(prose, key=artifact_id, roster=roster)
+        prose = ctx.messy(
+            prose, key=artifact_id, roster=roster, keep=required_values(event.payload)
+        )
 
         if as_calendar:
             body = _render_invite(

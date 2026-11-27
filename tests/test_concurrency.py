@@ -32,7 +32,9 @@ def _world(root: Path, extra: str) -> Path:
 def export(tmp_path_factory: pytest.TempPathFactory) -> Path:
     world = _world(
         tmp_path_factory.mktemp("concurrency") / "a",
-        "\n[concurrency]\ndays = 2\n\n[access]\nrestricted_projects = 1\n",
+        # every ISO date in prose is reformatted, except the values a document must state
+        "\n[concurrency]\ndays = 2\n\n[access]\nrestricted_projects = 1\n"
+        "\n[messiness]\ndate_format_mix = 1.0\ntypo_rate = 0.05\n",
     )
     out = tmp_path_factory.mktemp("concurrency-export")
     return export_world(world, out, with_access=True, with_knowledge=True).directory
@@ -110,6 +112,29 @@ def test_the_knowledge_layer_exports_the_workstreams(export: Path) -> None:
             )
     edited = json.loads(json.dumps(layer))
     edited["workstreams"][0]["discovered_at"] = "2026-01-01T00:00:00"
+    assert any("workstreams" in p for p in check_layer(export, edited))
+
+
+def test_every_workstream_document_states_its_value_as_written(export: Path) -> None:
+    from enterprise_sim.worlds.knowledge import KNOWLEDGE_FILE, check_layer
+
+    layer = json.loads((export / KNOWLEDGE_FILE).read_text(encoding="utf-8"))
+    items = {i["id"]: i for i in layer["items"]}
+    nodes, _ = _graph(export)
+    reformatted = [
+        q
+        for n in nodes.values()
+        for q in n["props"].get("quirks", ())
+        if q["kind"] == "date_format"
+    ]
+    assert reformatted  # the noise ran: dates elsewhere are not as written
+    for s in layer["workstreams"]:
+        for doc in (s["discovery"], s["needed_by"]["before"], s["needed_by"]["after"]):
+            value = items[doc["stated_item"]]["value"]
+            assert doc["verbatim"] is True, doc["path"]
+            assert value in (export / doc["path"]).read_text(encoding="utf-8")
+    edited = json.loads(json.dumps(layer))
+    edited["workstreams"][0]["discovery"]["verbatim"] = False
     assert any("workstreams" in p for p in check_layer(export, edited))
 
 

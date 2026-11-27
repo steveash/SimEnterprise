@@ -41,6 +41,7 @@ from enterprise_sim.core.llm import LLMClient, Prompt, assemble_prompt
 from enterprise_sim.core.llm.brief import facts_block_for
 from enterprise_sim.core.registry import PRODUCERS
 from enterprise_sim.core.world import Edge, Node, WorldView
+from enterprise_sim.facts.ledger import required_values
 from enterprise_sim.producers.artifact import Mention, ProducedArtifact, ValidationIssue
 from enterprise_sim.producers.grounding import Roster, detect_unresolved_names, tag_mentions
 from enterprise_sim.producers.markdown import ProducerContext
@@ -155,7 +156,12 @@ class JiraProducer:
             path=path,
             cache_hits=cache_hits,
         )
-        description = ctx.messy(description, key=_artifact_id_for(event), roster=roster)
+        description = ctx.messy(
+            description,
+            key=_artifact_id_for(event),
+            roster=roster,
+            keep=required_values(event.payload),
+        )
         comments = self._build_comments(
             commenters=commenters,
             client=client,

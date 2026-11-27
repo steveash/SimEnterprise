@@ -1,4 +1,4 @@
-# Tiny fixture for importer tests (decision record 0130): datasets-cc's fixture-tiny world (seed 5, one
+# Tiny fixture for importer tests (decision record 0130): the catalog's fixture-tiny world (seed 5, one
 # day, support_ops at scale 0.01) with one people_ops department so its sensitive planter runs at its
 # full rate, [privacy] sensitive_rate 0.15 for one sensitive-category document and [access]
 # team_restricted_rate 0.9 for two team-restricted families. About 200 kB exported.

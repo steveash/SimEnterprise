@@ -37,6 +37,7 @@ from enterprise_sim.core.llm import LLMClient, Prompt, assemble_prompt
 from enterprise_sim.core.llm.brief import facts_block_for
 from enterprise_sim.core.registry import PRODUCERS
 from enterprise_sim.core.world import Edge, Node, WorldView
+from enterprise_sim.facts.ledger import required_values
 from enterprise_sim.producers.artifact import Mention, ProducedArtifact, ValidationIssue
 from enterprise_sim.producers.grounding import (
     Roster,
@@ -120,7 +121,9 @@ class WordProducer:
             path=path,
             cache_hits=cache_hits,
         )
-        prose = ctx.messy(prose, key=artifact_id, roster=roster)
+        prose = ctx.messy(
+            prose, key=artifact_id, roster=roster, keep=required_values(event.payload)
+        )
 
         paragraphs, anchor_idx = _body_paragraphs(
             title=title,

@@ -108,13 +108,24 @@ value, then true) and `T + 2h` (the old value: they have not heard). One entry p
 | `day`, `fact`, `item` | the day, the fact and its new version (an item id) |
 | `discovered_at`, `discoverer` | `T`, and the person who found it |
 | `owner_team` | `{project, people}`: the project that owns the fact, with its staff |
-| `discovery` | `{artifact, path, at, stated_item}` of the discovery document, plus `readers` and `everyone` when the export has `access.json` |
-| `needed_by` | `{project, people, before, after}`: the citing team, its two workers, and its two documents (`{artifact, path, at, stated_item}`) |
+| `discovery` | `{artifact, path, at, stated_item, verbatim}` of the discovery document, plus `readers` and `everyone` when the export has `access.json` |
+| `needed_by` | `{project, people, before, after}`: the citing team, its two workers, and its two documents (`{artifact, path, at, stated_item, verbatim}`) |
 | `window` | `{start, end}`: `T - 2h` to `T + 2h` |
 | `answer` | `{value, canonical}`: the new value, which the citing team's work needs |
 | `carried_in_tables` | the exported table files that hold the new value's token in any row, as typed evidence: a table a set renders whole gives the answer away, so leave it out of the environment |
 | `carried_by_window_end` | the same, counting only rows dated on or before the window's end (undated rows always count): the tables that hold the value at the day itself |
 | `costly_facts` | up to two more items of the needing project, in force at the window's end, each with the table files that hold its token in a row dated on or before the window's end: a fact a publisher reaches through a costly path |
+
+A workstream document's `verbatim` is the carrier rule: its exported text holds its stated item's `value` byte
+for byte. The prose noise (`[messiness]`) leaves a planted document's value as written: a value in another
+surface form (`07/06/2026` can be either day-first or month-first) is not a sound grade. A live model's paraphrase
+can still drop it, and then `verbatim` is false; a set engine uses only documents whose flag is true.
+
+**Carried by the window's end.** A table row counts unless any of its date- or timestamp-typed cells (the
+column types in `export.json`'s `tables`) is later than the window's end. Cell and window end are compared as
+strings, cut to the shorter, so a date compares by day. An empty cell is ignored, and a row with no dated cell
+(every row of a table with no such column) always counts. The value must be a whole token of a text cell (no
+letter or digit next to it) or a whole cell of any other type; a header never counts.
 
 ## The check
 

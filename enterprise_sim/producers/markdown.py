@@ -37,6 +37,7 @@ from enterprise_sim.core.events import Event
 from enterprise_sim.core.llm import LLMClient, Prompt, assemble_prompt
 from enterprise_sim.core.llm.brief import facts_block_for
 from enterprise_sim.core.world import Edge, Node, WorldView
+from enterprise_sim.facts.ledger import required_values
 from enterprise_sim.producers.artifact import (
     Mention,
     ProducedArtifact,
@@ -95,11 +96,12 @@ class ProducerContext:
         digest = hashlib.sha256(f"chat\x00{self.seed}\x00{event_id}".encode()).hexdigest()
         return int(digest[:8], 16) / 0xFFFFFFFF < self.chat_rate
 
-    def messy(self, text: str, *, key: str, roster: Roster) -> str:
+    def messy(self, text: str, *, key: str, roster: Roster, keep: Sequence[str] = ()) -> str:
         """``text`` with this scenario's messiness applied (quirks logged under ``key``).
 
         The one place every producer passes generated prose through; a clean
-        context returns ``text`` unchanged.
+        context returns ``text`` unchanged. ``keep``: values the noise leaves as
+        written (an event's :func:`~enterprise_sim.facts.ledger.required_values`).
         """
         if self.noise is None and self.sensitive is None:
             return text
@@ -108,7 +110,7 @@ class ProducerContext:
             text = self.sensitive.apply(text, key=key, people=people)
         if self.noise is None:
             return text
-        return self.noise.apply(text, key=key, people=people)
+        return self.noise.apply(text, key=key, people=people, keep=keep)
 
 
 class MarkdownProducer:
@@ -164,7 +166,9 @@ class MarkdownProducer:
             ctx=ctx,
             path=path,
         )
-        prose = ctx.messy(prose, key=artifact_id, roster=roster)
+        prose = ctx.messy(
+            prose, key=artifact_id, roster=roster, keep=required_values(event.payload)
+        )
 
         body = _render_markdown(
             title=title,

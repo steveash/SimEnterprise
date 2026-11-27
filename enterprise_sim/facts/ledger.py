@@ -54,6 +54,7 @@ __all__ = [
     "assign_assertions",
     "build_ledger",
     "ledger_graph",
+    "required_values",
 ]
 
 N_FACT = "Fact"
@@ -609,6 +610,16 @@ def attach(events: Iterable[Event], assertions: dict[str, list[Assertion]]) -> N
         found = assertions.get(event.id)
         if found:
             event.payload["facts"] = [a.to_payload() for a in found]
+
+
+def required_values(payload: dict[str, Any]) -> tuple[str, ...]:
+    """The values an event must state as written: those of its ``required_facts``.
+
+    A planted event (``facts.concurrency``) is graded on the value it states, so the
+    prose noise keeps that value byte for byte (``ProseNoise.apply(keep=...)``).
+    """
+    required = set(payload.get("required_facts", ()))
+    return tuple(str(a["value"]) for a in payload.get("facts", ()) if a.get("fact") in required)
 
 
 # -- the gold KG --------------------------------------------------------------- #

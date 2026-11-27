@@ -164,17 +164,29 @@ def _reach(ex: _Export, token: str, access: list[dict[str, Any]]) -> dict[str, A
 
 
 def _stream_doc(
-    ex: _Export, aid: str | None, fact: str, stated: dict[tuple[str, str], int | None]
+    ex: _Export,
+    aid: str | None,
+    fact: str,
+    stated: dict[tuple[str, str], int | None],
+    items: dict[str, dict[str, Any]],
 ) -> dict[str, Any] | None:
-    """A concurrent day's document: its export path, time and the item it states."""
+    """A concurrent day's document: its export path, time and the item it states.
+
+    ``verbatim``: whether its exported text holds that item's value byte for byte (the
+    carrier rule; the prose noise keeps a planted document's value as written).
+    """
     if aid is None:
         return None
     number = stated.get((aid, fact))
+    stated_item = None if number is None else _item_id(fact, int(number))
+    path = ex.path_of(aid)
+    value = str((items.get(stated_item or "") or {}).get("value", ""))
     return {
         "artifact": aid,
-        "path": ex.path_of(aid),
+        "path": path,
         "at": ex.nodes[aid].get("created_at"),
-        "stated_item": None if number is None else _item_id(fact, int(number)),
+        "stated_item": stated_item,
+        "verbatim": path is not None and _verbatim(value, ex.text(path)),
     }
 
 
@@ -183,7 +195,7 @@ def _table_holds(ex: _Export, path: str, token: str, until: str | None = None) -
 
     A value counts in a text cell only as a whole token (no letter or digit next to it, so
     ``900`` is not in ``$900k``), or as a whole cell of any other type; never as a fragment
-    of a timestamp, a number or a header (datasets-cc's integrity rule). With ``until`` (an
+    of a timestamp, a number or a header (a set engine's integrity rule). With ``until`` (an
     ISO time), a row counts only when every date or timestamp cell in it is on or before
     it: a row written later is not evidence at that time. An undated row always counts.
     """
@@ -277,7 +289,9 @@ def _workstreams(
         if item is None:
             continue
 
-        discovery = _stream_doc(ex, by_event.get(str(p["events"]["discovery"])), fact, stated)
+        discovery = _stream_doc(
+            ex, by_event.get(str(p["events"]["discovery"])), fact, stated, items
+        )
         entry: dict[str, Any] = {
             "day": p["day"],
             "fact": fact,
@@ -292,8 +306,12 @@ def _workstreams(
             "needed_by": {
                 "project": p["needer_project"],
                 "people": list(p["needer_people"]),
-                "before": _stream_doc(ex, by_event.get(str(p["events"]["before"])), fact, stated),
-                "after": _stream_doc(ex, by_event.get(str(p["events"]["after"])), fact, stated),
+                "before": _stream_doc(
+                    ex, by_event.get(str(p["events"]["before"])), fact, stated, items
+                ),
+                "after": _stream_doc(
+                    ex, by_event.get(str(p["events"]["after"])), fact, stated, items
+                ),
             },
             "window": {"start": p["window_start"], "end": p["window_end"]},
             "answer": {"value": item["value"], "canonical": item["canonical"]},

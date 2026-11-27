@@ -29,6 +29,7 @@ from datetime import timedelta
 from enterprise_sim.core.events import Event
 from enterprise_sim.core.llm import LLMClient, assemble_prompt
 from enterprise_sim.core.world import Edge, Node, WorldView
+from enterprise_sim.facts.ledger import required_values
 from enterprise_sim.producers.artifact import ProducedArtifact
 from enterprise_sim.producers.grounding import Roster, author_roles, tag_mentions
 from enterprise_sim.producers.markdown import ProducerContext
@@ -105,7 +106,12 @@ class ChatProducer:
         )
         result = client.generate_content(assemble_prompt(system=system, brief=brief))
         root_text = " ".join(result.content.split())
-        root_text = ctx.messy(root_text, key=f"{artifact_id}#root", roster=roster)
+        root_text = ctx.messy(
+            root_text,
+            key=f"{artifact_id}#root",
+            roster=roster,
+            keep=required_values(event.payload),
+        )
 
         digest = hashlib.sha256(artifact_id.encode()).hexdigest()
         rng = random.Random(int(digest[:16], 16))
