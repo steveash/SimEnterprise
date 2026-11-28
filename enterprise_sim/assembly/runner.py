@@ -186,6 +186,8 @@ def canonical_config(config: WorldConfig) -> dict[str, object]:
         concurrency.pop("attributes")  # a late field at its default adds nothing
     if payload.get("concurrency") == {"days": 0}:
         payload.pop("concurrency")  # unset: not even a key, so config.json is as before
+    if payload.get("caveats") == {"count": 0}:
+        payload.pop("caveats")  # unset: not even a key, so config.json is as before
     return payload
 
 

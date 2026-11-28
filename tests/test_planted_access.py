@@ -2,7 +2,7 @@
 
 The direction that must never fail is too wide (decision record 0130): a planted
 document of a restricted or walled project read by everyone. The planters
-(``facts.concurrency``) enter the world through one corpus function;
+(``facts.concurrency``, ``facts.caveats``) enter the world through one corpus function;
 this test runs over every kind of planted event, and over every document of the world.
 """
 
@@ -24,6 +24,7 @@ _EXAMPLES = Path(__file__).resolve().parents[1] / "examples" / "worlds"
 #: row here, or the census below fails on its documents.
 _PLANTERS = {
     "evt:concurrency:": {"ConcurrentFinding", "ConcurrentWork"},
+    "evt:caveat:": {"CaveatNote"},
 }
 
 
@@ -36,7 +37,9 @@ def export(tmp_path_factory: pytest.TempPathFactory) -> Path:
     text = re.sub(r"(?ms)^\[ladder\]\n(?:(?!^\[).)*", "", text)
     text = re.sub(r"(?m)^worlds_root = .*$", "", text)
     text = re.sub(r"(?m)^cross_team = .*$", "cross_team = 1.0", text)
-    extra = "\n[concurrency]\ndays = 3\n\n[access]\nrestricted_projects = 2\n"
+    extra = (
+        "\n[caveats]\ncount = 6\n\n[concurrency]\ndays = 3\n\n[access]\nrestricted_projects = 2\n"
+    )
     (root / "cfg.toml").write_text(text + extra, encoding="utf-8")
     assert main(["world", "create", str(root / "cfg.toml"), "--worlds-root", str(root / "w")]) == 0
     (world,) = list((root / "w").iterdir())

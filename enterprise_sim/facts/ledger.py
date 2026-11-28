@@ -32,7 +32,7 @@ from __future__ import annotations
 
 import random
 from collections.abc import Iterable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime, time, timedelta
 from typing import Any
 
@@ -526,7 +526,11 @@ def assign_assertions(
                 people=(people_of or {}).get(record.department, ()),
             )
             forced = (event.payload.get("forced_stances") or {}).get(fact_id)
-            assertions.append(_assert(rng, record, cfg, at=at, cited=cited, ctx=ctx, force=forced))
+            made = _assert(rng, record, cfg, at=at, cited=cited, ctx=ctx, force=forced)
+            caveat = (event.payload.get("caveats") or {}).get(fact_id)
+            if caveat is not None:  # a planted caveat (facts.caveats) follows its value
+                made = replace(made, statement=f"{made.statement} {caveat['sentence']}")
+            assertions.append(made)
         if assertions:
             out[event.id] = assertions
     return out
@@ -615,11 +619,14 @@ def attach(events: Iterable[Event], assertions: dict[str, list[Assertion]]) -> N
 def required_values(payload: dict[str, Any]) -> tuple[str, ...]:
     """The values an event must state as written: those of its ``required_facts``.
 
-    A planted event (``facts.concurrency``) is graded on the value it states, so the
-    prose noise keeps that value byte for byte (``ProseNoise.apply(keep=...)``).
+    A planted event (``facts.concurrency``, ``facts.caveats``) is graded on the value it
+    states, and a caveat on its value after, so the prose noise keeps them byte for byte
+    (``ProseNoise.apply(keep=...)``).
     """
     required = set(payload.get("required_facts", ()))
-    return tuple(str(a["value"]) for a in payload.get("facts", ()) if a.get("fact") in required)
+    stated = [str(a["value"]) for a in payload.get("facts", ()) if a.get("fact") in required]
+    caveats = [str(c["value_after"]) for c in (payload.get("caveats") or {}).values()]
+    return tuple(stated + caveats)
 
 
 # -- the gold KG --------------------------------------------------------------- #

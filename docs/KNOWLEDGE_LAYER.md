@@ -129,6 +129,33 @@ letter or digit next to it) or a whole cell of a number or other non-date type. 
 evidence of a value: it dates its row (a daily table's `2026-03-27` row does not state a target date of 2026-03-27).
 A header never counts.
 
+## Caveats (`[caveats] count`)
+
+A world with caveats (`enterprise_sim.facts.caveats`) has a `caveats` key, a `counts.caveats`, and on each item that
+has one a `caveats` list of caveat ids; a world without them has none of these keys. A caveat is a decision's
+exception or adjustment that changes the value a consumer must use: "Of that budget, $57k is held back until the Q3
+review, so $343k is spendable now" (an `adjustment`: the value to use is derived from the base), or "The EU rollout
+follows on 2026-06-24" (an `exception`: a scope gets its own value). One document of the owner project states the
+value and the caveat together; every other document states the base value only, so a consumer that has not read
+the caveat computes `value_before`. Caveats take several attributes per world (budget, launch date, p99 latency
+target, gross margin target), one per fact, never a concurrent day's fact. A value after is never round (no multiple
+of 5 of its shown unit; a date moves by a number of days that is neither a multiple of 5 nor of 7), and it is never a
+value of the fact's chain. The prose noise keeps it as written. One entry per caveat:
+
+| Key | Content |
+|---|---|
+| `id`, `item`, `fact` | `caveat:<item id>`, the base item and its fact |
+| `kind`, `scope` | `adjustment` or `exception`, and the scope the value after holds in ("spendable now", "the EU rollout") |
+| `question`, `statement` | the question the value after answers, and the base statement followed by the caveat sentence |
+| `value_before`, `value_after`, `canonical_after` | the base value, the value to use, and its whitespace-free token |
+| `typed_after` | the value after typed: `{type: money, unit: USD, amount}`, `{type: date, value}`, `{type: duration, unit: ms, amount}` or `{type: percent, unit: "%", amount}` |
+| `arithmetic` | for a derived value, how it is decided: `{op: subtract, base, by, result, by_value}` (money), `{op: add_days, base, by, result}` (date), `{op: subtract_points, base, by, result}` (percent); null for an exception set outright (latency) |
+| `valid_from`, `valid_to`, `author` | when the caveat was written (the document's time), the end of the base version, and its author |
+| `carriers` | `[{artifact, path, at, verbatim}]`: the caveat document (and its renderings); `verbatim` means its text holds both values byte for byte; with `access.json`, `everyone` and, on a restricted one, `readers` |
+| `silent_carriers` | `[{path, at, stance, readers?}]`: the base item's carriers dated on or after the caveat that do not state the value after (a consumer reading only them computes `value_before`) |
+| `carried_in_tables` | the table files that hold `canonical_after` in any row, by the workstreams' typed-evidence rule |
+| `reach` | with `access.json`: `{everyone, readers}` of the caveat (everyone as soon as an unrestricted carrier holds it verbatim) |
+
 ## The check
 
 `check_layer` (and `--check`) refuses a layer when:
@@ -141,6 +168,8 @@ A header never counts.
 * a carrier is a near-copy (the source of a `duplicate_of` edge);
 * a carrier's `readers` is not the reader list of its document (or is present on an unrestricted one);
 * the `workstreams` are not the world's concurrent days as recomputed from the export;
+* the `caveats`, or an item's `caveats` list, are not those recomputed from the export alone (a fresh layer, never the
+  items under check);
 * a holder is not a person of the world's roster;
 * a `supersedes`/`superseded_by` link names a missing item, or the chain is not
   symmetric, or a supersession or misleading entry names a missing item.

@@ -516,6 +516,14 @@ def build_layer(export_dir: Path, *, manifest: dict[str, Any] | None = None) -> 
         "holders": len(roster),
     }
     workstreams = _workstreams(ex, {i["id"]: i for i in items}, access)
+    from enterprise_sim.worlds.caveat_layer import caveat_entries
+
+    by_id = {i["id"]: i for i in items}
+    caveats = caveat_entries(ex, by_id, access)
+    for caveat in caveats:  # only an item with a caveat has the key, so others keep bytes
+        by_id[caveat["item"]].setdefault("caveats", []).append(caveat["id"])
+    if caveats:
+        counts["caveats"] = len(caveats)
     layer: dict[str, Any] = {
         "format": FORMAT,
         "world_id": ex.manifest["world_id"],
@@ -531,6 +539,8 @@ def build_layer(export_dir: Path, *, manifest: dict[str, Any] | None = None) -> 
     }
     if workstreams:  # only a world with concurrent days has the key, so others keep bytes
         layer["workstreams"] = workstreams
+    if caveats:  # likewise: only a world with caveats has the key
+        layer["caveats"] = caveats
     return layer
 
 
@@ -588,6 +598,15 @@ def check_layer(export_dir: Path, layer: dict[str, Any]) -> list[str]:
         "workstreams" in layer and not expected_streams
     ):
         problems.append("the workstreams are not the concurrent days of this export")
+    # caveats: recomputed from the export alone (a fresh layer), never from the items
+    # under check, so an edited carrier list cannot hide a silent carrier
+    fresh = build_layer(export_dir, manifest=ex.manifest)
+    if layer.get("caveats") != fresh.get("caveats"):
+        problems.append("the caveats are not the caveats of this export")
+    fresh_items = {i["id"]: i for i in fresh["items"]}
+    for item_id, item in items.items():
+        if item.get("caveats") != fresh_items.get(item_id, {}).get("caveats"):
+            problems.append(f"{item_id}: its caveats are not this export's")
     for entry in layer.get("supersessions", ()):
         if entry["old"] not in items or entry["new"] not in items:
             problems.append(f"supersession {entry['old']} -> {entry['new']} names a missing item")

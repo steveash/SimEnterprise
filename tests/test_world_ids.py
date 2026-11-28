@@ -40,6 +40,7 @@ PINNED = {
     "worlds/ops-sre-access.toml": "tessellate-cloud-2866bc14c03c",
     "worlds/ops-sre-concurrent.toml": "tessellate-cloud-bbe8d5c52137",
     "worlds/enterprise-concurrent.toml": "meridian-holdings-3c8e86496b9e",
+    "worlds/enterprise-caveats.toml": "meridian-holdings-fbf8feb4732b",
     "worlds/access-fixture-small.toml": "corvid-analytics-c6b0e22966ae",
     "worlds/access-fixture-tiny.toml": "fixture-tiny-b5f3436f1728",
     "worlds/dataeng-pipeline-runs.toml": "basalt-digital-0436d7b7368d",

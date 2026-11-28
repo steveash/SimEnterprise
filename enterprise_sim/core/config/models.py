@@ -28,6 +28,7 @@ from pydantic import (
 )
 
 from enterprise_sim.core.config.access import AccessConfig
+from enterprise_sim.core.config.caveats import CaveatsConfig
 from enterprise_sim.core.config.concurrency import ConcurrencyConfig
 from enterprise_sim.core.config.diversity import (
     ChatConfig,
@@ -342,6 +343,10 @@ class WorldConfig(_Frozen):
     concurrency: ConcurrencyConfig = Field(
         default_factory=ConcurrencyConfig,
         description="Concurrent days: two teams' same-hours work around a mid-day fact change.",
+    )
+    caveats: CaveatsConfig = Field(
+        default_factory=CaveatsConfig,
+        description="Caveats: a decision's exception or adjustment that changes the value to use.",
     )
     isolation: IsolationConfig = Field(
         default_factory=IsolationConfig,

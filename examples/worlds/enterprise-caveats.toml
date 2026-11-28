@@ -1,0 +1,80 @@
+# An enterprise world with caveats (docs/KNOWLEDGE_LAYER.md, "Caveats"): twelve decisions whose value a
+# consumer must adjust before using it (a held-back share of a budget, a later regional launch, a batch latency
+# budget, a margin target excluding a one-off credit), each stated by one owner-team document while every other
+# document states the base value only. Fewer, longer-lived fact versions than the concurrent world, so each caveat
+# has later silent carriers; three restricted projects, so some caveats are private to their project's staff.
+# Export with --with-access --with-knowledge. A new world id (caveats change the world).
+#
+#   enterprise-sim world create examples/worlds/enterprise-caveats.toml
+seed = 107
+worlds_root = "worlds"
+
+[company]
+name = "Meridian Holdings"
+vertical = "software"
+size = "enterprise"
+description = "A diversified software and services group with a retail arm."
+
+[simulation]
+period_start = 2026-01-05
+period_end = 2026-06-26
+
+[model]
+backend = "anthropic_api"
+name = "claude-haiku-4-5"
+offline_backend = "synth"
+
+[[departments]]
+archetype = "engineering"
+[[departments]]
+archetype = "data_engineering"
+[[departments]]
+archetype = "data_analytics"
+[[departments]]
+archetype = "security"
+[[departments]]
+archetype = "finance"
+[[departments]]
+archetype = "people_ops"
+[[departments]]
+archetype = "support"
+[[departments]]
+archetype = "sales"
+[[departments]]
+archetype = "marketing"
+[[departments]]
+archetype = "legal"
+[[departments]]
+archetype = "retail"
+
+[org]
+squads_per_team = "1..3"
+turnover_rate = 0.12
+transfer_rate = 0.08
+
+[facts]
+per_project = 8
+change_rate = 0.5
+max_versions = 3
+stale_rate = 0.15
+conflict_rate = 0.05
+cross_team = 1.0
+cross_team_stale_boost = 2.5
+
+[messiness]
+typo_rate = 0.008
+alias_rate = 0.2
+date_format_mix = 0.25
+duplicate_rate = 0.05
+filler_rate = 0.1
+
+[data]
+scenarios = ["sales_pipeline", "support_ops"]
+scale_factor = 1.0
+iterations = 2
+
+[caveats]
+count = 12
+
+[access]
+restricted_projects = 3

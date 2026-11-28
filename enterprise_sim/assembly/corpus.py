@@ -304,6 +304,24 @@ def build_corpus(
             attributes=config.concurrency.attributes,
         )
         _journal_planted(planted, plans, journal)
+    if ledger and config.caveats.count > 0:
+        # caveats (facts.caveats): an owner-team document states a value with the
+        # exception or adjustment that changes it; never on a concurrent day's fact
+        from enterprise_sim.facts.caveats import plan_caveats
+
+        taken = frozenset(
+            str(f) for e in journal.ordered() for f in e.payload.get("required_facts", ())
+        )
+        noted = plan_caveats(
+            world,
+            ledger,
+            config.caveats.count,
+            seed=config.seed,
+            start=datetime.combine(config.simulation.period_start, datetime.min.time()),
+            end=datetime.combine(config.simulation.period_end, datetime.max.time()),
+            avoid=taken,
+        )
+        _journal_planted(noted, plans, journal)
     if ledger:
         ledger_graph(world, ledger)
         people_of = _people_by_department(world)
@@ -578,7 +596,7 @@ _FORMAT_SWITCHES: dict[str, tuple[tuple[str, ...], str]] = {
 def _journal_planted(
     events: list[Event], plans: list[_ScenarioPlan], journal: EventJournal
 ) -> None:
-    """Add planted events (``facts.concurrency``) to the journal.
+    """Add planted events (``facts.concurrency``, ``facts.caveats``) to the journal.
 
     The one way a planted event enters a world. Each names its project among its
     ``subjects``, as a scheduled event does, so its documents carry the ``expresses``
