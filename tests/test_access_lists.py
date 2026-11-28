@@ -187,7 +187,8 @@ def test_without_the_flag_and_at_rate_zero_nothing_changes(tmp_path: Path) -> No
     rated = WorldConfig.model_validate(
         {**plain.model_dump(mode="json"), "access": {"team_restricted_rate": 0.4}}
     )
-    assert compute_config_digest(rated) == compute_config_digest(plain)  # not in the world id
+    # in the world id when set: an export with reader lists projects its trails (record 0172)
+    assert compute_config_digest(rated) != compute_config_digest(plain)
     assert "access" not in canonical_config(plain)  # at its default: not even a key
     world = _world(tmp_path / "p", "")
     out = export_world(world, tmp_path / "out").directory

@@ -35,7 +35,9 @@ controller-only gold.
 
 from __future__ import annotations
 
+import csv
 import hashlib
+import io
 import json
 from collections.abc import Sequence
 from pathlib import Path
@@ -49,6 +51,8 @@ __all__ = [
     "add_access_parser",
     "check_access",
     "data_files_of",
+    "record_readers",
+    "record_rows",
     "restricted_projects",
 ]
 
@@ -198,19 +202,84 @@ def access_lists(
         if len(owners) != 1:
             continue
         (owner,) = owners
-        reason = "walled" if owner in walled else "project" if owner in picked else None
-        if owner is None or reason is None:
+        if owner is None:
             continue
+        rule = record_readers(nodes, edges, config, owner)
+        if rule is None:
+            continue
+        reason, readers = rule
         for f in s.get("files", ()):
             if str(f).split("/")[0] in _RECORD_DIRS:
                 lists[f"record:{f}"] = {
                     "family": f"project:{owner}",
                     "paths": [str(f)],
-                    "readers": sorted(staff.get(owner, set())),
+                    "readers": readers,
                     "teams": [],
                     "reasons": [reason],
                 }
     return lists
+
+
+def record_readers(
+    nodes: dict[str, dict[str, Any]],
+    edges: list[dict[str, Any]],
+    config: dict[str, Any],
+    project: str,
+) -> tuple[str, list[str]] | None:
+    """``(reason, readers)`` of ``project``'s derived records, or ``None`` when they are open.
+
+    A walled or restricted project's records get its staff (the one record rule, shared by
+    :func:`access_lists` and the trail writer, decision records 0130 and 0172).
+    """
+    node = nodes.get(project, {})
+    if node.get("type") != "Project":
+        return None
+    if node["props"].get("walled"):
+        reason = "walled"
+    elif project in restricted_projects(nodes, config):
+        reason = "project"
+    else:
+        return None
+    staff = {e["src"] for e in edges if e["type"] == "member_of" and e["dst"] == project}
+    return reason, sorted(staff)
+
+
+def record_rows(
+    rows: Sequence[dict[str, str]],
+    project: str | None,
+    nodes: dict[str, dict[str, Any]],
+    edges: list[dict[str, Any]],
+    config: dict[str, Any],
+    files: list[dict[str, Any]],
+) -> list[dict[str, str]]:
+    """The rows of ``project``'s trail its readers may all read (decision record 0172).
+
+    With R the record's readers (everyone, or :func:`record_readers`) and D a row's
+    document's readers (everyone, or its :func:`access_lists` list), a row is kept exactly
+    when R is within D. A row whose document is not a file of a known artifact is dropped:
+    the direction that must never fail is too wide.
+    """
+    rule = record_readers(nodes, edges, config, project) if project is not None else None
+    record = None if rule is None else set(rule[1])
+    lists = access_lists(nodes, edges, config, files)
+    paths_of = data_files_of(files)
+    readers_of: dict[str, set[str] | None] = {}
+    for aid, n in nodes.items():
+        if n["type"] != "Artifact":
+            continue
+        path = str(n["props"].get("path", ""))
+        doc = set(lists[aid]["readers"]) if aid in lists else None
+        for p in (path, *paths_of.get(path, [])):
+            readers_of[p] = doc
+    kept: list[dict[str, str]] = []
+    for r in rows:
+        source = r.get("document")
+        if source not in readers_of:
+            continue  # unknown: dropped
+        doc = readers_of[source]
+        if doc is None or (record is not None and record <= doc):
+            kept.append(r)
+    return kept
 
 
 def access_document(
@@ -323,6 +392,25 @@ def check_access(export_dir: Path) -> list[str]:
                     findings.append(
                         f"{f}: a walled or restricted project's record that no row covers"
                     )
+    # An open trail carries no row of a restricted document (decision record 0172): the
+    # rows the export may keep are recomputed, so a hand-edited trail cannot pass.
+    for s in slices:
+        for f in s.get("files", ()):
+            if not str(f).startswith("trails/") or not (export_dir / f).is_file():
+                continue
+            rows = list(csv.DictReader(io.StringIO((export_dir / f).read_text(encoding="utf-8"))))
+            owners = {
+                project_of_file.get(d)
+                for d in s.get("files", ())
+                if str(d).startswith("artifacts/")
+            }
+            project = next(iter(owners)) if len(owners) == 1 else None
+            allowed = record_rows(rows, project, nodes, edges, config, files)
+            if len(allowed) != len(rows):
+                findings.append(
+                    f"{f}: a trail with {len(rows) - len(allowed)} row(s) of a document some "
+                    "of its readers may not read, or of an unknown document"
+                )
     return findings
 
 

@@ -36,8 +36,16 @@ file list and its `config.json`.
 files. For a walled or restricted project they get the project's staff as readers (rows with `artifact: null` and
 `family: project:<id>`); otherwise the reach of those facts would be everyone.
 
-A person of the world is any Person node, leavers included. `[access]` is export metadata: it is not part of the
-world id, and at its default (0) it is not in the stored config.
+**A trail keeps only the rows all its readers may read** (decision record 0172). With R the trail's readers
+(everyone, or its row's list) and D a row's document's readers (everyone, or its list), a row is kept exactly when
+R is within D, and a row whose document maps to no artifact is dropped. So an open trail carries no restricted
+document's statements, and a walled project's trail carries no sensitive document narrower than its staff.
+`export.json` counts the dropped rows as `tables[].withheld_rows` (absent when none, and always without
+`--with-access`). `check_access` recomputes the kept rows of every trail and fails closed.
+
+A person of the world is any Person node, leavers included. Because an export with reader lists projects its
+trails, `[access]` is part of the world id when it is set; at its default (0) it is neither in the stored config
+nor in the id, so a world without it keeps its id and bytes.
 
 ## The file
 

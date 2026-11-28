@@ -338,7 +338,7 @@ class WorldConfig(_Frozen):
     )
     access: AccessConfig = Field(
         default_factory=AccessConfig,
-        description="Which documents only named people may read (export metadata; not digested).",
+        description="Which documents only named people may read (in the digest when set).",
     )
     concurrency: ConcurrencyConfig = Field(
         default_factory=ConcurrencyConfig,

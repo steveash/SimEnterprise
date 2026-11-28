@@ -903,11 +903,29 @@ def export_world(
         if n["type"] == "Project"
     }
     by_name = {s["name"]: s for s in slices}
+    record_graph: tuple[dict[str, Any], list[dict[str, Any]]] | None = None
+    if with_access:  # the trail writer keeps only rows all its readers may read (record 0172)
+        src = world_dir / "kg"
+        record_graph = (
+            {
+                n["id"]: n
+                for n in map(json.loads, (src / "nodes.jsonl").read_text("utf-8").splitlines())
+            },
+            [json.loads(x) for x in (src / "edges.jsonl").read_text("utf-8").splitlines() if x],
+        )
     for project in sorted(projects):
         rows = project_trail(world_dir, project)
         entry = by_name.get(slice_name(project))
         if not rows or entry is None:
             continue
+        withheld = 0
+        if record_graph is not None:
+            from enterprise_sim.exporters.access import record_rows
+
+            kept = record_rows(
+                rows, project, record_graph[0], record_graph[1], world.config, writer.files
+            )
+            withheld, rows = len(rows) - len(kept), kept
         names = [c for c, _ in TRAIL_COLUMNS]
         body = "\n".join([_csv_line(names), *(_csv_line([r[c] for c in names]) for r in rows)])
         rel = writer.write(f"trails/{entry['name']}.csv", (body + "\n").encode("utf-8"), "text/csv")
@@ -920,6 +938,8 @@ def export_world(
                 "columns": [{"name": c, "type": t} for c, t in TRAIL_COLUMNS],
                 "primary_key": [],
                 "foreign_keys": [],
+                # a projection: rows of restricted documents left out (record 0172)
+                **({"withheld_rows": withheld} if withheld else {}),
             }
         )
         entry["files"] = sorted([*entry["files"], rel])

@@ -223,7 +223,9 @@ def compute_config_digest(config: WorldConfig, *, backend: str | None = None) ->
     payload.pop("plugins", None)
     payload.pop("data", None)
     payload.pop("ladder", None)  # a label: which ladder rung, never what the world is
-    payload.pop("access", None)  # export metadata (record 0130): who may read, never what is
+    # ``access`` stays when set (canonical_config drops it at its default): an export with
+    # reader lists keeps only the trail rows its readers may read (decision record 0172),
+    # so the knobs change what the export holds, and the id must name them
     _drop_default_sections(payload)
     if backend is not None and backend != _DEFAULT_BACKEND:
         payload["render_backend"] = backend
