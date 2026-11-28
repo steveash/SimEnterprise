@@ -167,3 +167,19 @@ def test_the_caveat_document_is_dated_inside_its_version(export: Path) -> None:
         at = datetime.fromisoformat(c["valid_from"])
         for x in c["carriers"]:
             assert datetime.fromisoformat(nodes[x["artifact"]]["created_at"]) == at
+
+
+def test_a_caveat_has_a_selector_and_an_honest_hint(export: Path) -> None:
+    manifest = json.loads((export / "export.json").read_text(encoding="utf-8"))
+    data = [str(f["path"]) for f in manifest["files"] if f.get("role") == "data"]
+    texts = {p: (export / p).read_text(encoding="utf-8").lower() for p in data}
+    for c in _layer(export)["caveats"]:
+        assert set(c["selector"]) == {"dimension", "equals"} and all(c["selector"].values())
+        hint = c["hint"]
+        carriers = {x["path"] for x in c["carriers"]}
+        cue = hint["cue"].lower()
+        # both directions: every other file naming the cue is listed (no hint missed),
+        # and every listed file names it
+        assert set(hint["files"]) == {p for p in data if p not in carriers and cue in texts[p]}
+        assert all(cue in texts[x] for x in carriers)  # the caveat document names its cue
+        assert hint["hinted"] is bool(hint["files"])

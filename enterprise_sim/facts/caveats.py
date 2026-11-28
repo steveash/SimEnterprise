@@ -53,6 +53,10 @@ class Planned:
     value_after: str
     typed: dict[str, Any]
     arithmetic: dict[str, Any] | None
+    #: the scope as a machine-checkable selector: ``{dimension, equals}``
+    selector: dict[str, str]
+    #: the words a hint at the caveat would use (a document naming them hints it exists)
+    cue: str
 
 
 def _money(value: int) -> str:
@@ -86,6 +90,8 @@ def _budget(rng: random.Random, value: str) -> Planned | None:
     return Planned(
         kind="adjustment",
         scope="spendable now",
+        selector={"dimension": "spend_status", "equals": "spendable_now"},
+        cue="held back",
         question="How much of the approved budget of {subject} is spendable now?",
         sentence=(
             f"Of that budget, {_money(held)} is held back until the Q3 review, "
@@ -114,6 +120,8 @@ def _launch(rng: random.Random, value: str) -> Planned | None:
     return Planned(
         kind="exception",
         scope=f"the {region} rollout",
+        selector={"dimension": "region", "equals": region},
+        cue=f"{region} rollout",
         question=f"When does the {region} rollout of {{subject}} launch?",
         sentence=f"The {region} rollout follows on {after.isoformat()}.",
         value_after=after.isoformat(),
@@ -130,6 +138,8 @@ def _latency(rng: random.Random, value: str) -> Planned | None:
     return Planned(
         kind="exception",
         scope="batch endpoints",
+        selector={"dimension": "endpoint_class", "equals": "batch"},
+        cue="batch endpoints",
         question="What is the p99 latency budget for the batch endpoints of {subject}?",
         sentence=f"Batch endpoints are exempt: their p99 budget is {after} ms.",
         value_after=f"{after} ms",
@@ -150,6 +160,8 @@ def _margin(rng: random.Random, value: str) -> Planned | None:
     return Planned(
         kind="adjustment",
         scope="excluding the one-off migration credit",
+        selector={"dimension": "cost_basis", "equals": "excluding_one_off_migration_credit"},
+        cue="migration credit",
         question=(
             "What is the gross margin target of {subject} excluding the one-off migration credit?"
         ),
@@ -281,6 +293,8 @@ def _plant(
                 "version": number,
                 "kind": planned.kind,
                 "scope": planned.scope,
+                "selector": planned.selector,
+                "cue": planned.cue,
                 "question": planned.question.format(subject=record.subject_name),
                 "sentence": planned.sentence,
                 "value_before": version.value,

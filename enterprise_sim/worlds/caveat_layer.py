@@ -73,6 +73,7 @@ def caveat_entries(
             "fact": item["fact"],
             "kind": p["kind"],
             "scope": p["scope"],
+            "selector": p["selector"],
             "question": p["question"],
             "statement": f"{item['statement']} {p['sentence']}",
             "value_before": before,
@@ -86,6 +87,10 @@ def caveat_entries(
             "carriers": carriers,
             "silent_carriers": silent,
             "carried_in_tables": [t for t in tables if _table_holds(ex, t, after)],
+            # whether anything but the caveat's own documents hints that it exists: every
+            # data file (documents and tables) naming its cue, case-insensitive; a loose
+            # match, so "no hint" is never claimed while a file hints it
+            "hint": _hint(ex, str(p["cue"]), stating),
             # a second fact for a join: up to two more items of the caveat's project in
             # force when it was written, held in a table row dated by then, with holders
             "costly_facts": [
@@ -106,3 +111,16 @@ def caveat_entries(
             entry["reach"] = {"everyone": public, "readers": [] if public else readers}
         out.append(entry)
     return out
+
+
+def _hint(ex: _Export, cue: str, stating: set[str]) -> dict[str, Any]:
+    """``{cue, files, hinted}``: the data files other than the carriers that name ``cue``."""
+    needle = cue.lower()
+    files = sorted(
+        str(f["path"])
+        for f in ex.manifest["files"]
+        if f.get("role") == "data"
+        and str(f["path"]) not in stating
+        and needle in ex.text(str(f["path"])).lower()
+    )
+    return {"cue": cue, "files": files, "hinted": bool(files)}
