@@ -46,7 +46,7 @@ from enterprise_sim.assembly.views import document_view
 from enterprise_sim.authoring.lowering import lower_playbook
 from enterprise_sim.authoring.sdk import Playbook as SdkPlaybook
 from enterprise_sim.core.config import WorldConfig
-from enterprise_sim.core.events import EventJournal
+from enterprise_sim.core.events import Event, EventJournal
 from enterprise_sim.core.llm import LLMClient
 from enterprise_sim.core.registry import (
     PLAYBOOKS,
@@ -303,13 +303,7 @@ def build_corpus(
             end=datetime.combine(config.simulation.period_end, datetime.max.time()),
             attributes=config.concurrency.attributes,
         )
-        by_initiative = {plan.initiative_id: plan for plan in plans}
-        for event in planted:
-            plan = by_initiative.get(event.initiative or "")
-            if plan is None:
-                continue
-            journal.append(event)
-            plan.journal.append(event)
+        _journal_planted(planted, plans, journal)
     if ledger:
         ledger_graph(world, ledger)
         people_of = _people_by_department(world)
@@ -579,6 +573,29 @@ _FORMAT_SWITCHES: dict[str, tuple[tuple[str, ...], str]] = {
     ),
     "invites": (("forecast_call", "csat_review", "access_review"), InviteProducer.name),
 }
+
+
+def _journal_planted(
+    events: list[Event], plans: list[_ScenarioPlan], journal: EventJournal
+) -> None:
+    """Add planted events (``facts.concurrency``) to the journal.
+
+    The one way a planted event enters a world. Each names its project among its
+    ``subjects``, as a scheduled event does, so its documents carry the ``expresses``
+    edge that the reader lists' project and walled rules key on: a planted document of
+    a restricted or walled project is restricted like every other document of it.
+    """
+    by_initiative = {plan.initiative_id: plan for plan in plans}
+    for event in events:
+        if event.project is None:
+            raise ValueError(f"{event.id}: a planted event names no project")
+        if event.project not in event.subjects:
+            event.subjects.insert(0, event.project)
+        plan = by_initiative.get(event.initiative or "")
+        if plan is None:
+            continue
+        journal.append(event)
+        plan.journal.append(event)
 
 
 def format_overrides(config: WorldConfig) -> tuple[tuple[str, str], ...]:
