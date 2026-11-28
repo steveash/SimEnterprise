@@ -118,3 +118,22 @@ def test_a_planted_document_of_a_restricted_project_gets_its_reader_list(
         readers = set(listed[aid]["readers"])
         assert readers <= staff[project] | authors.get(aid, set()), aid
     assert probed, prefix  # some planted document of each planter is in a restricted project
+
+
+@pytest.mark.parametrize("prefix", sorted(_PLANTERS))
+def test_every_planted_document_has_an_author_employed_then(export: Path, prefix: str) -> None:
+    """A later hire or a leaver never writes a planted document (facts.planting)."""
+    nodes, edges = _graph(export)
+    authors: dict[str, list[str]] = {}
+    for e in edges:
+        if e["type"] == "authored":
+            authors.setdefault(e["dst"], []).append(e["src"])
+    planted = [a for a, p in _planted(nodes).items() if p == prefix]
+    assert planted, prefix
+    for aid in planted:
+        at = str(nodes[aid]["created_at"])
+        assert authors.get(aid), aid  # an author, never an empty trail row
+        for person in authors[aid]:
+            props = nodes[person]["props"]
+            assert not props.get("joined_at") or str(props["joined_at"]) <= at, (aid, person)
+            assert not props.get("left_at") or at < str(props["left_at"]), (aid, person)

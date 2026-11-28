@@ -28,6 +28,7 @@ from typing import Any
 from enterprise_sim.core.events.event import Deliverable, Event
 from enterprise_sim.core.world import Node, World
 from enterprise_sim.facts.ledger import Ledger
+from enterprise_sim.facts.planting import staff_at
 
 __all__ = ["KIND", "N_CONCURRENT_DAY", "plan_concurrency"]
 
@@ -35,11 +36,6 @@ N_CONCURRENT_DAY = "ConcurrentDay"
 KIND = "work_log"
 _CITED = ("target_date", "status")
 _GAP = timedelta(hours=2)
-
-
-def _staff(world: World, project: str) -> list[str]:
-    """The project's people in a stable order (``member_of`` edges)."""
-    return sorted(e.src for e in world.in_edges(project, "member_of"))
 
 
 def _initiative(world: World, project: str) -> str | None:
@@ -82,8 +78,11 @@ def plan_concurrency(
         record = ledger.facts[fact_id]
         version = record.versions[number - 1]
         day = version.valid_from.date()
-        workers = _staff(world, needer)
-        owners = _staff(world, owner)
+        # people employed all that day (facts.planting): a leaver or a later hire never
+        # writes a planted document
+        whole_day = (datetime.combine(day, time.min), datetime.combine(day, time.max))
+        workers = staff_at(world, needer, *whole_day)
+        owners = staff_at(world, owner, *whole_day)
         if day in used_days or (fact_id, number) in used_versions or len(workers) < 2 or not owners:
             continue
         found = datetime.combine(day, time(rng.randint(11, 14), rng.choice((0, 15, 30, 45))))

@@ -33,6 +33,7 @@ from enterprise_sim.core.events.event import Deliverable, Event
 from enterprise_sim.core.world import Node, World
 from enterprise_sim.facts.catalog import value_token
 from enterprise_sim.facts.ledger import Ledger
+from enterprise_sim.facts.planting import staff_at
 
 __all__ = ["KIND", "N_CAVEAT", "RULES", "Planned", "plan_caveats"]
 
@@ -181,10 +182,6 @@ RULES: dict[str, Callable[[random.Random, str], Planned | None]] = {
 }
 
 
-def _staff(world: World, project: str) -> list[str]:
-    return sorted(e.src for e in world.in_edges(project, "member_of"))
-
-
 def _initiative(world: World, project: str) -> str | None:
     out = [e.dst for e in world.out_edges(project, "under")]
     return out[0] if out else None
@@ -253,10 +250,6 @@ def _plant(
     if planned is None or planned.value_after in {v.value for v in record.versions}:
         return None
     owner = record.subject
-    staff = _staff(world, owner)
-    initiative = _initiative(world, owner)
-    if not staff or initiative is None:  # no document could carry it: no caveat
-        return None
     first = max(version.valid_from, start) + _LEAD
     last = min(version.valid_to or end, end) - _TAIL
     span_days = max(0, (last - first).days)
@@ -264,6 +257,10 @@ def _plant(
     at = datetime.combine(day, time(rng.randint(10, 15), rng.choice((0, 15, 30, 45))))
     if not first <= at <= last:
         at = first
+    staff = staff_at(world, owner, at, at)  # employed when it is written (facts.planting)
+    initiative = _initiative(world, owner)
+    if not staff or initiative is None:  # no document could carry it: no caveat
+        return None
     author = rng.choice(staff)
     key = f"{fact_id}@v{number}"
     event = Event(

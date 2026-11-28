@@ -793,7 +793,8 @@ def project_registry(world_dir: Path | str, project: str) -> list[dict[str, str]
                 "attribute": str(facts[props["fact"]]["props"]["attribute"]),
                 "version": str(props["version"]),
                 "value": str(props["value"]).replace(",", ";"),
-                "canonical": str(props.get("canonical", props["value"])),
+                # cleaned as the value is: a record is CSV with no quoted cell
+                "canonical": str(props.get("canonical", props["value"])).replace(",", ";"),
                 "valid_from": f"{str(props['valid_from'])[:19]}Z",
             }
         )
