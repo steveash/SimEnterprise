@@ -90,7 +90,7 @@ def caveat_entries(
             # whether anything but the caveat's own documents hints that it exists: every
             # data file (documents and tables) naming its cue, case-insensitive; a loose
             # match, so "no hint" is never claimed while a file hints it
-            "hint": _hint(ex, str(p["cue"]), stating),
+            "hint": _hint(ex, str(p["cue"]), str(item["subject"]["name"]), stating),
             # a second fact for a join: up to two more items of the caveat's project in
             # force when it was written, held in a table row dated by then, with holders
             "costly_facts": [
@@ -113,14 +113,15 @@ def caveat_entries(
     return out
 
 
-def _hint(ex: _Export, cue: str, stating: set[str]) -> dict[str, Any]:
-    """``{cue, files, hinted}``: the data files other than the carriers that name ``cue``."""
-    needle = cue.lower()
+def _hint(ex: _Export, cue: str, subject: str, stating: set[str]) -> dict[str, Any]:
+    """``{cue, files, hinted}``: the data files other than the carriers that name both ``cue``
+    and the caveat's ``subject`` (another project's caveat with the same cue is no hint)."""
+    needles = (cue.lower(), subject.lower())
     files = sorted(
         str(f["path"])
         for f in ex.manifest["files"]
         if f.get("role") == "data"
         and str(f["path"]) not in stating
-        and needle in ex.text(str(f["path"])).lower()
+        and all(n in ex.text(str(f["path"])).lower() for n in needles)
     )
     return {"cue": cue, "files": files, "hinted": bool(files)}
