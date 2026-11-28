@@ -22,7 +22,7 @@ def caveat_entries(
 ) -> list[dict[str, Any]]:
     """The caveats of the world, ordered by id (empty for a world without them)."""
     from enterprise_sim.facts.caveats import N_CAVEAT
-    from enterprise_sim.worlds.knowledge import _item_id, _table_holds, _verbatim
+    from enterprise_sim.worlds.knowledge import _costly_facts, _item_id, _table_holds, _verbatim
 
     copies = {e["src"] for e in ex.edges if e["type"] == "duplicate_of"}
     family: dict[str, list[str]] = {}
@@ -85,8 +85,19 @@ def caveat_entries(
             "author": p["author"],
             "carriers": carriers,
             "silent_carriers": silent,
-            "carried_in_tables": [
-                t for t in tables if _table_holds(ex, t, str(p["canonical_after"]))
+            "carried_in_tables": [t for t in tables if _table_holds(ex, t, after)],
+            # a second fact for a join: up to two more items of the caveat's project in
+            # force when it was written, held in a table row dated by then, with holders
+            "costly_facts": [
+                {**extra, "holders": [h["person"] for h in items[extra["item"]]["holders"]]}
+                for extra in _costly_facts(
+                    ex,
+                    items,
+                    tables,
+                    str(item["subject"]["id"]),
+                    {"window_end": p["valid_from"]},
+                    str(p["fact"]),
+                )
             ],
         }
         if access is not None:

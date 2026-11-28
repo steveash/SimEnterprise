@@ -108,6 +108,15 @@ def test_the_layer_lists_each_caveat_with_its_carriers_and_silent_ones(export: P
             assert c["value_after"] not in (export / s["path"]).read_text(encoding="utf-8")
             assert s["path"] in {x["path"] for x in items[c["item"]]["carriers"]}
     assert any(c["silent_carriers"] for c in layer["caveats"])
+    for c in layer["caveats"]:  # a second fact: the project's own, reached through a table
+        for extra in c["costly_facts"]:
+            other = items[extra["item"]]
+            assert other["subject"]["id"] == items[c["item"]]["subject"]["id"]
+            assert other["fact"] != c["fact"] and extra["tables"]
+            for t in extra["tables"]:  # the whole value, never only a canonical fragment
+                assert extra["value"] in (export / t).read_text(encoding="utf-8"), (extra, t)
+            assert extra["holders"] == [h["person"] for h in other["holders"]]
+            assert other["valid_from"] <= c["valid_from"]
     caveat_items = {c["item"] for c in layer["caveats"]}
     assert all("caveats" not in i for i in layer["items"] if i["id"] not in caveat_items)
 

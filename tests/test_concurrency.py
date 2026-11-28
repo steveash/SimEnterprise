@@ -107,8 +107,7 @@ def test_the_knowledge_layer_exports_the_workstreams(export: Path) -> None:
             other = items[extra["item"]]
             assert other["subject"]["id"] == s["needed_by"]["project"]
             assert extra["tables"] and all(
-                extra["canonical"] in (export / t).read_text(encoding="utf-8")
-                for t in extra["tables"]
+                extra["value"] in (export / t).read_text(encoding="utf-8") for t in extra["tables"]
             )
     edited = json.loads(json.dumps(layer))
     edited["workstreams"][0]["discovered_at"] = "2026-01-01T00:00:00"
@@ -181,11 +180,11 @@ def test_a_table_counts_only_typed_evidence(export: Path) -> None:
     layer = json.loads((export / KNOWLEDGE_FILE).read_text(encoding="utf-8"))
     for s in layer["workstreams"]:
         for path in s["carried_by_window_end"]:
-            assert _typed_holds(export, path, s["answer"]["canonical"], s["window"]["end"]), path
+            assert _typed_holds(export, path, s["answer"]["value"], s["window"]["end"]), path
         assert set(s["carried_by_window_end"]) <= set(s["carried_in_tables"])  # any row
         for extra in s["costly_facts"]:
             for path in extra["tables"]:  # never a fragment of a timestamp or a number
-                assert _typed_holds(export, path, extra["canonical"], s["window"]["end"]), (
+                assert _typed_holds(export, path, extra["value"], s["window"]["end"]), (
                     extra["item"],
                     path,
                 )

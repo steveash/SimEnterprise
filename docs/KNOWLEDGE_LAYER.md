@@ -112,9 +112,9 @@ value, then true) and `T + 2h` (the old value: they have not heard). One entry p
 | `needed_by` | `{project, people, before, after}`: the citing team, its two workers, and its two documents (`{artifact, path, at, stated_item, verbatim}`) |
 | `window` | `{start, end}`: `T - 2h` to `T + 2h` |
 | `answer` | `{value, canonical}`: the new value, which the citing team's work needs |
-| `carried_in_tables` | the exported table files that hold the new value's token in any row, as typed evidence: a table a set renders whole gives the answer away, so leave it out of the environment |
+| `carried_in_tables` | the exported table files that hold the new value in any row, as typed evidence: a table a set renders whole gives the answer away, so leave it out of the environment |
 | `carried_by_window_end` | the same, counting only rows dated on or before the window's end (undated rows always count): the tables that hold the value at the day itself |
-| `costly_facts` | up to two more items of the needing project, in force at the window's end, each with the table files that hold its token in a row dated on or before the window's end: a fact a publisher reaches through a costly path |
+| `costly_facts` | up to two more items of the needing project, in force at the window's end, each with the table files that hold its value in a row dated on or before the window's end: a fact a publisher reaches through a costly path |
 
 A workstream document's `verbatim` is the carrier rule: its exported text holds its stated item's `value` byte
 for byte. The prose noise (`[messiness]`) leaves a planted document's value as written: a value in another
@@ -127,7 +127,8 @@ strings, cut to the shorter, so a date compares by day. An empty cell is ignored
 (every row of a table with no such column) always counts. The value must be a whole token of a text cell (no
 letter or digit next to it) or a whole cell of a number or other non-date type. A date or timestamp cell is never
 evidence of a value: it dates its row (a daily table's `2026-03-27` row does not state a target date of 2026-03-27).
-A header never counts.
+A header never counts. The match is on the fact's whole value, never its `canonical`: a canonical can be a
+common word (`roles` of `8 open roles`, `minutes` of `within 30 minutes`) that many cells hold without stating the fact.
 
 ## Caveats (`[caveats] count`)
 
@@ -153,7 +154,8 @@ value of the fact's chain. The prose noise keeps it as written. One entry per ca
 | `valid_from`, `valid_to`, `author` | when the caveat was written (the document's time), the end of the base version, and its author |
 | `carriers` | `[{artifact, path, at, verbatim}]`: the caveat document (and its renderings); `verbatim` means its text holds both values byte for byte; with `access.json`, `everyone` and, on a restricted one, `readers` |
 | `silent_carriers` | `[{path, at, stance, readers?}]`: the base item's carriers dated on or after the caveat that do not state the value after (a consumer reading only them computes `value_before`) |
-| `carried_in_tables` | the table files that hold `canonical_after` in any row, by the workstreams' typed-evidence rule |
+| `carried_in_tables` | the table files that hold `value_after` in any row, by the workstreams' typed-evidence rule |
+| `costly_facts` | up to two more items of the caveat's project in force when it was written, each `{item, value, canonical, tables, holders}`: the table files holding its value in a row dated by then, and its holders (person ids): the second fact of a join |
 | `reach` | with `access.json`: `{everyone, readers}` of the caveat (everyone as soon as an unrestricted carrier holds it verbatim) |
 
 ## The check

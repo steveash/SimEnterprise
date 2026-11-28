@@ -193,6 +193,9 @@ def _stream_doc(
 def _table_holds(ex: _Export, path: str, token: str, until: str | None = None) -> bool:
     """Whether the table at ``path`` states ``token`` as typed evidence (by ``until``).
 
+    Callers pass a fact's whole value, never its canonical token: a canonical can be a
+    common word (``roles`` of ``8 open roles``) that many cells hold without stating it.
+
     A value counts in a text cell only as a whole token (no letter or digit next to it, so
     ``900`` is not in ``$900k``), or as a whole cell of a number or other non-date type;
     never as a fragment of a timestamp, a number or a header (a set engine's integrity
@@ -246,7 +249,7 @@ def _costly_facts(
         ):
             continue
         token = str(item["canonical"])
-        paths = sorted(t for t in tables if _table_holds(ex, t, token, end))
+        paths = sorted(t for t in tables if _table_holds(ex, t, str(item["value"]), end))
         if paths:
             out.append(
                 {"item": item["id"], "value": item["value"], "canonical": token, "tables": paths}
@@ -320,12 +323,10 @@ def _workstreams(
             "window": {"start": p["window_start"], "end": p["window_end"]},
             "answer": {"value": item["value"], "canonical": item["canonical"]},
             "carried_in_tables": sorted(
-                t for t in tables if _table_holds(ex, t, str(item["canonical"]))
+                t for t in tables if _table_holds(ex, t, str(item["value"]))
             ),
             "carried_by_window_end": sorted(
-                t
-                for t in tables
-                if _table_holds(ex, t, str(item["canonical"]), str(p["window_end"]))
+                t for t in tables if _table_holds(ex, t, str(item["value"]), str(p["window_end"]))
             ),
             "costly_facts": _costly_facts(ex, items, tables, str(p["needer_project"]), p, fact),
         }
